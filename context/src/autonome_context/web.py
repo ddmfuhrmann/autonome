@@ -18,6 +18,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 
+from . import backlog as backlog_mod
 from . import evaluation, insights, plans, rules, services, store
 from .chunking import DEFAULT_STRATEGY, STRATEGIES
 from .gates import EXAMPLE, GateConfig
@@ -600,6 +601,50 @@ async def approvals_page(request: Request) -> Response:
                         kind=kind, kinds=QUEUE_KINDS, oldest=oldest)
 
 
+async def backlog_edit(request: Request) -> Response:
+    """Edit, add, move or remove a backlog item from the Waves page."""
+    project = request.path_params["project"]
+    form = await request.form()
+    op, key = str(form.get("op") or ""), str(form.get("key") or "").strip()
+    back = str(form.get("next") or "")
+    if not back.startswith(f"/ui/p/{project}/"):
+        back = f"/ui/p/{project}/waves"
+    from_script = request.headers.get("x-requested-with") == "fetch"
+    text = lambda name: (str(form.get(name)).strip() or None) if form.get(name) is not None else None
+
+    def answer(payload: dict, status: int = 200) -> Response:
+        if from_script:
+            return JSONResponse(payload, status_code=status)
+        if status != 200:
+            return Response(f"{payload['error']}\n\nNothing changed. Go back: {back}", status_code=status)
+        sep = "&" if "?" in back else "?"
+        return RedirectResponse(f"{back}{sep}{urlencode({'done': payload['notice']})}#backlog-h", status_code=303)
+
+    try:
+        pool, indexer = await services.get()
+        async with pool.connection() as conn:
+            wave = int(form["wave"]) if form.get("wave") else None
+            if op == "add":
+                await backlog_mod.add_item(conn, indexer, project, wave, key, text("title") or "", by="human:ui",
+                                           status=text("status") or "backlog", note=text("note"))
+                notice = f"{key} added to wave {wave}"
+            elif op == "remove":
+                r = await backlog_mod.remove_item(conn, indexer, project, key, by="human:ui", reason=text("reason") or "")
+                notice = f"{key} removed from wave {r['wave']}"
+            elif op == "save":
+                r = await backlog_mod.update_item(conn, indexer, project, key, by="human:ui", wave=wave,
+                                                  title=text("title"), status=text("status"), note=str(form.get("note") or ""))
+                notice = f"{key}: " + (", ".join(c["field"] for c in r["changes"]) + " saved" if r["changes"] else "nothing changed")
+            else:
+                return answer({"error": "the change did not reach the context (no operation was sent)"}, 400)
+    except rules.Forbidden as e:
+        return answer({"error": str(e)}, 409)
+    except Exception as e:
+        log.exception("backlog %s of %s failed", op, key)
+        return answer({"error": f"the context could not save it ({type(e).__name__}); try again in a moment"}, 503)
+    return answer({"status": op, "notice": notice, "location": back})
+
+
 async def playback(request: Request) -> Response:
     """The human's review after merge: heard, or a fix queued as a new task. Never blocks anything."""
     project, doc_id = request.path_params["project"], int(request.path_params["doc_id"])
@@ -766,7 +811,7 @@ async def waves_page(request: Request) -> Response:
             waves.append({"doc": w, "progress": _progress(tasks)})
         backlog = sorted(await store.list_documents(conn, project, type="backlog", limit=100),
                          key=lambda b: b["body"].get("wave", 0))
-    return await render(request, "waves.html", waves=waves, backlog=backlog)
+    return await render(request, "waves.html", waves=waves, backlog=backlog, statuses=backlog_mod.STATUSES)
 
 
 async def features_page(request: Request) -> Response:
@@ -828,6 +873,7 @@ def routes() -> list:
         Route("/ui/p/{project}/features/{feature}", feature_page),
         Route("/ui/p/{project}/documents/{doc_id:int}/transition", transition, methods=["POST"]),
         Route("/ui/p/{project}/documents/{doc_id:int}/playback", playback, methods=["POST"]),
+        Route("/ui/p/{project}/backlog", backlog_edit, methods=["POST"]),
         Route("/ui/p/{project}/conventions", conventions_page, methods=["GET", "POST"]),
         Route("/ui/p/{project}/conventions/{doc_id:int}", convention_edit, methods=["POST"]),
         Mount("/static", StaticFiles(directory=_HERE / "static"), name="static"),

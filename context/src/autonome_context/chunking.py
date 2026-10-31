@@ -63,6 +63,11 @@ def sections(doc: Doc) -> list[tuple[str, str]]:
     """The document as (section name, text) pairs, empty ones dropped."""
     if doc.type == "handoff":
         pairs = _handoff_sections(Handoff.model_validate(doc.body))
+    elif doc.type == "backlog":
+        # One section per item, so a search lands on the item, not on the whole wave.
+        pairs = [(item.get("id", "item"), f"{doc.body.get('title', '')} | {item.get('title', '')} [{item.get('status', '')}]"
+                  + (f" {item['note']}" if item.get("note") else "") + (" (PRD)" if item.get("prd") else ""))
+                 for item in doc.body.get("items", [])]
     else:
         pairs = [(k, _render(v)) for k, v in doc.body.items() if k not in _META_KEYS]
     return [(name, text) for name, text in pairs if text.strip()]

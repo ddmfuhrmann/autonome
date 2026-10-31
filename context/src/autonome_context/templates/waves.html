@@ -13,16 +13,43 @@
 </table></div>
 {% if backlog %}
 <section class="stack" aria-labelledby="backlog-h">
-  <div class="section-head"><h2 id="backlog-h">Backlog</h2><span class="muted" style="font-size: 13px">from the roadmap; compose a wave from one with <code>/autonome:compose</code></span></div>
-  <div class="grid grid--3">
-  {% for b in backlog %}{% set open = b.body["items"]|rejectattr('status', 'equalto', 'done')|list %}
-    <a class="card" href="/ui/p/{{ project }}/documents/{{ b.id }}" style="text-decoration: none; color: inherit">
-      <div class="card__head"><span class="card__title">{{ b.body.title }}</span><span class="push">{{ ui.st('done' if b.status == 'done' else 'pending', sm=true, text=b.status) }}</span></div>
-      <div class="card__body"><p class="muted" style="font-size: 12px">{{ open|length }} open of {{ b.body["items"]|length }}</p>
-        <ul style="font-size: 13px; margin: 0">{% for i in open[:4] %}<li>{{ i.title|mdi }}</li>{% endfor %}{% if open|length > 4 %}<li class="muted">and {{ open|length - 4 }} more</li>{% endif %}</ul></div>
-    </a>
+  <div class="section-head"><h2 id="backlog-h">Backlog</h2><span class="muted" style="font-size: 13px">the roadmap's waves; edit here or through the MCP, and compose a wave from one with <code>/autonome:compose</code></span></div>
+  {% set back = request.url.path %}
+  {% for b in backlog %}{% set items = b.body["items"] %}
+  <details class="card"{% if b.status != 'done' and loop.index <= 2 %} open{% endif %}>
+    <summary class="card__head"><span class="card__title">{{ b.body.title }}</span>
+      <span class="push muted" style="font-size: 12px">{{ items|rejectattr('status', 'equalto', 'done')|list|length }} open of {{ items|length }}</span></summary>
+    <div class="card__body stack stack--sm">
+      {% for i in items %}
+      <form class="backlog-row" method="post" action="/ui/p/{{ project }}/backlog">
+        <input type="hidden" name="next" value="{{ back }}"><input type="hidden" name="key" value="{{ i.id }}">
+        <span class="mono muted" style="font-size: 12px">{{ i.id }}</span>
+        <input type="text" name="title" value="{{ i.title }}" aria-label="Title of {{ i.id }}">
+        <select name="status" aria-label="Status of {{ i.id }}">{% for st in statuses %}<option{% if st == i.status %} selected{% endif %}>{{ st }}</option>{% endfor %}</select>
+        <input type="text" name="note" value="{{ i.note or '' }}" placeholder="note" aria-label="Note of {{ i.id }}">
+        <select name="wave" aria-label="Wave of {{ i.id }}">{% for w in backlog %}<option value="{{ w.body.wave }}"{% if w.body.wave == b.body.wave %} selected{% endif %}>wave {{ w.body.wave }}</option>{% endfor %}</select>
+        <button class="btn" name="op" value="save" type="submit">Save</button>
+        <details class="confirm"><summary class="btn btn--danger">Remove…</summary>
+          <div class="confirm__panel"><h4>Remove {{ i.id }} from the backlog?</h4>
+            <input type="text" name="reason" placeholder="why (kept in its history)">
+            <button class="btn btn--danger-solid" name="op" value="remove" type="submit">Remove</button></div></details>
+      </form>
+      {% endfor %}
+      <form class="backlog-row" method="post" action="/ui/p/{{ project }}/backlog">
+        <input type="hidden" name="next" value="{{ back }}"><input type="hidden" name="wave" value="{{ b.body.wave }}">
+        <input type="text" name="key" placeholder="id, e.g. w{{ b.body.wave }}-new" aria-label="New item id" required>
+        <input type="text" name="title" placeholder="title" aria-label="New item title" required>
+        <select name="status" aria-label="New item status">{% for st in statuses %}<option>{{ st }}</option>{% endfor %}</select>
+        <input type="text" name="note" placeholder="note" aria-label="New item note">
+        <span></span>
+        <button class="btn btn--primary" name="op" value="add" type="submit">Add</button>
+      </form>
+      {% set changes = (b.body.changes or [])[-5:]|reverse|list %}
+      {% if changes %}<details><summary class="muted" style="font-size: 12px; cursor: pointer">Recent changes</summary>
+        <ul style="font-size: 12px">{% for c in changes %}<li><span class="mono">{{ c.item }}</span> {{ c.field }}: {{ c.old if c.old is not mapping else c.old.title }} → {{ c.new }} <span class="muted">· {{ c.by }} · {{ c.at }}</span></li>{% endfor %}</ul></details>{% endif %}
+    </div>
+  </details>
   {% endfor %}
-  </div>
 </section>
 {% endif %}
 {% endblock %}

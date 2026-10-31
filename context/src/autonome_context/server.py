@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field, ValidationError
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from . import api, evaluation, history, imports, insights, plans, rules, services, store, web
+from . import api, backlog, evaluation, history, imports, insights, plans, rules, services, store, web
 from .chunking import DEFAULT_STRATEGY, STRATEGIES
 from .handoff import Handoff
 from .migrate import migrate
@@ -185,6 +185,61 @@ async def history_get(
     pool, indexer = await services.get()
     async with pool.connection() as conn:
         return api.jsonable(await history.build(conn, project, subject, indexer.embedder, feature))
+
+
+@mcp.tool()
+async def backlog_list(project: str, wave: Annotated[int | None, Field(description="only this wave")] = None) -> list[dict]:
+    """The backlog by wave (the roadmap's waves): each wave's title and status, and its items with id,
+    title, status (backlog, next, doing, done), note and prd."""
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        return api.jsonable(await backlog.list_backlog(conn, project, wave))
+
+
+@mcp.tool()
+async def backlog_item_update(
+    project: str,
+    item_id: Annotated[str, Field(description="the item's id, e.g. w1-ci")],
+    status: Annotated[str | None, Field(description="backlog, next, doing or done")] = None,
+    title: str | None = None,
+    note: str | None = None,
+    prd: bool | str | None = None,
+    wave: Annotated[int | None, Field(description="move the item to this wave")] = None,
+) -> dict:
+    """Change a backlog item, or move it to another wave. Use it to record what a planning conversation
+    decided (an item moved, left out, its note). Every change is kept with who and when."""
+    pool, indexer = await services.get()
+    async with pool.connection() as conn:
+        try:
+            return api.jsonable(await backlog.update_item(conn, indexer, project, item_id, by="agent:mcp", wave=wave,
+                                                          status=status, title=title, note=note, prd=prd))
+        except rules.Forbidden as e:
+            return {"error": str(e)}
+
+
+@mcp.tool()
+async def backlog_item_add(project: str, wave: int, item_id: str, title: str, status: str = "backlog",
+                           note: str | None = None, prd: bool | str | None = None) -> dict:
+    """Add an item to a wave of the backlog. Ids are unique in the project (e.g. w2-audit)."""
+    pool, indexer = await services.get()
+    async with pool.connection() as conn:
+        try:
+            return api.jsonable(await backlog.add_item(conn, indexer, project, wave, item_id, title, by="agent:mcp",
+                                                       status=status, note=note, prd=prd))
+        except rules.Forbidden as e:
+            return {"error": str(e)}
+
+
+@mcp.tool()
+async def backlog_item_remove(project: str, item_id: str,
+                              reason: Annotated[str, Field(description="why it leaves the backlog")] = "") -> dict:
+    """Take an item out of the backlog. Its earlier versions and the reason are kept."""
+    pool, indexer = await services.get()
+    async with pool.connection() as conn:
+        try:
+            return api.jsonable(await backlog.remove_item(conn, indexer, project, item_id, by="agent:mcp", reason=reason))
+        except rules.Forbidden as e:
+            return {"error": str(e)}
 
 
 @mcp.tool()

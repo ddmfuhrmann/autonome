@@ -636,3 +636,9 @@ pre.mermaid { margin: 0; background: none; border: 0; overflow-x: auto; }
 .notice--ok::before { content: "✓ "; }
 .notice--error { color: var(--red-fg); background: var(--red-bg); border-color: var(--red-line); }
 .notice--error::before { content: "✕ "; }
+
+/* Backlog rows: id, title, status, note, wave, actions. */
+.backlog-row { display: grid; grid-template-columns: 7.5rem minmax(6rem, 2fr) 5.75rem minmax(5rem, 1fr) 5.5rem auto auto; gap: 6px; align-items: center; }
+.backlog-row .btn { padding-inline: 10px; }
+.backlog-row input[type=text], .backlog-row select { width: 100%; min-width: 0; }
+@media (max-width: 1000px) { .backlog-row { grid-template-columns: 1fr 1fr; } }

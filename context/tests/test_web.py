@@ -213,3 +213,21 @@ def test_playback_merges_then_waits_to_be_heard_and_a_fix_is_a_new_task(client, 
     assert "credit must reject negative amounts" in fix["body"]["spec"] and fix["body"]["playback"] is True
     assert tasks["Credit"]["body"]["playback_review"] == {**tasks["Credit"]["body"]["playback_review"], "status": "fix", "fix_task_id": fix["id"]}
     assert "Needs a fix" in client.get(f"/ui/p/{project}/documents/{second}").text
+
+
+def test_the_waves_page_edits_the_backlog(client, project, run_db, indexer):
+    from autonome_context import imports
+
+    async def go(conn):
+        await imports.import_backlog(conn, indexer, project, imports.parse_roadmap(
+            '<script type="application/json">{"waves": [{"n": 1, "name": "A"}, {"n": 2, "name": "B"}], '
+            '"cards": [{"id": "w1-x", "wave": 1, "title": "X", "status": "backlog"}]}</script>'))
+        await conn.commit()
+    run_db(go)
+    page = client.get(f"/ui/p/{project}/waves").text
+    assert 'name="key" value="w1-x"' in page and "Remove w1-x from the backlog?" in page
+    r = client.post(f"/ui/p/{project}/backlog", data={"op": "save", "key": "w1-x", "title": "X", "status": "doing",
+                                                       "note": "", "wave": "2"}, headers=FETCH)
+    assert r.status_code == 200 and r.json()["notice"] == "w1-x: status, wave saved"
+    r = client.post(f"/ui/p/{project}/backlog", data={"op": "save", "key": "nope", "wave": "1"}, headers=FETCH)
+    assert r.status_code == 409 and "no backlog item 'nope'" in r.json()["error"]

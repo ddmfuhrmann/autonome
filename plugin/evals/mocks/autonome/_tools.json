@@ -829,6 +829,233 @@
       }
     },
     {
+      "name": "backlog_list",
+      "description": "The backlog by wave (the roadmap's waves): each wave's title and status, and its items with id,\ntitle, status (backlog, next, doing, done), note and prd.",
+      "inputSchema": {
+        "properties": {
+          "project": {
+            "title": "Project",
+            "type": "string"
+          },
+          "wave": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "only this wave",
+            "title": "Wave"
+          }
+        },
+        "required": [
+          "project"
+        ],
+        "type": "object",
+        "title": "backlog_listArguments"
+      },
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Result",
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "title": "backlog_listOutput"
+      }
+    },
+    {
+      "name": "backlog_item_update",
+      "description": "Change a backlog item, or move it to another wave. Use it to record what a planning conversation\ndecided (an item moved, left out, its note). Every change is kept with who and when.",
+      "inputSchema": {
+        "properties": {
+          "project": {
+            "title": "Project",
+            "type": "string"
+          },
+          "item_id": {
+            "description": "the item's id, e.g. w1-ci",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "backlog, next, doing or done",
+            "title": "Status"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Title"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Note"
+          },
+          "prd": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Prd"
+          },
+          "wave": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "move the item to this wave",
+            "title": "Wave"
+          }
+        },
+        "required": [
+          "project",
+          "item_id"
+        ],
+        "type": "object",
+        "title": "backlog_item_updateArguments"
+      }
+    },
+    {
+      "name": "backlog_item_add",
+      "description": "Add an item to a wave of the backlog. Ids are unique in the project (e.g. w2-audit).",
+      "inputSchema": {
+        "properties": {
+          "project": {
+            "title": "Project",
+            "type": "string"
+          },
+          "wave": {
+            "title": "Wave",
+            "type": "integer"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "status": {
+            "default": "backlog",
+            "title": "Status",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Note"
+          },
+          "prd": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Prd"
+          }
+        },
+        "required": [
+          "project",
+          "wave",
+          "item_id",
+          "title"
+        ],
+        "type": "object",
+        "title": "backlog_item_addArguments"
+      }
+    },
+    {
+      "name": "backlog_item_remove",
+      "description": "Take an item out of the backlog. Its earlier versions and the reason are kept.",
+      "inputSchema": {
+        "properties": {
+          "project": {
+            "title": "Project",
+            "type": "string"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "description": "why it leaves the backlog",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project",
+          "item_id"
+        ],
+        "type": "object",
+        "title": "backlog_item_removeArguments"
+      }
+    },
+    {
       "name": "plan_get",
       "description": "A plan with its status and the status of its tasks.",
       "inputSchema": {

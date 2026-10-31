@@ -39,6 +39,19 @@ A task in `plan.tasks`: `title`, `spec`, `layers`, `acceptance`, `depends_on` (1
 A gate in `plan.gates`: a gate (`name`, `run`, `mode`, `fast`, `when`, `timeout_s`) plus `with_task`.
 A convention in `plan.conventions`: `title`, `rule`, `why`, `layers`.
 
+### Backlog
+
+The roadmap's waves, one document per wave; items have an `id` (e.g. `w1-ci`), `title`, `status`
+(`backlog`, `next`, `doing`, `done`), `note` and `prd`. Every change records `{at, by, item, field,
+old, new}` in the wave's `changes`, and search finds the item itself (one chunk per item).
+
+| Tool | Arguments | Returns |
+|---|---|---|
+| `backlog_list` | `project`, `wave?` | waves with their title, status and items |
+| `backlog_item_update` | `project`, `item_id`, `status?`, `title?`, `note?`, `prd?`, `wave?` (moves it) | the item, its wave and the changes; an unknown id answers `{error}` with close matches |
+| `backlog_item_add` | `project`, `wave`, `item_id`, `title`, `status?` = backlog, `note?`, `prd?` | the item and its wave; ids are unique in the project |
+| `backlog_item_remove` | `project`, `item_id`, `reason?` | the removed item; its earlier versions and the reason are kept |
+
 ### Proposals and records
 
 | Tool | Arguments | Returns |
@@ -89,5 +102,5 @@ connection errors.
 
 `/ui` lists projects; `/ui/p/{project}/…` has Setlist, Approvals, Waves, Features, Insights, Search,
 Documents, Lab, Conventions and Config. Human decisions post to
-`/ui/p/{project}/documents/{id}/transition` and `/…/playback`; with `X-Requested-With: fetch` they
+`/ui/p/{project}/documents/{id}/transition` and `/…/playback`, backlog edits to `/ui/p/{project}/backlog`; with `X-Requested-With: fetch` they
 answer JSON, otherwise they redirect with a notice.
