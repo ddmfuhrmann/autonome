@@ -72,6 +72,7 @@ test("a musician may run the gates' commands and nothing else in the shell", () 
     allowed_commands: ["pnpm"],
   });
   assert.ok(tools.includes("Bash(./mvnw:*)") && tools.includes("Bash(pnpm:*)") && tools.includes("Bash(autonome-gates:*)"));
+  assert.ok(tools.includes("mcp__plugin_autonome_autonome__gate_config_get") && tools.includes("mcp__autonome__gate_config_get"));
   assert.ok(tools.includes("Bash(sed -n:*)") && !tools.some((t) => t.startsWith("Bash(sed:") || t.startsWith("Bash(python") || t.startsWith("Bash(cat")));
   assert.ok(!tools.some((t) => t === "Bash" || t.startsWith("Bash(git commit") || t.startsWith("Bash(git push")));
 });

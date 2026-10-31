@@ -45,6 +45,10 @@ the start of this session has the task, its plan, the conventions for its layers
   gates' commands, \`autonome-gates --fast\`, read-only git and inspection. Writing through the shell
   (heredocs, \`cat >\`, \`python -c\`, \`sed -i\`) is denied in this session, and so is \`git -C\`:
   you are already in the right directory.
+- Run tools exactly the way the gates do (e.g. \`uv run pytest\`, \`uv run ruff format .\`), never a bare
+  \`python\`, \`pytest\` or \`ruff\`. One plain command per Bash call: no subshells, \`;\` chains or
+  \`cd\`. Read and search with the Read, Grep and Glob tools, not \`cat\`, \`grep\` or \`find\`. The gate
+  config is \`gate_config_get\` in the autonome memory.
 - Nobody will answer questions. If something is truly ambiguous, choose the option most consistent
   with the plan and the conventions, and say so in your final message.
 - When done, end your turn with a short summary. The metronome then runs every gate and may send you
@@ -68,7 +72,7 @@ export function allowedTools(cfg: Pick<GateConfig["config"], "gates" | "allowed_
     "Bash(sed -n:*)", "Bash(echo:*)", "Bash(head:*)", "Bash(tail:*)", "Bash(wc:*)",
     ...[...commands].map((c) => `Bash(${c}:*)`),
     // The memory, under the plugin's server name (the musician loads the plugin) and the plain one.
-    ...["search", "conventions_get", "plan_get"].flatMap((t) => [`mcp__autonome__${t}`, `mcp__plugin_autonome_autonome__${t}`]),
+    ...["search", "conventions_get", "plan_get", "gate_config_get"].flatMap((t) => [`mcp__autonome__${t}`, `mcp__plugin_autonome_autonome__${t}`]),
   ];
 }
 
