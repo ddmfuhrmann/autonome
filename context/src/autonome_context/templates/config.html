@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Config{% endblock %}
+{% block main %}
+<h1>Gate configuration</h1>
+<p class="muted">The rules live in the project's repo; this decides which commands run, in what order, and how strictly. Only editable here, never by an agent. Every save is a new version.</p>
+<form class="card" method="post">
+  <div class="meta">{% if doc %}<span class="pill accent">version {{ doc.version }}</span><span>saved {{ doc.updated_at.strftime('%Y-%m-%d %H:%M') }}</span>{% else %}<span class="pill">not saved yet: example below</span>{% endif %}</div>
+  {% if error %}<pre class="body" style="color: var(--stop)">{{ error }}</pre>{% endif %}
+  <label for="yaml" class="muted">YAML</label>
+  <textarea name="yaml" id="yaml" spellcheck="false">{{ text }}</textarea>
+  <div><button class="accent">Save new version</button></div>
+</form>
+<div class="card">
+  <h2>Recent gate runs</h2>
+  <div class="tablewrap"><table>
+    <tr><th>When</th><th>Session</th><th>Task</th><th>Gate</th><th>Result</th><th>ms</th></tr>
+    {% for r in runs %}<tr><td>{{ r.created_at.strftime('%m-%d %H:%M:%S') }}</td><td><code>{{ r.session_id[:8] }}</code></td>
+      <td>{% if r.task_id %}<a href="/ui/p/{{ project }}/documents/{{ r.task_id }}">#{{ r.task_id }}</a>{% endif %}</td>
+      <td>{{ r.gate }}</td><td><span class="pill {{ 'ok' if r.passed else 'stop' }}">{{ 'passed' if r.passed else 'failed' }}</span></td>
+      <td class="num">{{ r.duration_ms }}</td></tr>
+    {% else %}<tr><td colspan="6" class="empty">No gate has run yet.</td></tr>{% endfor %}
+  </table></div>
+</div>
+{% endblock %}

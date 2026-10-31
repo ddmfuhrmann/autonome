@@ -11,10 +11,12 @@ import json
 import os
 import subprocess
 import sys
-import urllib.request
 from pathlib import Path
 
-CONTEXT_URL = os.getenv("AUTONOME_CONTEXT_URL", "http://127.0.0.1:8765")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+
+from autonome import common  # noqa: E402
+
 MODEL = os.getenv("AUTONOME_HANDOFF_MODEL", "sonnet")
 MAX_CHARS = 150_000
 TOOL_RESULT_CHARS = 400
@@ -66,24 +68,22 @@ def condense(transcript: Path) -> str:
     return text
 
 
-def project_slug(cwd: str) -> str:
-    if os.getenv("AUTONOME_PROJECT"):
-        return os.environ["AUTONOME_PROJECT"]
-    top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=cwd, capture_output=True, text=True)
-    return Path(top.stdout.strip() or cwd).name
+def gate_facts(session_id: str) -> str:
+    """What the metronome recorded for this session: facts, not the agent's account of them."""
+    runs = common.get_json(f"/api/gate-runs?session_id={session_id}") or []
+    if not runs:
+        return "No gate runs were recorded by the metronome for this session."
+    lines = [f"- {r['created_at']} {r['gate']}: {'passed' if r['passed'] else 'FAILED'} ({r['duration_ms']} ms)"
+             for r in reversed(runs)]
+    return "Gate runs recorded by the metronome (authoritative; prefer them over the transcript):\n" + "\n".join(lines)
 
 
-def head_sha(cwd: str) -> str | None:
-    out = subprocess.run(["git", "rev-parse", "HEAD"], cwd=cwd, capture_output=True, text=True)
-    return out.stdout.strip() or None
-
-
-def write(condensed: str, cwd: str) -> dict:
+def write(condensed: str, cwd: str, facts: str) -> dict:
     env = {**os.environ, "AUTONOME_HANDOFF_CHILD": "1"}
     out = subprocess.run(
         ["claude", "-p", "--model", MODEL, "--output-format", "json",
          "--allowedTools", *READ_ONLY_TOOLS],
-        input=PROMPT.read_text() + "\n" + condensed,
+        input=PROMPT.read_text() + "\n" + facts + "\n\n" + condensed,
         cwd=cwd, env=env, capture_output=True, text=True, timeout=600,
     )
     if out.returncode != 0:
@@ -97,16 +97,15 @@ def main(payload_path: str) -> None:
     event = json.loads(Path(payload_path).read_text())
     cwd = event.get("cwd") or os.getcwd()
     transcript = Path(event["transcript_path"])
-    handoff = write(condense(transcript), cwd)
-    handoff.update(project=project_slug(cwd), session_id=event["session_id"], commit_sha=head_sha(cwd))
-    body = json.dumps({
+    handoff = write(condense(transcript), cwd, gate_facts(event["session_id"]))
+    handoff.update(project=common.project_slug(cwd), session_id=event["session_id"],
+                   commit_sha=common.git(cwd, "rev-parse", "HEAD") or None)
+    result = common.send_json("/api/handoffs", {
         "handoff": handoff,
+        "task_id": event.get("task_id"),
         "raw_transcript_gz_b64": base64.b64encode(gzip.compress(transcript.read_bytes())).decode(),
-    }).encode()
-    req = urllib.request.Request(f"{CONTEXT_URL}/api/handoffs", data=body, method="POST",
-                                 headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=120) as r:
-        print(f"handoff stored: {r.read().decode()}")
+    }, timeout=120)
+    print(f"handoff stored: {result}")
     Path(payload_path).unlink(missing_ok=True)
 
 

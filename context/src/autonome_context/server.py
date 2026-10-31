@@ -14,7 +14,7 @@ from pydantic import Field, ValidationError
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from . import evaluation, services, store, web
+from . import api, evaluation, services, store, web
 from .chunking import DEFAULT_STRATEGY, STRATEGIES
 from .handoff import Handoff
 from .migrate import migrate
@@ -60,6 +60,14 @@ async def search(
     return [asdict(h) for h in hits]
 
 
+@mcp.tool()
+async def gate_config_get(project: Annotated[str, Field(description="Project slug")]) -> dict:
+    """The project's current gate configuration: which gates run, in which order, encore and budget."""
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        return await api.gate_config_body(conn, project)
+
+
 @mcp.custom_route("/health", methods=["GET"])
 async def health(_: Request) -> JSONResponse:
     return JSONResponse({"status": "ok"})
@@ -80,7 +88,7 @@ async def post_handoff(request: Request) -> JSONResponse:
 
 def build_app():
     app = mcp.streamable_http_app(host=services.settings.host)
-    app.router.routes.extend(web.routes())
+    app.router.routes.extend(api.routes() + web.routes())
     return app
 
 

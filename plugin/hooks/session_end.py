@@ -9,12 +9,14 @@ import os
 import subprocess
 import sys
 import tempfile
-import urllib.request
 from pathlib import Path
 
-CONTEXT_URL = os.getenv("AUTONOME_CONTEXT_URL", "http://127.0.0.1:8765")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+
+from autonome import common  # noqa: E402
+
 MIN_USER_TURNS = int(os.getenv("AUTONOME_MIN_USER_TURNS", "3"))
-LOG_DIR = Path.home() / ".autonome" / "logs"
+LOG_DIR = common.LOG_DIR
 
 
 def user_turns(transcript: Path) -> int:
@@ -35,15 +37,12 @@ def user_turns(transcript: Path) -> int:
 
 
 def context_up() -> bool:
-    try:
-        with urllib.request.urlopen(f"{CONTEXT_URL}/health", timeout=1) as r:
-            return r.status == 200
-    except OSError:
-        return False
+    return common.get_json("/health", timeout=1) is not None
 
 
 def main() -> None:
-    if os.getenv("AUTONOME_HANDOFF_CHILD"):
+    # Conduct sessions get their handoff from the runner, which knows the task.
+    if os.getenv("AUTONOME_HANDOFF_CHILD") or os.getenv("AUTONOME_CONDUCT"):
         return
     event = json.load(sys.stdin)
     transcript = Path(event.get("transcript_path", ""))

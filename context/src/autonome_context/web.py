@@ -11,6 +11,7 @@ from starlette.templating import Jinja2Templates
 
 from . import evaluation, services, store
 from .chunking import DEFAULT_STRATEGY, STRATEGIES
+from .gates import EXAMPLE, GateConfig
 
 _HERE = Path(__file__).parent
 templates = Jinja2Templates(directory=_HERE / "templates")
@@ -116,6 +117,27 @@ async def document_page(request: Request) -> Response:
     return render(request, "document.html", doc=doc, links=links)
 
 
+async def config_page(request: Request) -> Response:
+    project = request.path_params["project"]
+    error, text = None, None
+    pool, indexer = await services.get()
+    async with pool.connection() as conn:
+        if request.method == "POST":
+            text = str((await request.form()).get("yaml", ""))
+            try:
+                GateConfig.from_yaml(text)
+            except Exception as e:  # YAML or schema error: show it, keep the text
+                error = str(e)
+            else:
+                await store.save_singleton(conn, indexer, project, "gate_config", {"yaml": text})
+                return RedirectResponse(f"/ui/p/{project}/config", status_code=303)
+        doc = await store.latest_of_type(conn, project, "gate_config")
+        runs = await store.gate_runs(conn, project=project, limit=30)
+    if text is None:
+        text = doc["body"]["yaml"] if doc else EXAMPLE
+    return render(request, "config.html", text=text, doc=doc, error=error, runs=runs)
+
+
 def routes() -> list:
     return [
         Route("/", lambda r: RedirectResponse("/ui")),
@@ -127,5 +149,6 @@ def routes() -> list:
         Route("/ui/p/{project}/lab/questions", lab_question, methods=["POST"]),
         Route("/ui/p/{project}/documents", documents_page),
         Route("/ui/p/{project}/documents/{doc_id:int}", document_page),
+        Route("/ui/p/{project}/config", config_page, methods=["GET", "POST"]),
         Mount("/static", StaticFiles(directory=_HERE / "static"), name="static"),
     ]

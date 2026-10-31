@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+"""Run the project's gates now. --fast runs only the inner-loop gates (what the implementer uses
+while working); without it, every gate that applies to the changed files.
+
+  autonome-gates [--fast] [--base REF] [--json]
+"""
+
+import argparse
+import json
+import os
+import sys
+from dataclasses import asdict
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+
+from autonome import metronome  # noqa: E402
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="autonome-gates")
+    parser.add_argument("--fast", action="store_true")
+    parser.add_argument("--all-files", action="store_true", help="ignore `when`, run every gate")
+    parser.add_argument("--base", default=os.getenv("AUTONOME_BASE_SHA", "HEAD"))
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args()
+
+    cwd = os.getcwd()
+    fetched = metronome.fetch_config(cwd)
+    if fetched is None:
+        print("autonome-context is unreachable", file=sys.stderr)
+        return 3
+    config = fetched["config"]
+    if args.all_files:
+        config = {**config, "gates": [{**g, "when": []} for g in config.get("gates", [])]}
+    files = metronome.changed_files(cwd, args.base)
+    outcomes = metronome.run_gates(cwd, config, files, only_fast=args.fast)
+    ok = all(o.passed for o in outcomes)
+    if args.json:
+        print(json.dumps({"passed": ok, "config_version": fetched["version"],
+                          "outcomes": [asdict(o) for o in outcomes]}))
+    else:
+        for o in outcomes:
+            print(f"{'PASS' if o.passed else 'FAIL'}  {o.gate}  ({o.duration_ms} ms)")
+            if not o.passed:
+                print("\n".join(o.output.strip().splitlines()[-60:]))
+        if not outcomes:
+            print("no gate applies to the changed files")
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -366,3 +366,56 @@ async def search(
         seen: set[int] = set()
         hits = [h for h in hits if not (h.document_id in seen or seen.add(h.document_id))]
     return hits[:k]
+
+
+# --- gates ---------------------------------------------------------------------------------------
+
+
+async def latest_of_type(conn: AsyncConnection, project: str, type: str) -> dict | None:
+    """The latest version of the single document of this type in a project (e.g. its gate_config)."""
+    docs = await list_documents(conn, project, type=type, limit=1)
+    return docs[0] if docs else None
+
+
+async def save_singleton(conn: AsyncConnection, indexer: Indexer | None, project: str, type: str, body: dict) -> dict:
+    """Creates the project's document of this type or appends a version to it."""
+    async with conn.transaction():
+        current = await latest_of_type(conn, project, type)
+        if current:
+            await add_version(conn, indexer, current["id"], body)
+            doc_id = current["id"]
+        else:
+            doc_id = await create_document(conn, indexer, project=project, type=type, body=body, status="active")
+    return await get_document(conn, doc_id)
+
+
+async def record_gate_runs(
+    conn: AsyncConnection, project: str, session_id: str, runs: list[dict],
+    task_id: int | None = None, config_version: int | None = None,
+) -> None:
+    project_id = await ensure_project(conn, project)
+    async with conn.cursor() as cur:
+        await cur.executemany(
+            "insert into gate_run (project_id, session_id, task_id, config_version, gate, passed, duration_ms,"
+            " signature, output) values (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            [(project_id, session_id, task_id, config_version, r["gate"], r["passed"], r["duration_ms"],
+              r.get("signature"), redact(r.get("output", ""))[-4000:]) for r in runs],
+        )
+
+
+async def gate_runs(
+    conn: AsyncConnection, *, project: str | None = None, session_id: str | None = None,
+    task_id: int | None = None, limit: int = 500,
+) -> list[dict]:
+    async with conn.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            """select g.id, p.slug as project, g.session_id, g.task_id, g.config_version, g.gate, g.passed,
+                      g.duration_ms, g.signature, g.output, g.created_at
+               from gate_run g join project p on p.id = g.project_id
+               where (%(project)s::text is null or p.slug = %(project)s)
+                 and (%(session)s::text is null or g.session_id = %(session)s)
+                 and (%(task)s::bigint is null or g.task_id = %(task)s)
+               order by g.created_at desc limit %(limit)s""",
+            {"project": project, "session": session_id, "task": task_id, "limit": limit},
+        )
+        return await cur.fetchall()
