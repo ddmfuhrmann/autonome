@@ -7,7 +7,7 @@ from typing import Literal
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 
-from .chunking import Doc, Strategy
+from .chunking import Chunk, Doc, Strategy
 from .embed import Embedder
 from .gates import GateConfig
 from .handoff import Handoff
@@ -236,10 +236,33 @@ async def put_handoff(conn: AsyncConnection, indexer: Indexer, h: Handoff, raw_t
 # --- indexing ------------------------------------------------------------------------------------
 
 
+def fit(chunks: list[Chunk], max_chars: int) -> list[Chunk]:
+    """Splits chunks the embedding model could not take whole, at line breaks where possible. The
+    parts keep their section, so search still finds a long section through any of them."""
+    out: list[Chunk] = []
+    for c in chunks:
+        parts, current = [], ""
+        for line in c.text.splitlines(keepends=True):
+            while len(line) > max_chars:  # a single line too long: hard split
+                if current:
+                    parts.append(current)
+                    current = ""
+                parts.append(line[:max_chars])
+                line = line[max_chars:]
+            if len(current) + len(line) > max_chars:
+                parts.append(current)
+                current = ""
+            current += line
+        parts.append(current)
+        out += [Chunk(0, c.section, p) for p in parts if p.strip()]
+    return [Chunk(i, c.section, c.text) for i, c in enumerate(out)]
+
+
 async def index_version(conn: AsyncConnection, indexer: Indexer, version_id: int, doc: Doc) -> int:
     total = 0
+    max_chars = getattr(indexer.embedder, "max_chars", 4000)
     for strategy in indexer.strategies:
-        chunks = strategy.chunk(doc)
+        chunks = fit(strategy.chunk(doc), max_chars)
         if not chunks:
             continue
         strategy_id = await ensure_strategy(conn, strategy, indexer.embedder)
