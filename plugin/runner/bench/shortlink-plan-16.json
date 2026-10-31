@@ -1,0 +1,98 @@
+{
+ "id": 16,
+ "project": "shortlink",
+ "status": "approved",
+ "feature": "links",
+ "body": {
+  "goal": "POST /links turns a valid http(s) URL into a 6-character short code, and GET /{code} redirects to it, stored in SQLite with plain sqlite3.",
+  "gates": [],
+  "risks": [
+   "GET /{code} is a catch-all: it must be registered after /health and must not shadow other routes; generated codes must never equal a reserved path segment",
+   "SQLite connections must not be shared across threads (TestClient and uvicorn run sync routes in a threadpool)"
+  ],
+  "scope": [
+   "src/shortlink/db.py",
+   "src/shortlink/links.py",
+   "routes POST /links and GET /{code} in src/shortlink/app.py",
+   "tests/conftest.py, tests/test_links.py"
+  ],
+  "tasks": [
+   {
+    "spec": "Create src/shortlink/db.py: `db_path() -> str` reads env SHORTLINK_DB (default \"shortlink.db\"); `connect() -> sqlite3.Connection` opens it with row_factory = sqlite3.Row; `init_schema(conn)` runs `CREATE TABLE IF NOT EXISTS links (code TEXT PRIMARY KEY, url TEXT NOT NULL, created_at TEXT NOT NULL)` and commits; `get_conn() -> Iterator[sqlite3.Connection]` is a FastAPI dependency that opens one connection per request and closes it afterwards. In src/shortlink/app.py add a lifespan that opens a connection, calls init_schema and closes it (app.py imports only shortlink.db, never sqlite3 directly; type the dependency through db's own alias, e.g. `Conn = Annotated[sqlite3.Connection, Depends(get_conn)]` defined in db.py). Create tests/conftest.py with a `client` fixture: monkeypatch SHORTLINK_DB to a file in tmp_path and yield `TestClient(app)` used as a context manager so the lifespan runs. Move tests/test_health.py to use the fixture. Add tests for db.py (schema is idempotent: calling init_schema twice works).",
+    "title": "SQLite connection, schema and test fixture",
+    "layers": [
+     "persistence",
+     "test"
+    ],
+    "acceptance": [
+     "tests/conftest.py provides a client fixture backed by a temporary SQLite file",
+     "init_schema can run twice without error (test)",
+     "all gates pass"
+    ],
+    "depends_on": []
+   },
+   {
+    "spec": "In src/shortlink/links.py: `validate_url(url: str) -> str` strips surrounding whitespace and accepts only URLs where urllib.parse.urlsplit gives scheme in {\"http\", \"https\"}, a non-empty hostname, no whitespace inside and total length <= 2048; otherwise raises `InvalidURLError(reason)` (a ValueError subclass in links.py). `new_code() -> str` returns 6 characters from string.ascii_letters + string.digits using `secrets.choice`, never one of RESERVED = {\"health\", \"links\", \"docs\", \"redoc\"} (case-sensitive, regenerate if hit). `create_link(conn, url) -> Link` (Link is a frozen dataclass code, url, created_at) validates, generates a code, inserts with a parameterised INSERT and created_at = datetime.now(UTC).isoformat(); on sqlite3.IntegrityError (collision) it retries with a new code, up to 5 attempts, then raises RuntimeError. Route in app.py: `POST /links` with Pydantic body `{\"url\": str}` returns 201 `{\"code\": ..., \"url\": ...}` (url as stored after strip); InvalidURLError becomes HTTPException(422, detail=f\"invalid url: {reason}\"). The same URL posted twice gets two different codes. Tests in tests/test_links.py: happy path, each invalid case (ftp://, no host, no scheme, too long, whitespace inside), collision retry (monkeypatch new_code to return a taken code first), reserved codes never returned.",
+    "title": "POST /links with URL validation",
+    "layers": [
+     "application",
+     "api",
+     "test"
+    ],
+    "acceptance": [
+     "POST /links {\"url\": \"https://example.com/a\"} returns 201 with a 6-char alphanumeric code (test)",
+     "POST /links with ftp://x, 'example.com', 'https://' or a 2049-char URL returns 422 with a string detail (tests)",
+     "collision retry is tested",
+     "all gates pass"
+    ],
+    "depends_on": [
+     1
+    ]
+   },
+   {
+    "spec": "In src/shortlink/links.py add `get_link(conn, code) -> Link | None` with a parameterised SELECT. In app.py add `GET /{code}` registered after every other route: if the link exists return RedirectResponse(url, status_code=302); otherwise HTTPException(404, detail=\"link not found\"). Use 302, not 301: browsers cache 301 and would skip the server, which breaks click counting in the next feature. Tests (TestClient with follow_redirects=False): created code redirects with 302 and Location = the URL; unknown code returns 404 {\"detail\": \"link not found\"}; GET /health still returns {\"status\": \"ok\"}.",
+    "title": "GET /{code} redirect",
+    "layers": [
+     "application",
+     "api",
+     "test"
+    ],
+    "acceptance": [
+     "GET /{code} for an existing code returns 302 with the Location header set to the stored URL (test)",
+     "GET /{unknown} returns 404 {\"detail\": \"link not found\"} (test)",
+     "GET /health is not shadowed (test)",
+     "all gates pass"
+    ],
+    "depends_on": [
+     2
+    ]
+   }
+  ],
+  "title": "Links: shorten a URL and redirect",
+  "context": "Builds on the quality-gates feature: ruff (S, SIM, RET, PTH, ANN), ruff format, mypy strict, pytest coverage >= 90% and import-linter contracts in pyproject.toml: layers shortlink.app > (shortlink.stats) > (shortlink.links) > (shortlink.db), and shortlink.app must not import sqlite3. CLAUDE.md rules: no ORM, parameterised queries, every endpoint tested on happy path and main error, errors as JSON {\"detail\": \"...\"} via HTTPException. Module layout: src/shortlink/db.py (connection + schema), src/shortlink/links.py (validation, code generation, queries), src/shortlink/app.py (routes only).",
+  "acceptance": [
+   "all gates pass (ruff, format, types, pytest, coverage, imports)",
+   "POST /links with a valid URL returns 201 {code, url}; invalid URL returns 422 {detail: str}",
+   "GET /{code} returns 302 with Location = the URL; unknown code returns 404 {detail: str}"
+  ],
+  "discussion": [
+   {
+    "role": "assistant",
+    "text": "Out of scope for the wave: auth, custom aliases, expiration, edit/delete, rate limiting, per-click history (date, IP, user agent). Same URL twice gets a new code. Redirect with 302 because 301 gets cached by browsers and breaks counting. Invalid URL: only http/https with host, <= 2048 chars, 422 {detail}."
+   },
+   {
+    "role": "user",
+    "text": "Agreed with the wave split; links depends on quality-gates."
+   }
+  ],
+  "out_of_scope": [
+   "authentication",
+   "custom aliases chosen by the client",
+   "link expiration",
+   "editing or deleting links",
+   "rate limiting",
+   "deduplicating the same URL (each POST creates a new code)",
+   "click counting (feature click-stats)"
+  ]
+ }
+}

@@ -65,7 +65,7 @@ export function allowedTools(cfg: Pick<GateConfig["config"], "gates" | "allowed_
   ];
 }
 
-const REHEARSAL_PROMPT = `You rehearse a plan of the autonome process before it plays. It was written and
+export const REHEARSAL_PROMPT = `You rehearse a plan of the autonome process before it plays. It was written and
 approved together with other features of a wave; those are merged now, so the code may differ from what the
 plan assumed. Nobody will answer questions.
 
@@ -87,7 +87,7 @@ changes the rule when the rule is what is wrong. Never weaken a gate quietly.
   \`plan\`, same shape as the original, same goal and out of scope; change only what must change. The
   human approves it before anything plays.`;
 
-const PLAN_SCHEMA = {
+export const PLAN_SCHEMA = {
   type: "object",
   properties: {
     verdict: { type: "string", enum: ["ready", "revise"] },

@@ -2,11 +2,13 @@
 // autonome conduct --project <slug> [--repo <path>] [--model <model>] [--max-tasks <n>] [--push] [--watch [--every <s>]]
 // autonome cues    --project <slug> [--repo <path>] [--force]
 // autonome doctor  --project <slug> [--repo <path>]
+// autonome bench   [--configs model:effort,...] [--runs <n>] [--only <case>]
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { conduct } from "./conduct.js";
 import type { Effort } from "./context.js";
 import { cues } from "./cues.js";
+import { bench, parseConfigs, table } from "./bench.js";
 import { doctor, report } from "./doctor.js";
 
 const { positionals, values } = parseArgs({
@@ -16,6 +18,9 @@ const { positionals, values } = parseArgs({
     repo: { type: "string", default: process.cwd() },
     model: { type: "string" },
     effort: { type: "string" },
+    configs: { type: "string", default: "haiku:low,sonnet:medium,sonnet:high" },
+    runs: { type: "string", default: "1" },
+    only: { type: "string" },
     "max-tasks": { type: "string", default: "50" },
     push: { type: "boolean", default: false },
     force: { type: "boolean", default: false },
@@ -25,12 +30,20 @@ const { positionals, values } = parseArgs({
 });
 
 const command = positionals[0];
+if (command === "bench") {
+  const log = (line: string) => console.log(line);
+  const scores = await bench({ configs: parseConfigs(values.configs!), runs: Number(values.runs), only: values.only, log });
+  console.log(`\n${table(scores)}`);
+  process.exit(0);
+}
+
 if (!["conduct", "cues", "doctor"].includes(command ?? "") || !values.project) {
   console.error(
     "usage: autonome conduct --project <slug> [--repo <path>] [--model <model>] [--effort <level>] [--max-tasks <n>] [--push]\n" +
       "                        [--watch [--every <seconds>]]   keep waiting for approved work\n" +
       "       autonome cues --project <slug> [--repo <path>] [--force]\n" +
-      "       autonome doctor --project <slug> [--repo <path>]",
+      "       autonome doctor --project <slug> [--repo <path>]\n" +
+      "       autonome bench [--configs haiku:low,sonnet:medium] [--runs <n>] [--only <case>]",
   );
   process.exit(2);
 }

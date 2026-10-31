@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { allowedTools, rehearsalPrompt, summary } from "./conduct.js";
+import { parseConfigs, table } from "./bench.js";
 import { roleModel } from "./context.js";
 import { commitMessage, fastForwardMain, git, stageWork, strayFiles } from "./git.js";
 
@@ -145,4 +146,11 @@ test("each role runs on its own model and effort, and the command line overrides
   assert.deepEqual(roleModel(cfg, "musician", { model: "opus" }), { model: "opus", effort: "medium" });
   assert.deepEqual(roleModel(cfg, "musician", { effort: "low" }), { model: "sonnet", effort: "low" });
   assert.deepEqual(roleModel({ ...cfg, models: undefined }, "tune"), { model: "sonnet", effort: "medium" });
+});
+
+test("bench configs parse as model:effort and the table totals the cost", () => {
+  assert.deepEqual(parseConfigs("haiku:low, sonnet"), [{ model: "haiku", effort: "low" }, { model: "sonnet", effort: "medium" }]);
+  const text = table([{ role: "reviewer", case: "reviewer/post-links", who: { model: "haiku", effort: "low" }, score: 0.67,
+    cost: 0.0412, seconds: 31, note: "found control chars, raw 500" }]);
+  assert.match(text, /reviewer\/post-links +haiku:low +0\.67 +\$ 0\.041 +31s  found control chars, raw 500\ntotal \$0\.04$/);
 });
