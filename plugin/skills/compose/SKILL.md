@@ -59,7 +59,8 @@ what the plan needs with `gate_config_get`: tests in a stack or folder no gate c
 without a linter, migrations with no check, a frontend with no build. For each missing gate:
 
 - add a task that sets up its tooling in the repo (config file, script, dependency), since the
-  rules live in the repo, and
+  rules live in the repo. Its spec lists the files the tool generates (caches, coverage data,
+  reports), and its acceptance says they are in .gitignore and not committed; and
 - put the gate in the plan's `gates` (`name`, `run`, and `with_task` = that task's position, so the
   gate starts only once its tooling is merged; omit `with_task` if the tooling already exists).
 
@@ -73,7 +74,8 @@ it again with the same `plan_id`; only drafts can change.
 ## 4. Hand it over
 
 Give the user the `approve_at` link and a three-line summary (goal, number of tasks, what is out of
-scope, and the gates it adds, if any). If the gate config has no `soundcheck` and the project runs as
+scope, and the gates it adds, if any: approving the plan adds them, each one once its setup task
+merges). If the gate config has no `soundcheck` and the project runs as
 a service, say in one line that finished features will not be tried in a running environment, and
 offer the YAML for it (the user adds it in the UI). You cannot approve the plan; only the user can, in the UI. If an architectural or product
 decision came up, record it with `decision_propose` so the user accepts it there too.
