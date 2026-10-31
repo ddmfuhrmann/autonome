@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { allowedTools } from "./conduct.js";
+import { allowedTools, rehearsalPrompt } from "./conduct.js";
 import { commitMessage, fastForwardMain, git, stageWork, strayFiles } from "./git.js";
 
 function repo(): string {
@@ -113,4 +113,14 @@ test("stray files: ignored-but-tracked and unasked-for binaries are flagged, ask
   ]);
   stageWork(dir);
   assert.deepEqual(strayFiles(dir, base, "Add the logo.png to the header"), []);
+});
+
+test("the rehearsal sees the gates a plan must pass, with their commands", () => {
+  const text = rehearsalPrompt(
+    { id: 16, project: "shortlink", status: "approved", feature: "links",
+      body: { title: "Links", tasks: [{ title: "Routes", spec: "app imports db" }], rehearsal: { verdict: "ready" } } },
+    "shortlink", [{ name: "imports", run: "uv run lint-imports" }, { name: "pytest", run: "uv run pytest -q" }]);
+  assert.match(text, /## Gates it must pass\n- imports: `uv run lint-imports`\n- pytest: `uv run pytest -q`/);
+  assert.match(text, /app imports db/);
+  assert.doesNotMatch(text, /"rehearsal"/);
 });

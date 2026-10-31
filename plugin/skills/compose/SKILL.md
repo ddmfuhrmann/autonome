@@ -64,6 +64,10 @@ without a linter, migrations with no check, a frontend with no build. For each m
 - put the gate in the plan's `gates` (`name`, `run`, and `with_task` = that task's position, so the
   gate starts only once its tooling is merged; omit `with_task` if the tooling already exists).
 
+An architecture gate (import contracts, layer rules) also gets, in its acceptance, one concrete import
+that must pass and one that must fail, using the modules the later plans of the wave will create, so a
+rule no later plan can satisfy shows up now.
+
 Approving the plan adds those gates to the config; the user sees them before approving. A gate's own
 command is allowed in conduct sessions automatically (`allowed_commands` is only for other commands). Never
 propose replacing or loosening an existing gate. If the gates already cover the plan, add none.

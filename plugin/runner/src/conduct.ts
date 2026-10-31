@@ -68,6 +68,13 @@ plan assumed. Nobody will answer questions.
 Read the plan below, then the code it touches and what changed since it was written (git log, and the
 project memory via the autonome MCP: handoffs and decisions of the features merged before it).
 
+Check it against the gates too. For each gate below, read the rules it enforces in the repo (import
+contracts, type checker strictness, lint rules, coverage floors: pyproject.toml, setup.cfg, .importlinter,
+tsconfig.json, eslint and similar). A task whose spec cannot pass a gate as written (e.g. a module the
+spec makes import something a contract forbids) is a conflict between plans: verdict "revise", and the
+revision says which rule and which spec statements clash and changes the spec, or adds a task that
+changes the rule when the rule is what is wrong. Never weaken a gate quietly.
+
 - verdict "ready": the plan still fits. Put in \`notes\` what the implementers should know about the code as
   it is now (real file, class and function names, things the plan names differently). Small mismatches
   belong here, not in a revision.
@@ -87,16 +94,22 @@ const PLAN_SCHEMA = {
 } as const;
 
 /** The rehearsal: a read-only session checks a wave plan against main before its first task plays. */
-export async function rehearse(plan: Plan, opts: ConductOptions): Promise<Rehearsal> {
+export function rehearsalPrompt(plan: Plan, project: string, gates: GateConfig["config"]["gates"]): string {
   const { title, ...rest } = plan.body;
   delete rest.rehearsal;
+  return `Rehearse plan #${plan.id} (feature ${plan.feature ?? "-"}, project ${project}):\n\n` +
+    JSON.stringify({ title, ...rest }, null, 2) +
+    `\n\n## Gates it must pass\n${gates.map((g) => `- ${g.name}: \`${g.run}\``).join("\n") || "- (none configured)"}`;
+}
+
+export async function rehearse(plan: Plan, opts: ConductOptions): Promise<Rehearsal> {
+  const { gates } = (await context.gateConfig(opts.project)).config;
   const { answer } = await consult<Rehearsal>({
     cwd: mainCheckout(opts.repo) ?? opts.repo,
     model: opts.model,
     role: REHEARSAL_PROMPT,
     schema: PLAN_SCHEMA,
-    prompt: `Rehearse plan #${plan.id} (feature ${plan.feature ?? "-"}, project ${opts.project}):\n\n` +
-      JSON.stringify({ title, ...rest }, null, 2),
+    prompt: rehearsalPrompt(plan, opts.project, gates),
   });
   return answer;
 }
