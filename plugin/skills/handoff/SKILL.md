@@ -24,7 +24,9 @@ Rules:
   have zero to two. Set `deviation` to true only when the choice departs from the plan or a
   convention: those wait for the human's review; the others are recorded as decisions in effect.
 - friction: where the agent got stuck, went in circles, lacked a convention, misread the plan, or needed
-  the human to correct it. Be specific; this is how the process improves.
+  the human to correct it. Be specific; this is how the process improves. Count, don't generalise:
+  "3 of 14 Bash calls were denied (bare pytest, a subshell, grep)", never "Bash was denied for the whole
+  session" when other commands ran. Overstated friction sends the tune loop after the wrong problem.
 - feature: one kebab-case English slug for the product feature touched (e.g. credit-inquiry, wallet,
   signup, infra, process). layers: any of domain, application, api, persistence, integration, ui, infra,
   test, docs, process.
