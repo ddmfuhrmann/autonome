@@ -20,8 +20,13 @@ def git(cwd: str | Path, *args: str, check: bool = False) -> str:
 
 
 def project_slug(cwd: str | Path) -> str:
+    """AUTONOME_PROJECT, else the repo's folder name. In a linked worktree (the maestro's) that is the
+    main checkout's folder, not the worktree's, so its sessions land in the right project."""
     if os.getenv("AUTONOME_PROJECT"):
         return os.environ["AUTONOME_PROJECT"]
+    common_dir = git(cwd, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    if common_dir.endswith("/.git"):
+        return Path(common_dir).parent.name
     return Path(git(cwd, "rev-parse", "--show-toplevel") or cwd).name
 
 

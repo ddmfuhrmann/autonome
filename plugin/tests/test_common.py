@@ -28,6 +28,7 @@ def test_send_json_waits_for_a_restarting_context_and_retries(monkeypatch):
             self.send_response(200), self.end_headers(), self.wfile.write(b'{"status": "ok"}')
 
         def do_POST(self):
+            self.rfile.read(int(self.headers["Content-Length"]))  # an unread body makes the close a reset
             self.send_response(200), self.end_headers(), self.wfile.write(b'{"saved": true}')
 
         def log_message(self, *a):
@@ -46,3 +47,19 @@ def test_send_json_waits_for_a_restarting_context_and_retries(monkeypatch):
 
     threading.Thread(target=come_back, daemon=True).start()
     assert common.send_json("/api/x", {"a": 1}) == {"saved": True}
+
+
+def test_a_session_in_a_maestro_worktree_belongs_to_the_main_checkouts_project(tmp_path, monkeypatch):
+    from autonome import common
+
+    monkeypatch.delenv("AUTONOME_PROJECT", raising=False)
+    repo = tmp_path / "shortlink"
+    repo.mkdir()
+    run = lambda *a, cwd=repo: subprocess.run(["git", *a], cwd=cwd, check=True, capture_output=True)
+    run("init", "-q", "-b", "main")
+    run("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init")
+    worktree = tmp_path / ".autonome-worktrees" / "autonome-task-22-abc"
+    run("worktree", "add", "-q", "-b", "task", str(worktree))
+    assert common.project_slug(repo) == "shortlink"
+    assert common.project_slug(worktree) == "shortlink"
+    assert common.project_slug(worktree / ".") == "shortlink"

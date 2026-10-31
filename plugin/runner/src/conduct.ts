@@ -147,14 +147,15 @@ function transcriptPath(sessionId: string): string | null {
 }
 
 /** The scribe: a separate agent writes the handoff of the session, linked to the task. */
-function writeHandoff(sessionId: string, cwd: string, taskId: number, log: ConductOptions["log"]): void {
+function writeHandoff(sessionId: string, cwd: string, taskId: number, project: string, log: ConductOptions["log"]): void {
   const transcript = transcriptPath(sessionId);
   if (!transcript) return log(`  no transcript found for ${sessionId}; skipping handoff`);
   const dir = join(AUTONOME_HOME, "logs");
   mkdirSync(dir, { recursive: true });
   const payload = join(dir, `conduct-${sessionId}.json`);
   writeFileSync(payload, JSON.stringify({ session_id: sessionId, transcript_path: transcript, cwd, task_id: taskId }));
-  const r = spawnSync("python3", [join(PLUGIN_ROOT, "hooks", "write_handoff.py"), payload], { cwd, encoding: "utf8" });
+  const r = spawnSync("python3", [join(PLUGIN_ROOT, "hooks", "write_handoff.py"), payload], {
+    cwd, encoding: "utf8", env: { ...process.env, AUTONOME_PROJECT: project } });
   log(r.status === 0 ? `  handoff written` : `  handoff failed: ${r.stderr.slice(-500)}`);
 }
 
@@ -352,7 +353,7 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<Run | unde
     }
   };
   const failure = await judge();
-  if (result.sessionId) writeHandoff(result.sessionId, worktree, task.id, log);
+  if (result.sessionId) writeHandoff(result.sessionId, worktree, task.id, opts.project, log);
   if (failure) return block(failure);
   execFileSync("git", ["commit", "-q", "-F", "-"], { cwd: worktree, input: commitMessage(task) });
 
