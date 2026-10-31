@@ -40,7 +40,9 @@ is …?"), not even a short practical one; keep it for a later message. Write th
 as the last line; do not also put it in a heading and repeat it ("Which one do you want?"). Cover:
 the goal and who it is for, what is explicitly out of scope, the acceptance criteria, risky edges
 (money, personal data, concurrency, migrations), and how the change is verified. Stop asking when the
-answers stop changing the plan. Never ask what you can read in the code or the memory.
+answers stop changing the plan. Never ask what you can read in the code or the memory. An edge case
+that is a product decision (section 3) is one of these questions, e.g. "should the shortener refuse
+internal hosts?".
 
 ## 3. Write the plan
 
@@ -54,6 +56,16 @@ only sees the task, the plan's goal and out-of-scope, and the conventions of its
 - `layers` per task (domain, application, api, persistence, integration, ui, infra, test, docs).
 - `depends_on`: 1-based positions of earlier tasks this one needs.
 - Record the questions and answers that shaped the plan in `discussion`.
+
+**Edges, before writing tasks.** For each task, walk this list and keep what applies:
+
+- input: malformed, empty, boundary sizes, control characters, unicode;
+- failure: a dependency down, a retry that runs out, a partial write;
+- concurrency: the same call twice, at the same time;
+- security: injection, open redirect, SSRF, data from another tenant or user.
+
+Each edge that applies goes into the task's `acceptance` as a test that must exist and pass, or into
+`out_of_scope` on purpose. One that is a product decision is asked first (section 2).
 
 **Gates.** Every acceptance criterion should be checked by a gate the project actually runs. Compare
 what the plan needs with `gate_config_get`: tests in a stack or folder no gate covers, a new language
