@@ -152,7 +152,12 @@ async def post_handoff(request: Request) -> JSONResponse:
         return JSONResponse({"error": "invalid_handoff", "detail": e.errors()}, status_code=422)
     raw = body.get("raw_transcript_gz_b64")
     transcript = gzip.decompress(base64.b64decode(raw)).decode() if raw else None
-    return JSONResponse({"document_id": await _put_handoff(h, transcript)}, status_code=201)
+    doc_id = await _put_handoff(h, transcript)
+    if body.get("task_id"):
+        pool, _ = await services.get()
+        async with pool.connection() as conn:
+            await store.link(conn, doc_id, int(body["task_id"]), "reports")
+    return JSONResponse({"document_id": doc_id}, status_code=201)
 
 
 def build_app():

@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Setlist{% endblock %}
+{% block main %}
+<h1>Setlist</h1>
+<p class="muted">Tasks of approved plans, as the maestro plays them. Start it with <code>autonome conduct --project {{ project }}</code>.</p>
+<div class="kanban">
+{% for status, tasks in columns.items() %}
+  <div class="col">
+    <h2>{{ status|replace('_', ' ') }} <span class="pill">{{ tasks|length }}</span></h2>
+    {% for t in tasks %}
+    <a class="item" href="/ui/p/{{ project }}/documents/{{ t.id }}" style="text-decoration: none; color: inherit">
+      <strong>#{{ t.id }} {{ t.body.title }}</strong>
+      <span class="meta">{% if t.feature %}<span class="pill accent">{{ t.feature }}</span>{% endif %}
+        {% if t.body.fermata %}<span class="pill warn">fermata</span>{% endif %}
+        <span>{{ plans[t.body.plan_id].body.title if t.body.plan_id in plans else '' }}</span></span>
+      {% if t.body.runs and t.body.runs[-1].reason %}<span class="muted" style="font-size: 12px">{{ t.body.runs[-1].reason|truncate(140) }}</span>{% endif %}
+    </a>
+    {% else %}<p class="empty">—</p>{% endfor %}
+  </div>
+{% endfor %}
+</div>
+{% endblock %}

@@ -1,0 +1,24 @@
+{
+  "name": "autonome-runner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The maestro: plays approved tasks with the Claude Agent SDK, one session per task.",
+  "type": "module",
+  "bin": {
+    "autonome": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "tsc && node --test dist/*.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.302"
+  },
+  "devDependencies": {
+    "@types/node": "22.18.8",
+    "typescript": "5.9.3"
+  }
+}

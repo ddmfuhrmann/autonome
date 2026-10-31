@@ -430,3 +430,38 @@ async def conventions_for(conn: AsyncConnection, project: str, layers: list[str]
     if layers is None:
         return docs
     return [d for d in docs if not d["layers"] or set(d["layers"]) & set(layers)]
+
+
+# --- tasks ---------------------------------------------------------------------------------------
+
+
+async def next_task(conn: AsyncConnection, project: str) -> dict | None:
+    """Released tasks first (they only need merging), then the oldest pending task of an approved
+    plan whose dependencies are done. Locks the row so two runners never take the same task."""
+    row = await (await conn.execute(
+        """select d.id from document d
+           join project p on p.id = d.project_id and p.slug = %(project)s
+           join lateral (select body from document_version v where v.document_id = d.id
+                         order by v.version desc limit 1) dv on true
+           join document plan on plan.id = (dv.body->>'plan_id')::bigint and plan.status = 'approved'
+           where d.type = 'task' and d.status in ('released', 'pending')
+             and not exists (
+                 select 1 from jsonb_array_elements_text(coalesce(dv.body->'depends_on', '[]')) dep
+                 join document dd on dd.id = dep::bigint where dd.status <> 'done')
+           order by (d.status = 'released') desc, plan.id, (dv.body->>'seq')::int
+           limit 1 for update of d skip locked""",
+        {"project": project},
+    )).fetchone()
+    return await get_document(conn, row[0]) if row else None
+
+
+async def finish_plan_if_complete(conn: AsyncConnection, plan_id: int) -> bool:
+    open_tasks = await (await conn.execute(
+        """select count(*) from link l join document t on t.id = l.to_id
+           where l.from_id = %s and l.kind = 'has_task' and t.status not in ('done', 'abandoned')""",
+        (plan_id,),
+    )).fetchone()
+    if open_tasks[0] == 0:
+        await conn.execute("update document set status = 'done' where id = %s and status = 'approved'", (plan_id,))
+        return True
+    return False

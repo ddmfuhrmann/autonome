@@ -44,6 +44,8 @@ class GateConfig(BaseModel):
 
     gates: list[Gate] = []
     interactive: bool = Field(default=False, description="also run the metronome in sessions outside conduct")
+    allowed_commands: list[str] = Field(
+        default=[], description="extra commands (first word) a conduct session may run, besides the gates' own")
     encore: Encore = Encore()
     budget: Budget = Budget()
     fermata: Fermata = Fermata()
@@ -65,6 +67,7 @@ gates:
   - {name: test, run: ./mvnw -q verify}
   - {name: secrets, run: gitleaks detect --no-banner}
 interactive: false
+allowed_commands: [./mvnw]
 encore: {max: 3, stop_on_repeat: true}
 budget: {task_tokens: 400000, task_minutes: 30, plan_tokens: 3000000}
 fermata: {features: []}

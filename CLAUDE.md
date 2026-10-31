@@ -4,8 +4,9 @@ A memory for AI-built software projects, and an agent process that plays in time
 Public repo; it is also a study of chunking and vector search.
 
 ```
-context/   autonome-context (Python): Postgres + pgvector, MCP server, HTTP API for hooks
-plugin/    autonome plugin for Claude Code: hooks, skills, agents (process)
+context/        autonome-context (Python): Postgres + pgvector, MCP server, HTTP API, web UI
+plugin/         autonome plugin for Claude Code: hooks, skills (process), shared lib, bin/
+plugin/runner/  the maestro (TypeScript, Claude Agent SDK): one session + worktree per task
 ```
 
 ## Principles
@@ -27,6 +28,9 @@ plugin/    autonome plugin for Claude Code: hooks, skills, agents (process)
   exists.
 - The plugin's hooks use the Python standard library only and must never break the user's session.
   Shared code lives in `plugin/lib/autonome/`.
+- **Conduct sessions are sandboxed by permission**: `dontAsk` with an allowlist (read/edit files,
+  the gates' own commands, `allowed_commands`, read-only git). Never `bypassPermissions`. Only the
+  runner commits, and main only moves by fast-forward, never over uncommitted work.
 - **Gates**: the rules live in each project's repo; the context only holds their orchestration
   (`gate_config`, edited in the UI). The metronome (`Stop` hook) runs them cheapest first, records
   every run as a fact, and turns repeated failures into a blocked task instead of looping.
@@ -39,6 +43,8 @@ ollama serve & ollama pull nomic-embed-text     # embeddings, native for GPU
 cd context && uv run autonome-context           # migrates, then serves on :8765 (/mcp, /api, /health)
 cd context && uv run pytest                     # the gate; DB tests skip if postgres is down
 uv run --project context pytest plugin/tests    # plugin (stdlib code, tested with the context's pytest)
+pnpm --dir plugin/runner test                   # the runner (TypeScript, Agent SDK)
+plugin/bin/autonome conduct --project <slug>    # play approved tasks of the repo in the cwd
 ```
 
 Install the plugin locally: `claude plugin marketplace add ~/git/autonome` then

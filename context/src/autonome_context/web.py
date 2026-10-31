@@ -206,6 +206,20 @@ async def convention_edit(request: Request) -> Response:
     return RedirectResponse(f"/ui/p/{project}/conventions", status_code=303)
 
 
+SETLIST_COLUMNS = ["pending", "playing", "on_hold", "released", "blocked", "done"]
+
+
+async def setlist_page(request: Request) -> Response:
+    project = request.path_params["project"]
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        tasks = await store.list_documents(conn, project, type="task", limit=500)
+        plans_ = {d["id"]: d for d in await store.list_documents(conn, project, type="plan", limit=200)}
+    columns = {c: [t for t in tasks if t["status"] == c] for c in SETLIST_COLUMNS}
+    columns["done"] = columns["done"][:20]
+    return render(request, "setlist.html", columns=columns, plans=plans_)
+
+
 def routes() -> list:
     return [
         Route("/", lambda r: RedirectResponse("/ui")),
@@ -219,6 +233,7 @@ def routes() -> list:
         Route("/ui/p/{project}/documents/{doc_id:int}", document_page),
         Route("/ui/p/{project}/config", config_page, methods=["GET", "POST"]),
         Route("/ui/p/{project}/approvals", approvals_page),
+        Route("/ui/p/{project}/setlist", setlist_page),
         Route("/ui/p/{project}/documents/{doc_id:int}/transition", transition, methods=["POST"]),
         Route("/ui/p/{project}/conventions", conventions_page, methods=["GET", "POST"]),
         Route("/ui/p/{project}/conventions/{doc_id:int}", convention_edit, methods=["POST"]),

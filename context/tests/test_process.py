@@ -56,3 +56,24 @@ def test_task_briefing_has_spec_out_of_scope_and_layer_conventions(run_db, proje
     assert "Build the form" in task_text and "billing" in task_text
     assert "UI rules body" in task_text and "Everywhere body" in task_text and "API rules" not in task_text
     assert "Conventions:" in interactive
+
+
+def test_tasks_are_claimed_in_order_respecting_dependencies(run_db, project, indexer):
+    async def go(conn):
+        plan_id = await plans.draft(conn, indexer, project, "signup", [], plan_body())
+        first, second = await plans.approve(conn, indexer, plan_id)
+        seen = []
+        task = await store.next_task(conn, project)
+        seen.append(task["id"])
+        await rules.transition(conn, first, "playing", "runner")
+        seen.append(await store.next_task(conn, project))  # second waits for first
+        await rules.transition(conn, first, "done", "runner")
+        seen.append((await store.next_task(conn, project))["id"])
+        await rules.transition(conn, second, "playing", "runner")
+        await rules.transition(conn, second, "done", "runner")
+        finished = await store.finish_plan_if_complete(conn, plan_id)
+        return first, second, seen, finished, (await store.get_document(conn, plan_id))["status"]
+
+    first, second, seen, finished, plan_status = run_db(go)
+    assert seen == [first, None, second]
+    assert finished and plan_status == "done"

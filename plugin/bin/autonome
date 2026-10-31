@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# The maestro. Builds the runner on first use.
+set -euo pipefail
+runner="$(cd "$(dirname "$0")/../runner" && pwd)"
+if [ ! -f "$runner/dist/index.js" ] || [ "$runner/src" -nt "$runner/dist" ]; then
+  (cd "$runner" && pnpm install --silent --frozen-lockfile && pnpm --silent build) >&2
+fi
+exec node "$runner/dist/index.js" "$@"

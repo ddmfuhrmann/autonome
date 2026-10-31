@@ -21,5 +21,17 @@
     <a href="/ui/p/{{ project }}/documents/{{ l.id }}">#{{ l.id }}</a><span class="pill">{{ l.type }}</span><span>{{ l.status or '' }}</span></div>{% endfor %}
 </div>
 {% endif %}
+{% if doc.type == 'task' and doc.body.runs %}
+{% set last = doc.body.runs[-1] %}
+<div class="card">
+  <h2>Last run</h2>
+  <div class="meta"><span class="pill {{ 'ok' if last.outcome in ('merged',) else ('stop' if last.outcome in ('blocked','error') else 'warn') }}">{{ last.outcome }}</span>
+    <span>{{ last.at }}</span><span>{{ last.tokens or 0 }} tokens</span>{% if last.cost_usd %}<span>${{ '%.3f'|format(last.cost_usd) }}</span>{% endif %}
+    <code>{{ last.branch }}</code></div>
+  {% if last.reason %}<pre class="body">{{ last.reason }}</pre>{% endif %}
+  {% if last.diff_stat %}<pre class="body">{{ last.diff_stat }}</pre>{% endif %}
+  {% if last.diff %}<details><summary class="muted">Diff</summary><pre class="body">{{ last.diff }}</pre></details>{% endif %}
+</div>
+{% endif %}
 {% with body = doc.body %}{% include "_body.html" %}{% endwith %}
 {% endblock %}
