@@ -193,6 +193,27 @@ async def post_soundcheck(request: Request) -> JSONResponse:
     return _json({"outcome": outcome})
 
 
+async def untuned_waves(request: Request) -> JSONResponse:
+    """Finished waves the tune loop has not looked at yet."""
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        waves = await store.list_documents(conn, request.path_params["project"], type="wave", status="done", limit=50)
+    return _json([w for w in waves if "tuned" not in w["body"]])
+
+
+async def wave_tuned(request: Request) -> JSONResponse:
+    body = await request.json()
+    pool, indexer = await services.get()
+    async with pool.connection() as conn:
+        async with conn.transaction():
+            wave = await store.get_document(conn, int(request.path_params["doc_id"]))
+            if not wave or wave["type"] != "wave":
+                return _json({"error": "not a wave"}, 404)
+            await store.add_version(conn, None, wave["id"], {**wave["body"], "tuned": {
+                "at": plans._now(), "summary": str(body.get("summary", ""))[:4000]}})
+    return _json({"ok": True})
+
+
 def routes() -> list:
     return [
         Route("/api/projects/{project}/insights", get_insights),
@@ -206,6 +227,8 @@ def routes() -> list:
         Route("/api/tasks/{doc_id:int}/transition", task_transition, methods=["POST"]),
         Route("/api/plans/{doc_id:int}/rehearsal", post_rehearsal, methods=["POST"]),
         Route("/api/plans/{doc_id:int}/soundcheck", post_soundcheck, methods=["POST"]),
+        Route("/api/projects/{project}/waves/untuned", untuned_waves),
+        Route("/api/waves/{doc_id:int}/tuned", wave_tuned, methods=["POST"]),
         Route("/api/projects/{project}/briefing", get_briefing),
         Route("/api/projects/{project}/gate-config", get_gate_config),
         Route("/api/gate-runs", post_gate_runs, methods=["POST"]),

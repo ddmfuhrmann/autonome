@@ -11,6 +11,7 @@ import { ContextError, context, waitForContext, type GateConfig, type Plan, type
 import { doctor, report } from "./doctor.js";
 import { findingsForEncore, review } from "./review.js";
 import { soundcheck } from "./soundcheck.js";
+import { tuneFinishedWaves } from "./tune.js";
 import { commitMessage, fastForwardMain, git, mainCheckout, stageWork, strayFiles, tryGit } from "./git.js";
 
 export const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -436,6 +437,8 @@ export async function conduct(opts: ConductOptions): Promise<number> {
         continue;
       }
       if (!task) {
+        // The queue is empty: a wave may have just finished. Learn from it before waiting or leaving.
+        await tuneFinishedWaves(opts);
         if (!opts.watch) break;
         if (sinceOverview) updateDocs(opts.repo, opts.project, ["--overview"], opts.log);
         sinceOverview = 0;

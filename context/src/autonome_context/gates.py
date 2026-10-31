@@ -76,6 +76,7 @@ class GateConfig(BaseModel):
     fermata: Fermata = Fermata()
     cues: list[Cue] = []
     review: Review = Review()
+    tune_after_wave: bool = Field(default=True, description="propose conventions from each finished wave's evidence")
     soundcheck: Soundcheck | None = None
 
     @classmethod

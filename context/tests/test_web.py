@@ -113,3 +113,18 @@ def test_tooling_features_and_development_notes_stay_apart_from_the_product(clie
     assert "links doc" in product and "quality-gates doc" not in product
     assert "quality-gates doc" in dev
     assert 'id="dev-h">Development</h2>' in page and "<code>uv run pytest</code> runs the tests" in page
+
+
+def test_finished_waves_are_listed_until_tuned(client, project, run_db, indexer):
+    async def go(conn):
+        a = await plans.draft(conn, indexer, project, "links", [], PlanBody(title="L", goal="g", tasks=[TaskSpec(title="t", spec="s")]))
+        wave = await plans.draft_wave(conn, indexer, project, plans.WaveBody(title="MVP", goal="g", features=[plans.WaveFeature(plan_id=a)]))
+        await plans.approve_wave(conn, indexer, wave)
+        await rules.transition(conn, wave, "done", "runner")
+        await conn.commit()
+        return wave
+    wave = run_db(go)
+    assert [w["id"] for w in client.get(f"/api/projects/{project}/waves/untuned").json()] == [wave]
+    assert client.post(f"/api/waves/{wave}/tuned", json={"summary": "proposed C-1"}).json() == {"ok": True}
+    assert client.get(f"/api/projects/{project}/waves/untuned").json() == []
+    assert "What the process learned" in client.get(f"/ui/p/{project}/documents/{wave}").text

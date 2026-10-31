@@ -230,14 +230,19 @@ async def insights_get(project: str) -> dict:
 
 @mcp.tool()
 async def convention_propose(project: str, title: str, rule: str, why: str, layers: list[str] = [],
-                             replaces: Annotated[int | None, Field(description="id of the convention it would replace")] = None) -> dict:
+                             replaces: Annotated[int | None, Field(description="id of the convention it would replace")] = None,
+                             evidence: Annotated[list[int], Field(description="ids of the documents that justify it: tasks, handoffs, plans")] = []) -> dict:
     """Suggest a new or changed convention. It stays proposed until a human activates it in the UI."""
     pool, indexer = await services.get()
     async with pool.connection() as conn:
         async with conn.transaction():
             doc_id = await store.create_document(
                 conn, indexer, project=project, type="convention", status="proposed", layers=layers,
-                body={"title": title, "rule": rule, "why": why, "replaces": replaces})
+                body={"title": title, "rule": rule, "why": why, "replaces": replaces, "evidence": evidence})
+            for e in evidence:
+                found = await store.get_document(conn, e)
+                if found and found["project"] == project:
+                    await store.link(conn, doc_id, e, "evidence")
     return {"convention_id": doc_id, "status": "proposed"}
 
 

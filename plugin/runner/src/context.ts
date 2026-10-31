@@ -61,6 +61,7 @@ export interface GateConfig {
     budget: { task_tokens: number; task_minutes: number; plan_tokens: number };
     cues?: Cue[];
     review: { enabled: boolean; max_rounds: number };
+    tune_after_wave?: boolean;
     soundcheck: Soundcheck | null;
   };
 }
@@ -196,6 +197,9 @@ export const context = {
       method: "POST",
       body: JSON.stringify({ to, run }),
     }),
+  untunedWaves: (project: string) => call<Plan[]>(`/api/projects/${project}/waves/untuned`),
+  waveTuned: (waveId: number, summary: string) =>
+    call<{ ok: boolean }>(`/api/waves/${waveId}/tuned`, { method: "POST", body: JSON.stringify({ summary }) }),
   briefing: (project: string, taskId: number) =>
     call<{ text: string }>(`/api/projects/${project}/briefing?task_id=${taskId}`),
   gateConfig: (project: string) => call<GateConfig>(`/api/projects/${project}/gate-config`),

@@ -89,6 +89,12 @@
         {% if doc.body.out_of_scope %}<h3>Out of scope</h3><ul>{% for o in doc.body.out_of_scope %}<li>{{ o|mdi }}</li>{% endfor %}</ul>{% endif %}
       </div>
     </div>
+    {% if doc.body.tuned %}
+    <div class="card">
+      <div class="card__head"><h2 class="card__title">What the process learned</h2><a class="push muted" style="font-size: 12px" href="/ui/p/{{ project }}/approvals">proposals</a></div>
+      <div class="card__body prose" style="font-size: 13px">{{ doc.body.tuned.summary|md }}<p class="muted">Tuned {{ doc.body.tuned.at }}. Proposed conventions wait for you on Approvals.</p></div>
+    </div>
+    {% endif %}
     {% if doc.body.discussion %}
     <details class="card"><summary class="card__head"><span class="card__title">How it was composed</span><span class="push muted" style="font-size: 12px">{{ doc.body.discussion|length }} turns</span></summary>
       <div class="card__body">{% for t in doc.body.discussion %}<p style="font-size: 13px"><strong>{{ t.role }}:</strong> {{ t.text }}</p>{% endfor %}</div>

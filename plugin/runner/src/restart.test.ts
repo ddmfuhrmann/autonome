@@ -46,6 +46,7 @@ test("a merge the context could not record is recorded as done by the next condu
     const url = String(input);
     if (url.endsWith("/health")) return json({ status: "ok" });
     if (url.endsWith("/api/tags")) return json({ models: [{ name: "nomic-embed-text" }] });
+    if (url.endsWith("/waves/untuned")) return json([]);
     if (url.endsWith("/gate-config")) return json({ config: { gates: [{ name: "t", run: "true" }] } });
     if (url.includes("/tasks/25/transition")) { transitions.push(JSON.parse(String(init?.body))); return json({ status: "done" }); }
     return json({ task: null, rehearse: null, soundcheck: null });
