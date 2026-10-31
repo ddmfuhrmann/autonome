@@ -225,7 +225,7 @@ def test_the_waves_page_edits_the_backlog(client, project, run_db, indexer):
         await conn.commit()
     run_db(go)
     page = client.get(f"/ui/p/{project}/waves").text
-    assert 'name="key" value="w1-x"' in page and "Remove w1-x from the backlog?" in page
+    assert "data-backlog-edit=" in page and '"id": "w1-x"' in page and 'id="backlog-dialog"' in page
     r = client.post(f"/ui/p/{project}/backlog", data={"op": "save", "key": "w1-x", "title": "X", "status": "doing",
                                                        "note": "", "wave": "2"}, headers=FETCH)
     assert r.status_code == 200 and r.json()["notice"] == "w1-x: status, wave saved"

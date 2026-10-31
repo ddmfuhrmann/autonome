@@ -12,44 +12,81 @@
   {% else %}<tr><td colspan="7" class="empty">No waves yet. Compose one with <code>/autonome:compose</code>.</td></tr>{% endfor %}</tbody>
 </table></div>
 {% if backlog %}
+{% set state = {'backlog': 'pending', 'next': 'pending', 'doing': 'playing', 'done': 'done'} %}
 <section class="stack" aria-labelledby="backlog-h">
-  <div class="section-head"><h2 id="backlog-h">Backlog</h2><span class="muted" style="font-size: 13px">the roadmap's waves; edit here or through the MCP, and compose a wave from one with <code>/autonome:compose</code></span></div>
-  {% set back = request.url.path %}
+  <div class="section-head"><h2 id="backlog-h">Backlog</h2><span class="muted" style="font-size: 13px">the roadmap's waves; compose a wave from one with <code>/autonome:compose</code></span></div>
   {% for b in backlog %}{% set items = b.body["items"] %}
   <details class="card"{% if b.status != 'done' and loop.index <= 2 %} open{% endif %}>
     <summary class="card__head"><span class="card__title">{{ b.body.title }}</span>
       <span class="push muted" style="font-size: 12px">{{ items|rejectattr('status', 'equalto', 'done')|list|length }} open of {{ items|length }}</span></summary>
-    <div class="card__body stack stack--sm">
-      {% for i in items %}
-      <form class="backlog-row" method="post" action="/ui/p/{{ project }}/backlog">
-        <input type="hidden" name="next" value="{{ back }}"><input type="hidden" name="key" value="{{ i.id }}">
-        <span class="mono muted" style="font-size: 12px">{{ i.id }}</span>
-        <input type="text" name="title" value="{{ i.title }}" aria-label="Title of {{ i.id }}">
-        <select name="status" aria-label="Status of {{ i.id }}">{% for st in statuses %}<option{% if st == i.status %} selected{% endif %}>{{ st }}</option>{% endfor %}</select>
-        <input type="text" name="note" value="{{ i.note or '' }}" placeholder="note" aria-label="Note of {{ i.id }}">
-        <select name="wave" aria-label="Wave of {{ i.id }}">{% for w in backlog %}<option value="{{ w.body.wave }}"{% if w.body.wave == b.body.wave %} selected{% endif %}>wave {{ w.body.wave }}</option>{% endfor %}</select>
-        <button class="btn" name="op" value="save" type="submit">Save</button>
-        <details class="confirm"><summary class="btn btn--danger">Remove…</summary>
-          <div class="confirm__panel"><h4>Remove {{ i.id }} from the backlog?</h4>
-            <input type="text" name="reason" placeholder="why (kept in its history)">
-            <button class="btn btn--danger-solid" name="op" value="remove" type="submit">Remove</button></div></details>
-      </form>
-      {% endfor %}
-      <form class="backlog-row" method="post" action="/ui/p/{{ project }}/backlog">
-        <input type="hidden" name="next" value="{{ back }}"><input type="hidden" name="wave" value="{{ b.body.wave }}">
-        <input type="text" name="key" placeholder="id, e.g. w{{ b.body.wave }}-new" aria-label="New item id" required>
-        <input type="text" name="title" placeholder="title" aria-label="New item title" required>
-        <select name="status" aria-label="New item status">{% for st in statuses %}<option>{{ st }}</option>{% endfor %}</select>
-        <input type="text" name="note" placeholder="note" aria-label="New item note">
-        <span></span>
-        <button class="btn btn--primary" name="op" value="add" type="submit">Add</button>
-      </form>
-      {% set changes = (b.body.changes or [])[-5:]|reverse|list %}
-      {% if changes %}<details><summary class="muted" style="font-size: 12px; cursor: pointer">Recent changes</summary>
-        <ul style="font-size: 12px">{% for c in changes %}<li><span class="mono">{{ c.item }}</span> {{ c.field }}: {{ c.old if c.old is not mapping else c.old.title }} → {{ c.new }} <span class="muted">· {{ c.by }} · {{ c.at }}</span></li>{% endfor %}</ul></details>{% endif %}
+    <div class="card__body card__body--flush">
+      <table class="table backlog">
+        <tbody>
+        {% for i in items %}
+        <tr><td class="mono muted backlog__id">{{ i.id }}</td>
+          <td>{{ i.title|mdi }}{% if i.note %}<div class="muted backlog__note">{{ i.note|mdi }}</div>{% endif %}</td>
+          <td class="backlog__status">{{ ui.st(state.get(i.status, 'pending'), sm=true, text=i.status) }}{% if i.prd %} <span class="tag">PRD</span>{% endif %}</td>
+          <td class="backlog__act"><button class="btn" type="button" data-backlog-edit='{{ {"id": i.id, "title": i.title, "status": i.status, "note": i.note or "", "prd": i.prd is sameas true, "wave": b.body.wave}|tojson }}'>Edit</button></td></tr>
+        {% else %}<tr><td class="empty">No items.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+      <div class="backlog__add"><button class="btn" type="button" data-backlog-add="{{ b.body.wave }}">+ Add item</button></div>
     </div>
   </details>
   {% endfor %}
 </section>
+
+<dialog id="backlog-dialog" class="modal" aria-labelledby="backlog-dialog-h">
+  <form class="stack" method="post" action="/ui/p/{{ project }}/backlog">
+    <h3 id="backlog-dialog-h">Edit item</h3>
+    <input type="hidden" name="next" value="{{ request.url.path }}">
+    <label class="field"><span>Id</span><input type="text" name="key" required></label>
+    <label class="field"><span>Title</span><input type="text" name="title" required></label>
+    <div class="row">
+      <label class="field"><span>Status</span><select name="status">{% for st in statuses %}<option>{{ st }}</option>{% endfor %}</select></label>
+      <label class="field"><span>Wave</span><select name="wave">{% for w in backlog %}<option value="{{ w.body.wave }}">{{ w.body.title }}</option>{% endfor %}</select></label>
+    </div>
+    <label class="field"><span>Note</span><textarea name="note" rows="3"></textarea></label>
+    <div class="modal__remove" hidden>
+      <label class="field"><span>Why remove it (kept in its history)</span><input type="text" name="reason"></label>
+    </div>
+    <div class="row row--between">
+      <button class="btn btn--danger" type="button" data-backlog-remove>Remove…</button>
+      <span class="row"><button class="btn" type="button" data-backlog-close>Cancel</button>
+        <button class="btn btn--primary" name="op" value="save" type="submit">Save</button></span>
+    </div>
+  </form>
+</dialog>
+<script>
+(() => {
+  const dialog = document.getElementById("backlog-dialog");
+  const form = dialog.querySelector("form");
+  const f = (name) => form.elements[name];
+  const removeBox = dialog.querySelector(".modal__remove");
+  const removeBtn = dialog.querySelector("[data-backlog-remove]");
+  const save = form.querySelector('button[name="op"]');
+  const open = (item, add) => {
+    dialog.querySelector("h3").textContent = add ? `New item in wave ${item.wave}` : `Edit ${item.id}`;
+    f("key").value = item.id || ""; f("key").readOnly = !add;
+    f("title").value = item.title || ""; f("status").value = item.status || "backlog";
+    f("note").value = item.note || ""; f("wave").value = String(item.wave);
+    f("reason").value = ""; removeBox.hidden = true; removeBtn.hidden = add;
+    removeBtn.textContent = "Remove…"; save.value = add ? "add" : "save"; save.textContent = add ? "Add" : "Save";
+    save.classList.replace("btn--danger-solid", "btn--primary");
+    dialog.showModal(); (add ? f("key") : f("title")).focus();
+  };
+  document.addEventListener("click", (ev) => {
+    const edit = ev.target.closest("[data-backlog-edit]");
+    if (edit) open(JSON.parse(edit.dataset.backlogEdit), false);
+    const add = ev.target.closest("[data-backlog-add]");
+    if (add) open({ wave: add.dataset.backlogAdd }, true);
+  });
+  dialog.querySelector("[data-backlog-close]").addEventListener("click", () => dialog.close());
+  removeBtn.addEventListener("click", () => {
+    removeBox.hidden = false; removeBtn.hidden = true; f("reason").focus();
+    save.value = "remove"; save.textContent = "Remove"; save.classList.replace("btn--primary", "btn--danger-solid");
+  });
+})();
+</script>
 {% endif %}
 {% endblock %}
