@@ -84,6 +84,32 @@ playback and the soundcheck as described in the [configuration guide](docs/confi
 the memory stores, indexes and serves everything is in [docs/memory.md](docs/memory.md).
 Benchmarks of real runs are in [docs/benchmarks](docs/benchmarks).
 
+## Usage
+
+**In Claude Code**, from the project's repo:
+
+| Skill | When |
+|---|---|
+| `/autonome:compose` | plan a feature, a fix or a wave of features with the agent; ends in a draft you approve |
+| `/autonome:conduct` | play the approved tasks; when the run stops it tells you what merged and walks you through what waits |
+| `/autonome:watch` | follow a run from the session: notifications, and each waiting item discussed and decided in the chat |
+| `/autonome:tune` | see how the process is going and get proposed conventions and gate changes |
+
+**In a terminal**, `plugin/bin/autonome` (also on the plugin's `bin/`), from the project's repo:
+
+```bash
+autonome doctor  --project <slug>                 # is everything conduct needs in place?
+autonome conduct --project <slug>                 # play approved tasks until none is left
+                 [--watch [--every 60]]           #   keep waiting for new approved work
+                 [--push] [--model <m>] [--effort <e>] [--max-tasks <n>]
+autonome watch   --project <slug> [--once]        # a line per change; --once: the state and exit
+autonome cues    --project <slug> [--force]       # scheduled checks that queue maintenance tasks (cron)
+```
+
+`--repo <path>` points any of them at another checkout. The whole cycle is in
+[plugin/README.md](plugin/README.md); what to do when a run stops is in
+[docs/operations.md](docs/operations.md).
+
 ## License
 
 MIT
