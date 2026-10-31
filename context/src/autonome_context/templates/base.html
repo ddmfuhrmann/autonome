@@ -65,11 +65,42 @@
     {% block topbar %}{% endblock %}
   </header>
   <div class="page">
+    <div id="notices" aria-live="polite">{% if request.query_params.done %}<p class="notice notice--ok" role="status">{{ request.query_params.done }}</p>{% endif %}</div>
     {% block main %}{% endblock %}
   </div>
 </main>
 </div>
 <script>
+// Human decisions are posted in the background: the button says so while it waits, the page only
+// shows the new status once the context confirms it, and a failure is said out loud, not swallowed.
+document.addEventListener("submit", async (ev) => {
+  const form = ev.target;
+  if (!(form instanceof HTMLFormElement) || !form.action.endsWith("/transition")) return;
+  ev.preventDefault();
+  const button = ev.submitter;
+  const label = button?.textContent;
+  const buttons = form.querySelectorAll("button");
+  buttons.forEach((b) => { b.disabled = true; });
+  if (button) button.textContent = "Saving…";
+  const notices = document.getElementById("notices");
+  try {
+    const res = await fetch(form.action, { method: "POST", body: new FormData(form, button), headers: { "X-Requested-With": "fetch" } });
+    const data = await res.json().catch(() => ({ error: `the context answered ${res.status}` }));
+    if (!res.ok) throw new Error(data.error);
+    const to = new URL(data.location, location.href);
+    to.searchParams.set("done", data.notice);
+    location.assign(to);
+  } catch (e) {
+    const reason = e instanceof TypeError ? "the context did not answer (restarting?); try again in a moment" : e.message;
+    notices.innerHTML = "";
+    const p = Object.assign(document.createElement("p"), { className: "notice notice--error", role: "alert" });
+    p.textContent = `“${label?.trim() ?? "That"}” did not go through: ${reason}. Nothing changed.`;
+    notices.append(p);
+    buttons.forEach((b) => { b.disabled = false; });
+    if (button) button.textContent = label;
+  }
+});
+
 // Pages with a [data-refresh] element swap their [data-live] regions every few seconds.
 // A region is left alone while the human is deciding inside it (an open confirm, focus).
 (() => {

@@ -628,3 +628,11 @@ pre.mermaid { margin: 0; background: none; border: 0; overflow-x: auto; }
 .callout .prose { min-width: 0; }
 /* on phones the nav row scrolls inside the sidebar instead of widening the page */
 @media (max-width: 860px) { .side { min-width: 0; max-width: 100%; } .side__nav { min-width: 0; } }
+
+/* Outcome of a human decision. */
+#notices:empty { display: none; }
+.notice { margin: 0 0 16px; padding: 10px 14px; border-radius: 8px; border: 1px solid; font-size: 14px; }
+.notice--ok { color: var(--green-fg); background: var(--green-bg); border-color: var(--green-line); }
+.notice--ok::before { content: "✓ "; }
+.notice--error { color: var(--red-fg); background: var(--red-bg); border-color: var(--red-line); }
+.notice--error::before { content: "✕ "; }

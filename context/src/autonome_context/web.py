@@ -1,17 +1,19 @@
 """Server-rendered UI: the human side of the context (setlist, approvals, memory, setup)."""
 
 import json
+import logging
 import re
 from dataclasses import asdict
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlencode
 
 import markdown as md
 from markupsafe import Markup
 
 from starlette.requests import Request
-from starlette.responses import RedirectResponse, Response
+from starlette.responses import JSONResponse, RedirectResponse, Response
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
@@ -20,6 +22,7 @@ from . import evaluation, insights, plans, rules, services, store
 from .chunking import DEFAULT_STRATEGY, STRATEGIES
 from .gates import EXAMPLE, GateConfig
 
+log = logging.getLogger(__name__)
 _HERE = Path(__file__).parent
 templates = Jinja2Templates(directory=_HERE / "templates")
 templates.env.filters["pretty"] = lambda v: json.dumps(v, indent=2, ensure_ascii=False, default=str)
@@ -543,17 +546,28 @@ async def approvals_page(request: Request) -> Response:
 
 
 async def transition(request: Request) -> Response:
-    """The human gate. Only reachable from the UI."""
+    """The human gate. Only reachable from the UI. The page script posts with X-Requested-With: fetch
+    and gets JSON, so it can show the outcome and only then reflect the new status; a plain form post
+    is redirected with a notice."""
     project, doc_id = request.path_params["project"], int(request.path_params["doc_id"])
     form = await request.form()
     to = str(form.get("to"))
     back = str(form.get("next") or "")
-    pool, indexer = await services.get()
-    async with pool.connection() as conn:
-        doc = await store.get_document(conn, doc_id)
-        if not doc or doc["project"] != project:
-            return Response("not found", status_code=404)
-        try:
+    if not back.startswith(f"/ui/p/{project}/"):
+        back = f"/ui/p/{project}/documents/{doc_id}"
+    from_script = request.headers.get("x-requested-with") == "fetch"
+
+    def failed(message: str, status: int) -> Response:
+        if from_script:
+            return JSONResponse({"error": message}, status_code=status)
+        return Response(f"{message}\n\nNothing changed. Go back: {back}", status_code=status)
+
+    try:
+        pool, indexer = await services.get()
+        async with pool.connection() as conn:
+            doc = await store.get_document(conn, doc_id)
+            if not doc or doc["project"] != project:
+                return failed("not found", 404)
             if doc["type"] == "plan" and doc["status"] == "held" and to in ("revised", "approved"):
                 await plans.resolve_rehearsal(conn, indexer, doc_id, accept=to == "revised")
             elif doc["type"] == "plan" and doc["status"] == "blocked" and to == "approved":
@@ -566,11 +580,17 @@ async def transition(request: Request) -> Response:
                 await plans.approve_wave(conn, indexer, doc_id)
             else:
                 await rules.transition(conn, doc_id, to, "human")
-        except rules.Forbidden as e:
-            return Response(str(e), status_code=409)
-    if not back.startswith(f"/ui/p/{project}/"):
-        back = f"/ui/p/{project}/documents/{doc_id}"
-    return RedirectResponse(back, status_code=303)
+            now = (await store.get_document(conn, doc_id))["status"]
+    except rules.Forbidden as e:
+        return failed(str(e), 409)
+    except Exception as e:  # the database or the context restarting: say so, never pretend it worked
+        log.exception("transition of #%s to %s failed", doc_id, to)
+        return failed(f"the context could not save it ({type(e).__name__}); try again in a moment", 503)
+    notice = f"#{doc_id} is now {now}"
+    if from_script:
+        return JSONResponse({"status": now, "notice": notice, "location": back})
+    sep = "&" if "?" in back else "?"
+    return RedirectResponse(f"{back}{sep}{urlencode({'done': notice})}", status_code=303)
 
 
 async def conventions_page(request: Request) -> Response:
