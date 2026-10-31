@@ -102,5 +102,5 @@ connection errors.
 
 `/ui` lists projects; `/ui/p/{project}/…` has Setlist, Approvals, Waves, Features, Insights, Search,
 Documents, Lab, Conventions and Config. Human decisions post to
-`/ui/p/{project}/documents/{id}/transition` and `/…/playback`, backlog edits to `/ui/p/{project}/backlog`; with `X-Requested-With: fetch` they
+`/ui/p/{project}/documents/{id}/transition` and `/…/playback`; with `X-Requested-With: fetch` they
 answer JSON, otherwise they redirect with a notice.

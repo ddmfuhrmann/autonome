@@ -75,7 +75,7 @@
 // shows the new status once the context confirms it, and a failure is said out loud, not swallowed.
 document.addEventListener("submit", async (ev) => {
   const form = ev.target;
-  if (!(form instanceof HTMLFormElement) || !/\/(transition|playback|backlog)$/.test(form.action)) return;
+  if (!(form instanceof HTMLFormElement) || !/\/(transition|playback)$/.test(form.action)) return;
   ev.preventDefault();
   const button = ev.submitter;
   const label = button?.textContent;

@@ -636,18 +636,3 @@ pre.mermaid { margin: 0; background: none; border: 0; overflow-x: auto; }
 .notice--ok::before { content: "✓ "; }
 .notice--error { color: var(--red-fg); background: var(--red-bg); border-color: var(--red-line); }
 .notice--error::before { content: "✕ "; }
-
-/* Backlog: a read-only list per wave; editing happens in a dialog. */
-.table.backlog td { vertical-align: top; }
-.backlog__id { width: 9rem; font-size: 12px; white-space: nowrap; }
-.backlog__note { font-size: 12px; margin-top: 2px; }
-.backlog__status { width: 8rem; white-space: nowrap; }
-.backlog__act { width: 1%; text-align: right; }
-.backlog__add { padding: 10px 16px; }
-.modal { border: 1px solid var(--line-strong); border-radius: var(--r-4); background: var(--surface); color: var(--fg);
-  padding: 20px; width: min(560px, calc(100vw - 32px)); }
-.modal::backdrop { background: rgb(0 0 0 / .45); }
-.modal h3 { margin: 0; }
-.field { display: grid; gap: 4px; flex: 1; font-size: 13px; }
-.field > span { color: var(--muted); }
-.field input, .field select, .field textarea { width: 100%; }
