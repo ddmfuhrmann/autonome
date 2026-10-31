@@ -39,7 +39,7 @@ An orchestra doesn't need the composer on stage.
 
 | Part | What it is |
 |---|---|
-| `context/` | **autonome-context**: the memory. Postgres + pgvector, hybrid search (vector + full-text, fused by RRF), an MCP server for agents and a web UI for humans. It's also a lab for comparing chunking strategies and embedding models. |
+| `context/` | **autonome-context**: the memory. Postgres + pgvector, vector search by default (full-text and an RRF hybrid on request), an MCP server for agents and a web UI for humans. It's also a lab for comparing chunking strategies and embedding models. |
 | `plugin/` | **autonome plugin** for Claude Code: the recommended process (compose, conduct, tune) as skills, agents and hooks. It's the context's first client, not its only one. |
 
 ## Quick start
