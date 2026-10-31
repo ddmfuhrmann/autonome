@@ -1,13 +1,13 @@
 // The maestro: takes approved tasks one by one, plays each in its own session and worktree, and
 // only lets work reach main when the gates agree.
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { consult } from "./agents.js";
-import { ContextError, context, type GateConfig, type Plan, type Rehearsal, type Run, type Task } from "./context.js";
+import { ContextError, context, waitForContext, type GateConfig, type Plan, type Rehearsal, type Run, type Task } from "./context.js";
 import { findingsForEncore, review } from "./review.js";
 import { soundcheck } from "./soundcheck.js";
 import { commitMessage, fastForwardMain, git, mainCheckout, stageWork, strayFiles, tryGit } from "./git.js";
@@ -227,6 +227,40 @@ function integrate(repo: string, worktree: string, branch: string, push: boolean
   return { ok: true };
 }
 
+/** Thrown when a task reached main but the context could not record it; the next conduct does. */
+class MergedUnrecorded extends ContextError {}
+
+function journalPath(project: string, taskId: number): string {
+  return join(AUTONOME_HOME, "state", `merged-${project}-${taskId}.json`);
+}
+
+/** Main moved: the context must learn it, now or on the next conduct, so the task never plays twice. */
+async function recordMerged(task: Task, run: Run, opts: ConductOptions): Promise<void> {
+  try {
+    await context.transition(task.id, "done", run);
+  } catch (e) {
+    if (!(e instanceof ContextError)) throw e;
+    mkdirSync(join(AUTONOME_HOME, "state"), { recursive: true });
+    writeFileSync(journalPath(opts.project, task.id), JSON.stringify({ task_id: task.id, run }));
+    throw new MergedUnrecorded(`${e.message}\n  #${task.id} is merged into main; it will be recorded as done on the next conduct`);
+  }
+}
+
+/** Records merges an earlier conduct could not report. */
+async function replayJournal(opts: ConductOptions): Promise<void> {
+  const dir = join(AUTONOME_HOME, "state");
+  const prefix = `merged-${opts.project}-`;
+  for (const f of existsSync(dir) ? readdirSync(dir).filter((n) => n.startsWith(prefix)) : []) {
+    const { task_id, run } = JSON.parse(readFileSync(join(dir, f), "utf8")) as { task_id: number; run: Run };
+    await context.transition(task_id, "done", run).catch((e) => {
+      if (e instanceof ContextError) throw e; // still down: keep the journal entry
+      opts.log(`#${task_id}: ${String(e)} (already recorded?)`);
+    });
+    rmSync(join(dir, f));
+    opts.log(`#${task_id} merged earlier; recorded as done now`);
+  }
+}
+
 async function conductTask(task: Task, opts: ConductOptions): Promise<void> {
   const { repo, log } = opts;
   if (task.status === "released") {
@@ -234,8 +268,8 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<void> {
     if (!last) return void (await context.transition(task.id, "pending"));
     log(`#${task.id} released at the fermata; merging ${last.branch}`);
     const r = integrate(repo, last.worktree, last.branch, opts.push);
-    await context.transition(task.id, r.ok ? "done" : "pending",
-      { ...last, at: now(), outcome: r.ok ? "merged" : "merge-failed", reason: r.reason });
+    if (r.ok) await recordMerged(task, { ...last, at: now(), outcome: "merged" }, opts);
+    else await context.transition(task.id, "pending", { ...last, at: now(), outcome: "merge-failed", reason: r.reason });
     log(r.ok ? `  merged` : `  could not merge: ${r.reason}`);
     if (r.ok && task.feature) updateDocs(repo, opts.project, ["--feature", task.feature], log);
     return;
@@ -313,7 +347,7 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<void> {
   }
   const r = integrate(repo, worktree, branch, opts.push);
   if (!r.ok) return block(r.reason ?? "could not merge");
-  await context.transition(task.id, "done", { ...run, outcome: "merged" });
+  await recordMerged(task, { ...run, outcome: "merged" }, opts);
   log(`  merged into main`);
   if (task.feature) updateDocs(repo, opts.project, ["--feature", task.feature], log);
 }
@@ -330,12 +364,13 @@ async function soundcheckPlan(plan: Plan, opts: ConductOptions): Promise<void> {
 }
 
 export async function conduct(opts: ConductOptions): Promise<number> {
-  await context.health().catch(() => {
+  if (!(await waitForContext(Number(process.env.AUTONOME_CONTEXT_WAIT_S ?? 30)))) {
     throw new Error("autonome-context is unreachable; the conductor does not play without it");
-  });
+  }
   if (git(opts.repo, "rev-parse", "--show-toplevel") !== resolve(opts.repo)) {
     throw new Error(`${opts.repo} is not the root of a git repository`);
   }
+  await replayJournal(opts);
   let played = 0;
   let sinceOverview = 0;
   while (played < opts.maxTasks) {
@@ -365,6 +400,7 @@ export async function conduct(opts: ConductOptions): Promise<number> {
       }
       await conductTask(task, opts);
     } catch (e) {
+      if (e instanceof MergedUnrecorded) throw e;
       if (e instanceof ContextError) {
         // Not the task's fault: hand it back and stop, rather than block it or spin on a broken context.
         opts.log(`${e.message}\n  #${task.id} goes back to pending; stopping the conductor`);

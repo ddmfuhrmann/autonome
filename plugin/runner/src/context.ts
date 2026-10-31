@@ -119,12 +119,29 @@ export class ContextError extends Error {}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Polls /health with backoff until the context answers, for up to AUTONOME_CONTEXT_WAIT_S (300 s). */
+export async function waitForContext(limitS = Number(process.env.AUTONOME_CONTEXT_WAIT_S ?? 300)): Promise<boolean> {
+  const deadline = Date.now() + limitS * 1000;
+  let delay = Number(process.env.AUTONOME_CONTEXT_RETRY_MS ?? 1000);
+  while (Date.now() < deadline) {
+    try {
+      if ((await fetch(`${CONTEXT_URL}/health`)).ok) return true;
+    } catch {
+      // still down
+    }
+    await sleep(Math.min(delay, Math.max(0, deadline - Date.now())));
+    delay = Math.min(delay * 2, 15_000);
+  }
+  return false;
+}
+
 /** Calls the context API. A 4xx is an answer and throws at once; a 5xx, a non-JSON body or a network
  * error is retried with backoff, then thrown as a ContextError naming the call. */
 export async function call<T>(path: string, init?: RequestInit, attempts = 3): Promise<T> {
   const what = `${init?.method ?? "GET"} ${path}`;
   const delay = Number(process.env.AUTONOME_CONTEXT_RETRY_MS ?? 500);
   let failure = "";
+  let waited = false;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     if (attempt > 1) await sleep(delay * 2 ** (attempt - 2));
     let res: Response;
@@ -137,6 +154,11 @@ export async function call<T>(path: string, init?: RequestInit, attempts = 3): P
       text = await res.text();
     } catch (e) {
       failure = `context API unreachable on ${what}: ${String(e)}`;
+      // Unreachable usually means restarting: wait for it once, then pick up the same call.
+      if (!waited && (await waitForContext())) {
+        waited = true;
+        attempt--;
+      }
       continue;
     }
     let body: (T & { error?: string }) | undefined;

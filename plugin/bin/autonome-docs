@@ -24,10 +24,15 @@ def main() -> int:
     args = parser.parse_args()
     cwd = os.getcwd()
     project = args.project or common.project_slug(cwd)
-    if args.overview:
-        print(f"overview: document #{docs.update_overview(project, cwd)}")
-    else:
-        print(f"{args.feature}: document #{docs.update_feature(project, args.feature, cwd)}")
+    common.WAIT_S = float(os.getenv("AUTONOME_CONTEXT_WAIT_S", "300"))
+    try:
+        if args.overview:
+            print(f"overview: document #{docs.update_overview(project, cwd)}")
+        else:
+            print(f"{args.feature}: document #{docs.update_feature(project, args.feature, cwd)}")
+    except (OSError, RuntimeError) as e:  # one line for the maestro's log, not a traceback
+        print(f"autonome-docs: {e}", file=sys.stderr)
+        return 1
     return 0
 
 
