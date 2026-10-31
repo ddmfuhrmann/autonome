@@ -51,7 +51,8 @@ async def search(
     feature: str | None = None,
     layer: str | None = None,
     type: Annotated[str | None, Field(description="plan, task, handoff, decision, convention, ...")] = None,
-    mode: Literal["hybrid", "vector", "fts"] = "hybrid",
+    mode: Annotated[Literal["hybrid", "vector", "fts"], Field(
+        description="vector (default) finds paraphrases and Portuguese questions over English text; fts for exact names")] = "vector",
     k: int = 8,
 ) -> list[dict]:
     """Search the project's memory. Returns the best chunk of each matching document."""

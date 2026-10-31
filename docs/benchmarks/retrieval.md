@@ -38,7 +38,7 @@ Hit@5 (at least one expected document in the top 5), section-v1, by the language
 
 ## Next
 
-1. Make `vector` the default search mode, or down-weight full-text in the fusion when it finds
-   little (measure both with the same 86 questions).
+1. ~~Make `vector` the default search mode~~ done; hybrid and fts stay available. Down-weighting
+   full-text in the fusion is still worth measuring with the same 86 questions.
 2. Try a multilingual embedding model (e.g. bge-m3 or multilingual-e5) as a new strategy in the
    lab, against the same questions.

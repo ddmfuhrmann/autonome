@@ -64,7 +64,7 @@ def _md_inline(v) -> Markup:
 templates.env.filters["mdi"] = _md_inline
 
 DOC_TYPES = ["handoff", "plan", "task", "decision", "convention", "gate_config", "design", "feature_doc", "wave"]
-MODES = ["hybrid", "vector", "fts"]
+MODES = ["vector", "hybrid", "fts"]
 REF_PREFIX = {"task": "T", "plan": "P", "wave": "W", "decision": "D", "handoff": "H", "convention": "C"}
 STATUS_LABELS = {"on_hold": "On hold", "merge-failed": "Merge failed", "fts": "Full-text"}
 SEVERITY = {"high": "blocker", "medium": "major", "low": "minor"}
@@ -367,7 +367,7 @@ async def _readable(conn, hits: list) -> list[dict]:
 async def search_page(request: Request) -> Response:
     p = request.query_params
     q = p.get("q", "").strip()
-    mode = p.get("mode") if p.get("mode") in MODES else "hybrid"
+    mode = p.get("mode") if p.get("mode") in MODES else "vector"
     strategy = p.get("strategy") if p.get("strategy") in STRATEGIES else DEFAULT_STRATEGY
     hits = []
     if q:

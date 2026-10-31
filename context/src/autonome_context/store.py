@@ -339,7 +339,7 @@ async def search(
     feature: str | None = None,
     layer: str | None = None,
     doc_type: str | None = None,
-    mode: SearchMode = "hybrid",
+    mode: SearchMode = "vector",  # measured best on shortlink: docs/benchmarks/retrieval.md
     per_document: bool = True,
     k: int = 8,
 ) -> list[Hit]:

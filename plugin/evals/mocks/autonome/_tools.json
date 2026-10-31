@@ -257,7 +257,8 @@
             "title": "Type"
           },
           "mode": {
-            "default": "hybrid",
+            "default": "vector",
+            "description": "vector (default) finds paraphrases and Portuguese questions over English text; fts for exact names",
             "enum": [
               "hybrid",
               "vector",
