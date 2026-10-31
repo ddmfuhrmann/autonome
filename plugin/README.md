@@ -51,3 +51,51 @@ The `Stop` hook runs the project's gates, cheapest first, and sends failures bac
 
 Hooks never break your session: when the context is unreachable they step aside, except the
 metronome during conduct.
+
+## The soundcheck
+
+When every task of a plan has merged, the maestro can try the feature in a running environment:
+`up` starts it and waits until it answers, the `checks` run against `AUTONOME_APP_URL`, the listener
+agent exercises the plan's acceptance criteria with curl, and `down` always runs. Use fakes and
+synthetic data, never real external services. It is configured in the gate config (UI → Config).
+
+A FastAPI service, with [shortlink](https://github.com/ddmfuhrmann/shortlink)'s API as the example:
+a throwaway SQLite file, a port of its own, and one scripted check per behaviour that matters.
+
+```yaml
+soundcheck:
+  # A throwaway database and a port of its own, so it never touches your dev data or server.
+  up: |
+    export SHORTLINK_DB="${TMPDIR:-/tmp}/shortlink-soundcheck.db"; rm -f "$SHORTLINK_DB"
+    uv run uvicorn shortlink.app:app --port 18431 < /dev/null > "${TMPDIR:-/tmp}/shortlink-soundcheck.log" 2>&1 &
+    echo $! > "${TMPDIR:-/tmp}/shortlink-soundcheck.pid"
+    for i in $(seq 30); do curl -sf http://127.0.0.1:18431/health > /dev/null && exit 0; sleep 1; done
+    cat "${TMPDIR:-/tmp}/shortlink-soundcheck.log"; exit 1
+  down: |
+    kill "$(cat "${TMPDIR:-/tmp}/shortlink-soundcheck.pid" 2>/dev/null)" 2>/dev/null; pkill -f "uvicorn shortlink.app:app --port 18431"
+    rm -f "${TMPDIR:-/tmp}/shortlink-soundcheck.db" "${TMPDIR:-/tmp}/shortlink-soundcheck.pid"; true
+  url: http://127.0.0.1:18431
+  checks:
+    - name: api
+      run: |
+        set -eu
+        u="$AUTONOME_APP_URL"
+        fail() { echo "FAIL: $*"; exit 1; }
+        body=$(curl -s -w '\n%{http_code}' -X POST "$u/links" -H 'content-type: application/json' -d '{"url": "https://example.com/soundcheck"}')
+        [ "$(echo "$body" | tail -1)" = 201 ] || fail "POST /links: expected 201, got $body"
+        code=$(echo "$body" | head -1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["code"])')
+        r=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "$u/$code")
+        [ "$r" = "302 https://example.com/soundcheck" ] || fail "GET /$code: expected 302 to the url, got $r"
+        clicks=$(curl -s "$u/links/$code/stats" | python3 -c 'import json,sys; print(json.load(sys.stdin)["clicks"])')
+        [ "$clicks" = 1 ] || fail "GET /links/$code/stats: expected clicks 1, got $clicks"
+        s=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$u/links" -H 'content-type: application/json' -d '{"url": "ftp://example.com/x"}')
+        [ "$s" = 422 ] || fail "POST /links with ftp://: expected 422, got $s"
+        s=$(curl -s -o /dev/null -w '%{http_code}' "$u/doesnotexist")
+        [ "$s" = 404 ] || fail "GET of an unknown code: expected 404, got $s"
+        echo "api: 5 checks passed"
+  listener: true
+  max_fixes: 2
+```
+
+Keep `up` idempotent (it removes the old database) and `down` forgiving (it ends in `true`): a
+soundcheck that cannot start blocks the plan with nothing to fix.
