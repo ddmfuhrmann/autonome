@@ -63,7 +63,7 @@ def _md_inline(v) -> Markup:
 
 templates.env.filters["mdi"] = _md_inline
 
-DOC_TYPES = ["handoff", "plan", "task", "decision", "convention", "gate_config", "design", "feature_doc", "wave"]
+DOC_TYPES = ["handoff", "plan", "task", "decision", "convention", "gate_config", "design", "feature_doc", "wave", "backlog"]
 MODES = ["vector", "hybrid", "fts"]
 REF_PREFIX = {"task": "T", "plan": "P", "wave": "W", "decision": "D", "handoff": "H", "convention": "C"}
 STATUS_LABELS = {"on_hold": "On hold", "merge-failed": "Merge failed", "fts": "Full-text"}
@@ -716,7 +716,9 @@ async def waves_page(request: Request) -> Response:
         for w in await store.list_documents(conn, project, type="wave"):
             tasks = [t for f in w["body"]["features"] for t in await _tasks_of(conn, f["plan_id"])]
             waves.append({"doc": w, "progress": _progress(tasks)})
-    return await render(request, "waves.html", waves=waves)
+        backlog = sorted(await store.list_documents(conn, project, type="backlog", limit=100),
+                         key=lambda b: b["body"].get("wave", 0))
+    return await render(request, "waves.html", waves=waves, backlog=backlog)
 
 
 async def features_page(request: Request) -> Response:

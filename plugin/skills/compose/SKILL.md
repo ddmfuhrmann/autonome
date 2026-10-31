@@ -23,6 +23,8 @@ Before asking the user anything:
 - `search` the idea in plain words, then again with the exact names involved (classes, endpoints).
   Look for earlier decisions, handoffs of related work, and their **friction** and **deviations**.
 - `plan_list` for plans on the same feature (an approved one may already cover it).
+- When the user names a roadmap wave ("wave 2", "the credito-api wave"), `search` with type `backlog`:
+  its open items are the starting scope of the autonome wave, and its notes and PRD links are context.
 - `conventions_get` for the layers this will touch. A layer with none (or nothing relevant) gets a
   few short, checkable rules proposed in the first plan that touches it (section 3).
 - `gate_config_get`: the gates that will judge the work.

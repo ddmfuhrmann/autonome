@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field, ValidationError
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from . import api, evaluation, insights, plans, rules, services, store, web
+from . import api, evaluation, imports, insights, plans, rules, services, store, web
 from .chunking import DEFAULT_STRATEGY, STRATEGIES
 from .handoff import Handoff
 from .migrate import migrate
@@ -298,6 +298,13 @@ async def _cli(args: argparse.Namespace) -> None:
                                                 status="active", body={"title": title, "rule": text},
                                                 layers=args.layer or [])
                 print(f"imported {path.name}")
+        elif args.command == "import-adrs":
+            for line in await imports.import_adrs(conn, indexer, args.project, Path(args.dir)):
+                print(line)
+        elif args.command == "import-backlog":
+            waves = imports.parse_roadmap(Path(args.roadmap).read_text())
+            for line in await imports.import_backlog(conn, indexer, args.project, waves):
+                print(line)
         elif args.command == "delete-project":
             counts = await store.delete_project(conn, args.project)
             print(", ".join(f"{t} {n}" for t, n in counts.items() if n) or f"no project {args.project}")
@@ -319,6 +326,12 @@ def main() -> None:
     conv.add_argument("--project", required=True)
     conv.add_argument("--dir", required=True)
     conv.add_argument("--layer", action="append", help="layers the conventions apply to (repeatable)")
+    adrs = sub.add_parser("import-adrs", help="import every ADR (*.md) in a folder as a decision; again updates")
+    adrs.add_argument("--project", required=True)
+    adrs.add_argument("--dir", required=True)
+    backlog = sub.add_parser("import-backlog", help="import a kanban roadmap's JSON block as one backlog per wave")
+    backlog.add_argument("--project", required=True)
+    backlog.add_argument("--roadmap", required=True, help="the roadmap HTML file")
     delete = sub.add_parser("delete-project", help="remove a project and everything in it (back up first)")
     delete.add_argument("--project", required=True)
     generate = sub.add_parser("eval-generate", help="synthetic eval questions from handoffs and decisions")

@@ -11,4 +11,18 @@
     <td class="num mono">{{ w.progress.tokens|tokens }}</td><td class="num mono">{{ w.progress.cost|money }}</td><td class="mono muted" style="font-size: 12px">{{ d.created_at|when }}</td></tr>
   {% else %}<tr><td colspan="7" class="empty">No waves yet. Compose one with <code>/autonome:compose</code>.</td></tr>{% endfor %}</tbody>
 </table></div>
+{% if backlog %}
+<section class="stack" aria-labelledby="backlog-h">
+  <div class="section-head"><h2 id="backlog-h">Backlog</h2><span class="muted" style="font-size: 13px">from the roadmap; compose a wave from one with <code>/autonome:compose</code></span></div>
+  <div class="grid grid--3">
+  {% for b in backlog %}{% set open = b.body["items"]|rejectattr('status', 'equalto', 'done')|list %}
+    <a class="card" href="/ui/p/{{ project }}/documents/{{ b.id }}" style="text-decoration: none; color: inherit">
+      <div class="card__head"><span class="card__title">{{ b.body.title }}</span><span class="push">{{ ui.st('done' if b.status == 'done' else 'pending', sm=true, text=b.status) }}</span></div>
+      <div class="card__body"><p class="muted" style="font-size: 12px">{{ open|length }} open of {{ b.body["items"]|length }}</p>
+        <ul style="font-size: 13px; margin: 0">{% for i in open[:4] %}<li>{{ i.title|mdi }}</li>{% endfor %}{% if open|length > 4 %}<li class="muted">and {{ open|length - 4 }} more</li>{% endif %}</ul></div>
+    </a>
+  {% endfor %}
+  </div>
+</section>
+{% endif %}
 {% endblock %}
