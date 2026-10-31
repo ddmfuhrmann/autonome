@@ -92,7 +92,8 @@ _GENERATE_PROMPT = """You build an evaluation set for a search engine over a sof
 Below is one document from that memory. Write {n} questions that a developer or an AI agent might
 ask later and that this document answers. Rules: paraphrase, do not copy distinctive phrases from the
 document; vary the angle (why, what went wrong, what was decided, what to watch out for); keep each
-question under 25 words. Answer with ONLY a JSON array of strings.
+question under 25 words. The team asks in English and Portuguese: when writing more than one, write
+one of them in Portuguese. Answer with ONLY a JSON array of strings.
 
 Document ({type}, feature {feature}):
 {text}
@@ -101,7 +102,7 @@ Document ({type}, feature {feature}):
 
 def _ask_llm(prompt: str, model: str) -> list[str]:
     out = subprocess.run(
-        ["claude", "-p", "--model", model, "--output-format", "json"],
+        ["claude", "-p", "--model", model, "--effort", "low", "--output-format", "json"],
         input=prompt, capture_output=True, text=True, timeout=300,
         env={**os.environ, "AUTONOME_HANDOFF_CHILD": "1"},
     )
