@@ -23,7 +23,8 @@ Before asking the user anything:
 - `search` the idea in plain words, then again with the exact names involved (classes, endpoints).
   Look for earlier decisions, handoffs of related work, and their **friction** and **deviations**.
 - `plan_list` for plans on the same feature (an approved one may already cover it).
-- `conventions_get` for the layers this will touch.
+- `conventions_get` for the layers this will touch. A layer with none (or nothing relevant) gets a
+  few short, checkable rules proposed in the first plan that touches it (section 3).
 - `gate_config_get`: the gates that will judge the work.
 - Read the code the change will touch. If it is not in the working directory, say so in one line
   and go on from the memory; where the code lives is not a question to ask now.
@@ -72,16 +73,26 @@ Approving the plan adds those gates to the config; the user sees them before app
 command is allowed in conduct sessions automatically (`allowed_commands` is only for other commands). Never
 propose replacing or loosening an existing gate. If the gates already cover the plan, add none.
 
+**Conventions.** The implementers and the reviewer only know the conventions of their layers, so a
+layer without any gets thin code that passes thin review. For each layer the plan touches that has
+no relevant convention, put 2-4 rules in the plan's `conventions` (`title`, `rule`, `why`, `layers`).
+Make them checkable, e.g.: API responses use response models; every expected failure is an
+HTTPException with a string detail, and no path returns a raw 500; persistence turns on the
+constraints it declares; input validation rejects control characters; tests assert behaviour, never
+only coverage. Approving the plan makes them active before its tasks play. Never propose loosening
+or replacing an existing convention.
+
 Call `plan_draft` with `project`, `feature` (kebab-case slug), `layers` and the plan. To revise, call
 it again with the same `plan_id`; only drafts can change.
 
 ## 4. Hand it over
 
 First write the user a short summary, as a message of its own: goal, the tasks in order, what is
-out of scope, and the gates it adds, if any (approving the plan adds them, each one once its setup
-task merges). The summary stays in the conversation whatever they answer. Then call `plan_approve`
-(or `wave_approve` for a wave). It asks the user directly, in a dialog their
-client shows with the stored plan; you cannot answer it, and you never approve anything yourself.
+out of scope, and the conventions and gates it adds, if any (approving the plan makes the
+conventions active and adds each gate once its setup task merges). The summary stays in the
+conversation whatever they answer. Then call `plan_approve` (or `wave_approve` for a wave). It asks
+the user directly, in a dialog their client shows with the stored plan; you cannot answer it, and you
+never approve anything yourself.
 
 - `approved`: say so in one line; the tasks play when the maestro runs (`/autonome:conduct`).
 - `declined` or `unavailable`: it is still a draft. Ask what to change, or give the `approve_at`

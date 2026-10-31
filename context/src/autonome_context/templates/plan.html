@@ -122,6 +122,13 @@
       {% if cfg and cfg.fermata.features %}<p class="muted" style="font-size: 12px">Fermata features: {% for f in cfg.fermata.features %}<span class="mono">{{ f }}</span>{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
     </div>
   </div>
+  {% if b.conventions %}
+  <div class="card">
+    <div class="card__head"><h2 class="card__title">Conventions it adds</h2><a class="push muted" style="font-size: 12px" href="/ui/p/{{ project }}/conventions">conventions</a></div>
+    <div class="card__body prose"><ul>{% for c in b.conventions %}<li><strong>{{ c.title }}</strong>{% if c.layers %} <span class="tag">{{ c.layers|join(', ') }}</span>{% endif %}: {{ c.rule|mdi }}{% if c.why %}<div class="muted" style="font-size: 12px">{{ c.why|mdi }}</div>{% endif %}</li>{% endfor %}</ul>
+      <p class="muted" style="font-size: 12px">{{ 'Active since the plan was approved.' if doc.status != 'draft' else 'Approving the plan makes them active, before its tasks play.' }}</p></div>
+  </div>
+  {% endif %}
   {% if graph %}
   <div class="card">
     <div class="card__head"><h2 class="card__title">Dependency graph</h2></div>

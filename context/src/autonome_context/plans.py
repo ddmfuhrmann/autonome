@@ -28,6 +28,13 @@ class ProposedGate(Gate):
                                   "gate config when that task is merged. Omit if the tooling already exists.")
 
 
+class ProposedConvention(BaseModel):
+    title: str
+    rule: str = Field(description="short and checkable, e.g. 'every API response uses a response model'")
+    why: str = ""
+    layers: list[str] = Field(default=[], description="the layers it applies to; empty for all")
+
+
 class Turn(BaseModel):
     role: str
     text: str
@@ -45,6 +52,9 @@ class PlanBody(BaseModel):
     gates: list[ProposedGate] = Field(
         default=[], description="gates this plan needs that the project's gate config lacks; approving the "
                                 "plan adds them")
+    conventions: list[ProposedConvention] = Field(
+        default=[], description="rules for layers the project has none (or nothing relevant) for; approving "
+                                "the plan makes them active, before its tasks play")
     discussion: list[Turn] = Field(default=[], description="the questions and answers that shaped the plan")
 
 
@@ -108,6 +118,18 @@ async def apply_gates(conn: AsyncConnection, indexer: store.Indexer | None, proj
     await store.save_singleton(conn, indexer, project, "gate_config", {"yaml": text})
 
 
+async def apply_conventions(conn: AsyncConnection, indexer: store.Indexer | None, project: str,
+                            conventions: list[ProposedConvention]) -> None:
+    """Makes a plan's proposed conventions active, skipping any whose title is already active. Only
+    on behalf of a human: the approval of the plan. It never changes an existing convention."""
+    active = {c["body"].get("title") for c in await store.list_documents(conn, project, type="convention",
+                                                                         status="active", limit=500)}
+    for c in conventions:
+        if c.title not in active:
+            await store.create_document(conn, indexer, project=project, type="convention", status="active",
+                                        layers=c.layers, body={"title": c.title, "rule": c.rule, "why": c.why})
+
+
 async def _queue_tasks(
     conn: AsyncConnection, indexer: store.Indexer, plan: dict, body: PlanBody, *,
     after_plans: list[int], wave_id: int | None,
@@ -117,6 +139,7 @@ async def _queue_tasks(
     fermata = bool(plan["feature"]) and any(fnmatch.fnmatch(plan["feature"], f) for f in held)
     gates = [g.model_dump(mode="json") for g in body.gates]
     await apply_gates(conn, indexer, plan["project"], [g for g in gates if not g["with_task"]])
+    await apply_conventions(conn, indexer, plan["project"], body.conventions)
     task_ids: list[int] = []
     for seq, t in enumerate(body.tasks, start=1):
         task = {"title": t.title, "spec": t.spec, "acceptance": t.acceptance, "plan_id": plan["id"],
@@ -354,6 +377,9 @@ def plan_summary(plan: dict) -> str:
     lines += [f"  {i}. {t.title}" for i, t in enumerate(b.tasks, start=1)]
     if b.out_of_scope:
         lines.append("Out of scope: " + "; ".join(b.out_of_scope))
+    if b.conventions:
+        lines.append("Adds conventions: " + "; ".join(
+            f"{c.title} ({', '.join(c.layers) or 'all layers'}): {c.rule}" for c in b.conventions))
     if b.gates:
         lines.append("Adds gates: " + "; ".join(
             f"{g.name} (`{g.run}`" + (f", once task {g.with_task} merges)" if g.with_task else ")") for g in b.gates))
@@ -367,6 +393,7 @@ def wave_summary(wave: dict, wave_plans: list[dict]) -> str:
         pb = PlanBody.model_validate(p["body"])
         after = f" (after {', '.join(map(str, f.depends_on))})" if f.depends_on else ""
         gates = f"; adds gates {', '.join(g.name for g in pb.gates)}" if pb.gates else ""
+        gates += f"; adds conventions {', '.join(c.title for c in pb.conventions)}" if pb.conventions else ""
         lines.append(f"  {i}. {pb.title}: {len(pb.tasks)} tasks{after}{gates}")
     if body.out_of_scope:
         lines.append("Out of scope: " + "; ".join(body.out_of_scope))

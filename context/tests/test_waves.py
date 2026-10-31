@@ -128,3 +128,27 @@ def test_proposed_gates_join_the_config_on_approval_or_when_their_task_is_merged
     on_approval, after_task = run_db(go)
     assert on_approval == ["test", "lint"]  # an existing gate is never replaced
     assert after_task == ["test", "lint", "e2e"]
+
+
+def test_proposed_conventions_become_active_on_approval_and_never_replace_one(run_db, project, indexer):
+    from autonome_context.plans import ProposedConvention
+
+    async def go(conn):
+        async with conn.transaction():
+            await store.create_document(conn, indexer, project=project, type="convention", status="active",
+                                        layers=["api"], body={"title": "Response models", "rule": "the original"})
+        plan_id = await plans.draft(conn, indexer, project, "links", ["api"], body("Links", conventions=[
+            ProposedConvention(title="Response models", rule="a looser one", layers=["api"]),
+            ProposedConvention(title="No raw 500", rule="every expected failure is an HTTPException", layers=["api"]),
+            ProposedConvention(title="Foreign keys on", rule="PRAGMA foreign_keys = ON", layers=["persistence"])]))
+        summary = plans.plan_summary(await store.get_document(conn, plan_id))
+        before = await store.conventions_for(conn, project, ["api", "persistence"])
+        await plans.approve(conn, indexer, plan_id)
+        after = await store.conventions_for(conn, project, ["api", "persistence"])
+        return summary, before, after
+
+    summary, before, after = run_db(go)
+    assert "Adds conventions: Response models (api): a looser one" in summary
+    assert [c["body"]["title"] for c in before] == ["Response models"]
+    assert sorted(c["body"]["title"] for c in after) == ["Foreign keys on", "No raw 500", "Response models"]
+    assert next(c for c in after if c["body"]["title"] == "Response models")["body"]["rule"] == "the original"

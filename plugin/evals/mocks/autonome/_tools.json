@@ -431,6 +431,15 @@
                 "title": "Gates",
                 "type": "array"
               },
+              "conventions": {
+                "default": [],
+                "description": "rules for layers the project has none (or nothing relevant) for; approving the plan makes them active, before its tasks play",
+                "items": {
+                  "$ref": "#/$defs/ProposedConvention"
+                },
+                "title": "Conventions",
+                "type": "array"
+              },
               "discussion": {
                 "default": [],
                 "description": "the questions and answers that shaped the plan",
@@ -447,6 +456,39 @@
               "tasks"
             ],
             "title": "PlanBody",
+            "type": "object"
+          },
+          "ProposedConvention": {
+            "properties": {
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "rule": {
+                "description": "short and checkable, e.g. 'every API response uses a response model'",
+                "title": "Rule",
+                "type": "string"
+              },
+              "why": {
+                "default": "",
+                "title": "Why",
+                "type": "string"
+              },
+              "layers": {
+                "default": [],
+                "description": "the layers it applies to; empty for all",
+                "items": {
+                  "type": "string"
+                },
+                "title": "Layers",
+                "type": "array"
+              }
+            },
+            "required": [
+              "title",
+              "rule"
+            ],
+            "title": "ProposedConvention",
             "type": "object"
           },
           "ProposedGate": {
