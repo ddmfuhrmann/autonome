@@ -134,3 +134,44 @@ def test_a_decision_without_a_target_is_refused_clearly(client, project, blocked
     r = client.post(f"/ui/p/{project}/documents/{blocked_task}/transition", data={}, headers=FETCH)
     assert r.status_code == 400 and "no target status" in r.json()["error"]
     assert status(run_db, blocked_task) == "blocked"
+
+
+def test_only_what_blocks_the_setlist_counts_as_waiting_on_you(client, project, blocked_task, run_db, indexer):
+    from conftest import make_handoff
+    from autonome_context.handoff import Decision
+
+    async def go(conn):
+        await store.put_handoff(conn, indexer, make_handoff(project, decisions=[
+            Decision(title="Kept codes at 7 characters", rationale="62^7 is plenty"),
+            Decision(title="Skipped the response model for /health", rationale="plain dict", deviation=True)]), None)
+        await conn.commit()
+    run_db(go)
+    page = client.get(f"/ui/p/{project}/approvals").text
+    main, review = page.split('id="review-h"', 1)
+    assert "side__count--attn\">1<" in page  # the blocked task only
+    assert "Skipped the response model" not in main and "Skipped the response model" in review
+    assert "Kept codes at 7 characters" not in page  # in effect, nothing to review
+
+
+def test_a_choice_within_the_plan_is_in_effect_and_a_rejected_deviation_queues_its_undo(client, project, run_db, indexer):
+    from conftest import make_handoff
+    from autonome_context.handoff import Decision
+
+    async def go(conn):
+        await store.put_handoff(conn, indexer, make_handoff(project, feature="links", decisions=[
+            Decision(title="Kept codes at 7 characters", rationale="62^7 is plenty"),
+            Decision(title="Dict instead of a response model", rationale="faster", deviation=True)]), None)
+        await conn.commit()
+        return {d["body"]["title"]: d for d in await store.list_documents(conn, project, type="decision")}
+    decisions = run_db(go)
+    assert decisions["Kept codes at 7 characters"]["status"] == "accepted"
+    deviation = decisions["Dict instead of a response model"]
+    assert deviation["status"] == "proposed"
+    r = client.post(f"/ui/p/{project}/documents/{deviation['id']}/transition", data={"to": "rejected"}, headers=FETCH)
+    assert r.status_code == 200 and r.json()["status"] == "rejected"
+
+    async def tasks(conn):
+        return await store.list_documents(conn, project, type="task")
+    [undo] = run_db(tasks)
+    assert undo["body"]["title"] == "Undo: Dict instead of a response model"
+    assert undo["body"]["source"] == f"decision:{deviation['id']}" and undo["feature"] == "links"

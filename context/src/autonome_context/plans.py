@@ -398,3 +398,18 @@ def wave_summary(wave: dict, wave_plans: list[dict]) -> str:
     if body.out_of_scope:
         lines.append("Out of scope: " + "; ".join(body.out_of_scope))
     return "\n".join(lines)
+
+
+async def reject_decision(conn: AsyncConnection, indexer: store.Indexer, decision_id: int) -> dict:
+    """Human-only. A rejected deviation is undone, not just remembered: a task to change it goes into
+    the project's maintenance plan."""
+    async with conn.transaction():
+        d = await rules.transition(conn, decision_id, "rejected", "human")
+        handoffs = [l["id"] for l in await store.links_of(conn, decision_id) if l["kind"] == "records"]
+        b = d["body"]
+        spec = (f"The human rejected this choice, made in an earlier session: {b.get('title')}.\n\n"
+                f"What was done and why: {b.get('decision', '')}\n\n"
+                f"Change the code so it no longer does this, following the plan and the conventions that "
+                f"apply. Decision #{decision_id}" + (f", recorded by handoff #{handoffs[0]}." if handoffs else "."))
+        return await store.enqueue_task(conn, indexer, d["project"], title=f"Undo: {b.get('title')}", spec=spec,
+                                        feature=d["feature"], layers=d["layers"], source=f"decision:{decision_id}")

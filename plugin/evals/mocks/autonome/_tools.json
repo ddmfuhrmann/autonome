@@ -15,6 +15,7 @@
         "type": "object",
         "$defs": {
           "Decision": {
+            "description": "A choice the plan and the task did not already make: an alternative weighed, an ambiguity\nresolved. Restating the spec is not a decision.",
             "properties": {
               "title": {
                 "title": "Title",
@@ -23,6 +24,12 @@
               "rationale": {
                 "title": "Rationale",
                 "type": "string"
+              },
+              "deviation": {
+                "default": false,
+                "description": "true when the choice departs from the plan or a convention; only these wait for the human's review",
+                "title": "Deviation",
+                "type": "boolean"
               }
             },
             "required": [

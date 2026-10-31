@@ -249,8 +249,11 @@ async def put_handoff(conn: AsyncConnection, indexer: Indexer, h: Handoff, raw_t
         for d in h.decisions:
             decision_id = await create_document(
                 conn, indexer,
-                project=h.project, type="decision", body={"title": d.title, "decision": d.rationale},
-                feature=h.feature, layers=h.layers, status="proposed",
+                project=h.project, type="decision",
+                body={"title": d.title, "decision": d.rationale, "deviation": d.deviation},
+                # A choice within the plan is a fact of what was built: in effect. A deviation waits for
+                # the human, whose rejection turns into a task to undo it.
+                feature=h.feature, layers=h.layers, status="proposed" if d.deviation else "accepted",
             )
             await link(conn, doc_id, decision_id, "records")
         if raw_transcript:

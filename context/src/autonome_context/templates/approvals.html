@@ -2,22 +2,7 @@
 {% import "_ui.html" as ui %}
 {% block title %}Approvals{% endblock %}
 {% block main %}
-{% set here = request.url.path ~ ('?kind=' ~ kind if kind else '') %}
-<div class="page-head">
-  <div class="page-head__text">
-    <div class="page-head__title"><h1>Approvals</h1><span class="count-pill">{{ total }}</span></div>
-    <p class="page-head__meta">Only you can approve, release or reject. Nothing here moves until you decide.</p>
-  </div>
-</div>
-<nav class="filters" aria-label="Filter">
-  <a class="chip{{ ' is-active' if not kind }}" href="?"{% if not kind %} aria-current="true"{% endif %}>All <span class="count-pill">{{ total }}</span></a>
-  {% for k, text in kinds.items() if counts[k] %}
-  <a class="chip{{ ' is-active' if kind == k }}" href="?kind={{ k }}"{% if kind == k %} aria-current="true"{% endif %}>{{ text }} <span class="count-pill">{{ counts[k] }}</span></a>
-  {% endfor %}
-</nav>
-<div class="grid grid--main-aside">
-<div class="queue">
-{% for item in items %}{% set d = item.doc %}
+{% macro qitem(item, here) %}{% set d = item.doc %}
 <article class="qitem{{ ' card--attn' if item.kind == 'fermata' }}{{ ' card--danger' if item.kind in ('soundcheck', 'blocked') }}" aria-labelledby="q{{ d.id }}">
   <div class="qitem__main">
     <div class="qitem__kind">
@@ -88,9 +73,33 @@
   </div>
   <div class="qitem__aside"><span>{{ d.updated_at|ago }}</span>{% if item.plan %}<a href="/ui/p/{{ project }}/documents/{{ item.plan.id }}">{{ item.plan|ref }}</a>{% endif %}</div>
 </article>
+{% endmacro %}
+{% set here = request.url.path ~ ('?kind=' ~ kind if kind else '') %}
+<div class="page-head">
+  <div class="page-head__text">
+    <div class="page-head__title"><h1>Approvals</h1><span class="count-pill">{{ total }}</span></div>
+    <p class="page-head__meta">Only you can approve, release or reject. Nothing here moves until you decide.</p>
+  </div>
+</div>
+<nav class="filters" aria-label="Filter">
+  <a class="chip{{ ' is-active' if not kind }}" href="?"{% if not kind %} aria-current="true"{% endif %}>All <span class="count-pill">{{ total }}</span></a>
+  {% for k, text in kinds.items() if counts[k] %}
+  <a class="chip{{ ' is-active' if kind == k }}" href="?kind={{ k }}"{% if kind == k %} aria-current="true"{% endif %}>{{ text }} <span class="count-pill">{{ counts[k] }}</span></a>
+  {% endfor %}
+</nav>
+<div class="grid grid--main-aside">
+<div class="queue">
+{% for item in items %}{{ qitem(item, here) }}
 {% else %}
 <div class="card"><div class="card__body"><p class="empty">Nothing waiting on you.</p></div></div>
 {% endfor %}
+{% if review and not kind %}
+<section class="stack" aria-labelledby="review-h">
+  <div class="section-head"><h2 id="review-h">To review when you like</h2><span class="count-pill">{{ review|length }}</span></div>
+  <p class="muted" style="font-size: 13px">Nothing waits on these. Decisions that departed from a plan or a convention, and conventions the process proposes: accepting one makes it a rule later plans follow; rejecting a decision queues a task to undo it.</p>
+  {% for item in review %}{{ qitem(item, here) }}{% endfor %}
+</section>
+{% endif %}
 </div>
 <aside class="stack">
   <div class="card">

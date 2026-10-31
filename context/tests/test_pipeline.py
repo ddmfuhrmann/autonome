@@ -56,7 +56,7 @@ def test_put_and_search_roundtrip(run_db, project, indexer):
     assert len({h.document_id for h in hits}) == len(hits)  # one hit per document
     assert {h.feature for h in filtered} == {"signup"}
     assert [h.section for h in fts] == ["friction"] and fts[0].ranks == {"fts": 1}
-    assert decisions[0]["status"] == "proposed" and decisions[0]["body"]["title"] == "Balance is derived"
+    assert decisions[0]["status"] == "accepted" and decisions[0]["body"]["title"] == "Balance is derived"  # within the plan
     assert b"123.456.789-09" not in gzip.decompress(raw[0])
 
 

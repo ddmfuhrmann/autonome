@@ -17,8 +17,14 @@ class GateResult(BaseModel):
 
 
 class Decision(BaseModel):
+    """A choice the plan and the task did not already make: an alternative weighed, an ambiguity
+    resolved. Restating the spec is not a decision."""
+
     title: str
     rationale: str
+    deviation: bool = Field(
+        default=False, description="true when the choice departs from the plan or a convention; only these "
+                                   "wait for the human's review")
 
 
 class Handoff(BaseModel):

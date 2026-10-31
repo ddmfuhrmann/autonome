@@ -166,6 +166,10 @@ QUEUE_KINDS = {
 }
 
 
+# What holds up the setlist. Decisions and conventions are reviewed when the human likes.
+BLOCKING = {"plans", "held", "soundcheck", "fermata", "blocked"}
+
+
 async def _queue(conn, project: str) -> list[dict]:
     """Everything only a human can move, most blocking first."""
     docs = lambda type, status: store.list_documents(conn, project, type=type, status=status)
@@ -185,7 +189,8 @@ async def _side(conn, project: str) -> dict:
     tasks = await store.list_documents(conn, project, type="task", limit=500)
     status = Counter(t["status"] for t in tasks)
     waves = await store.list_documents(conn, project, type="wave", status="approved", limit=5)
-    return {"waiting": len(await _queue(conn, project)), "playing": status["playing"],
+    waiting = [i for i in await _queue(conn, project) if i["kind"] in BLOCKING]
+    return {"waiting": len(waiting), "playing": status["playing"],
             "on_hold": status["on_hold"], "pending": status["pending"], "wave": waves[0] if waves else None}
 
 
@@ -222,8 +227,8 @@ EFFECTS = {
     ("task", "pending", "abandoned"): "The task is dropped; tasks that depend on it never start.",
     ("convention", "proposed", "active"): "Injected into every agent session that touches its layers.",
     ("convention", "proposed", "rejected"): "Dropped; tune will not propose it again from the same evidence.",
-    ("decision", "proposed", "accepted"): "Becomes a decision in effect for its feature.",
-    ("decision", "proposed", "rejected"): "Kept in memory as rejected.",
+    ("decision", "proposed", "accepted"): "Becomes a decision in effect for its feature; later plans respect it.",
+    ("decision", "proposed", "rejected"): "A task to undo it is queued in the maintenance plan.",
     ("decision", "accepted", "superseded"): "Marked as no longer in effect.",
 }
 ACTION_LABELS = {
@@ -565,10 +570,12 @@ async def approvals_page(request: Request) -> Response:
     kind = request.query_params.get("kind")
     pool, _ = await services.get()
     async with pool.connection() as conn:
-        items = await _queue(conn, project)
-        counts = Counter(i["kind"] for i in items)
-        shown = [i for i in items if not kind or i["kind"] == kind]
-        for item in shown:
+        everything = await _queue(conn, project)
+        items = [i for i in everything if i["kind"] in BLOCKING]
+        review = [i for i in everything if i["kind"] not in BLOCKING]
+        counts = Counter(i["kind"] for i in everything)
+        shown = [i for i in everything if i["kind"] == kind] if kind else items
+        for item in shown + (review if not kind else []):
             doc = item["doc"]
             item["actions"] = actions(doc)
             if doc["type"] == "wave":
@@ -582,8 +589,8 @@ async def approvals_page(request: Request) -> Response:
             elif doc["type"] == "plan" and doc["status"] == "held":
                 item["tasks"] = await _tasks_of(conn, doc["id"])
     oldest = min(items, key=lambda i: i["doc"]["created_at"]) if items else None
-    return await render(request, "approvals.html", items=shown, total=len(items), counts=counts, kind=kind,
-                        kinds=QUEUE_KINDS, oldest=oldest)
+    return await render(request, "approvals.html", items=shown, review=review, total=len(items), counts=counts,
+                        kind=kind, kinds=QUEUE_KINDS, oldest=oldest)
 
 
 async def transition(request: Request) -> Response:
@@ -621,6 +628,8 @@ async def transition(request: Request) -> Response:
                 await plans.approve(conn, indexer, doc_id)
             elif doc["type"] == "wave" and to == "approved":
                 await plans.approve_wave(conn, indexer, doc_id)
+            elif doc["type"] == "decision" and doc["status"] == "proposed" and to == "rejected":
+                await plans.reject_decision(conn, indexer, doc_id)
             else:
                 await rules.transition(conn, doc_id, to, "human")
             now = (await store.get_document(conn, doc_id))["status"]
