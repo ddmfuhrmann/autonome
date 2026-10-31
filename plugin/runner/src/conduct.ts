@@ -315,7 +315,7 @@ export function verdictLine(r: ReviewResult): string {
   if (!r.findings.length) return `**${r.verdict}**, no findings`;
   const n = r.findings.length;
   return `**${r.verdict}**, ${n} finding${n > 1 ? "s" : ""}:\n` + r.findings.map((f) =>
-    `- ${f.severity} ${f.kind}${f.file ? ` in \`${f.file}\`` : ""}: ${f.issue.replace(/\s+/g, " ").slice(0, 200)}`).join("\n");
+    `- ${f.severity} ${f.kind}${f.file ? ` in \`${f.file}\`` : ""}: ${f.issue.replace(/\s+/g, " ")}`).join("\n");
 }
 
 /** Plays one task; returns its last run, for the summary. */

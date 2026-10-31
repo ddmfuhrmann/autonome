@@ -300,6 +300,17 @@ async def decide(conn, indexer, doc: dict, to: str) -> str:
     return (await store.get_document(conn, doc_id))["status"]
 
 
+def _asset_version() -> str:
+    """Changes whenever a static file does, so browsers fetch the new CSS after a deploy."""
+    import hashlib
+    h = hashlib.sha1()
+    for f in sorted((_HERE / "static").rglob("*")):
+        if f.is_file():
+            h.update(f.read_bytes())
+    return h.hexdigest()[:10]
+
+
+templates.env.globals["asset_v"] = _asset_version()
 templates.env.globals["question"] = lambda doc: QUESTIONS.get((doc["type"], doc["status"] or ""))
 
 
