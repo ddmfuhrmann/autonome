@@ -5,6 +5,8 @@
 <title>{% block title %}autonome{% endblock %}{% if project %} · {{ project }}{% endif %}</title>
 <link rel="stylesheet" href="/static/app.css">
 {% block head %}{% endblock %}
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script>document.addEventListener("DOMContentLoaded", () => window.mermaid && mermaid.initialize({ startOnLoad: true, theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "neutral" }));</script>
 </head>
 <body>
 <header class="top"><div class="in">
@@ -13,7 +15,7 @@
   <span class="project">{{ project }}</span>
   <nav>
     {% set here = request.url.path %}
-    {% for slug, label in nav_items|default([("setlist","Setlist"),("approvals","Approvals"),("search","Search"),("documents","Documents"),("conventions","Conventions"),("config","Config"),("lab","Lab")]) %}
+    {% for slug, label in nav_items|default([("features","Features"),("setlist","Setlist"),("approvals","Approvals"),("search","Search"),("documents","Documents"),("conventions","Conventions"),("config","Config"),("lab","Lab")]) %}
     <a href="/ui/p/{{ project }}/{{ slug }}" class="{{ 'on' if here.startswith('/ui/p/' ~ project ~ '/' ~ slug) }}">{{ label }}</a>
     {% endfor %}
   </nav>

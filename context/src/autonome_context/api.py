@@ -92,8 +92,58 @@ async def task_transition(request: Request) -> JSONResponse:
     return _json({"status": body["to"]})
 
 
+async def feature_dossier(request: Request) -> JSONResponse:
+    """Everything the scribe needs to (re)write a feature's living doc."""
+    project, feature = request.path_params["project"], request.path_params["feature"]
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        def slim(docs, n):
+            return [{"id": d["id"], "status": d["status"], "created_at": d["created_at"], "body": d["body"]}
+                    for d in docs[:n]]
+        return _json({
+            "doc": await store.feature_doc(conn, project, feature),
+            "handoffs": slim(await store.list_documents(conn, project, type="handoff", feature=feature), 10),
+            "plans": slim(await store.list_documents(conn, project, type="plan", feature=feature), 5),
+            "decisions": slim([d for d in await store.list_documents(conn, project, type="decision", feature=feature)
+                               if d["status"] in ("accepted", "proposed")], 20),
+        })
+
+
+async def put_feature_doc(request: Request) -> JSONResponse:
+    project = request.path_params["project"]
+    feature = request.path_params.get("feature")  # absent: the system overview
+    body = await request.json()
+    pool, indexer = await services.get()
+    async with pool.connection() as conn:
+        doc_id = await store.save_feature_doc(conn, indexer, project, feature, body["doc"],
+                                              body.get("layers", []), body.get("commit_sha"))
+    return _json({"document_id": doc_id})
+
+
+async def get_overview(request: Request) -> JSONResponse:
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        return _json({"doc": await store.feature_doc(conn, request.path_params["project"], None)})
+
+
+async def get_features(request: Request) -> JSONResponse:
+    project = request.path_params["project"]
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        out = []
+        for f in await store.features(conn, project):
+            doc = await store.feature_doc(conn, project, f["slug"])
+            out.append({**f, "overview": doc["body"].get("overview") if doc else None})
+    return _json(out)
+
+
 def routes() -> list:
     return [
+        Route("/api/projects/{project}/features", get_features),
+        Route("/api/projects/{project}/features/{feature}/dossier", feature_dossier),
+        Route("/api/projects/{project}/features/{feature}/doc", put_feature_doc, methods=["PUT"]),
+        Route("/api/projects/{project}/overview", put_feature_doc, methods=["PUT"]),
+        Route("/api/projects/{project}/overview", get_overview),
         Route("/api/projects/{project}/tasks/claim", claim_task, methods=["POST"]),
         Route("/api/tasks/{doc_id:int}/transition", task_transition, methods=["POST"]),
         Route("/api/projects/{project}/briefing", get_briefing),

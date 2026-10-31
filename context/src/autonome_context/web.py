@@ -3,6 +3,9 @@
 import json
 from pathlib import Path
 
+import markdown as md
+from markupsafe import Markup
+
 from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
 from starlette.routing import Mount, Route
@@ -16,8 +19,11 @@ from .gates import EXAMPLE, GateConfig
 _HERE = Path(__file__).parent
 templates = Jinja2Templates(directory=_HERE / "templates")
 templates.env.filters["pretty"] = lambda v: json.dumps(v, indent=2, ensure_ascii=False, default=str)
+# Agent-written markdown: escape raw HTML, then render.
+templates.env.filters["md"] = lambda v: Markup(md.markdown(
+    str(v or "").replace("<", "&lt;"), extensions=["tables", "fenced_code", "sane_lists"]))
 
-DOC_TYPES = ["handoff", "plan", "task", "decision", "convention", "gate_config", "design"]
+DOC_TYPES = ["handoff", "plan", "task", "decision", "convention", "gate_config", "design", "feature_doc"]
 MODES = ["hybrid", "vector", "fts"]
 
 
@@ -220,6 +226,25 @@ async def setlist_page(request: Request) -> Response:
     return render(request, "setlist.html", columns=columns, plans=plans_)
 
 
+async def features_page(request: Request) -> Response:
+    project = request.path_params["project"]
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        feats = await store.features(conn, project)
+        overview = await store.feature_doc(conn, project, None)
+    return render(request, "features.html", features=feats, overview=overview)
+
+
+async def feature_page(request: Request) -> Response:
+    project, feature = request.path_params["project"], request.path_params["feature"]
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        doc = await store.feature_doc(conn, project, feature)
+        timeline = [d for d in await store.list_documents(conn, project, feature=feature, limit=300)
+                    if d["type"] in ("plan", "handoff", "decision", "task")]
+    return render(request, "feature.html", feature=feature, doc=doc, timeline=timeline)
+
+
 def routes() -> list:
     return [
         Route("/", lambda r: RedirectResponse("/ui")),
@@ -234,6 +259,8 @@ def routes() -> list:
         Route("/ui/p/{project}/config", config_page, methods=["GET", "POST"]),
         Route("/ui/p/{project}/approvals", approvals_page),
         Route("/ui/p/{project}/setlist", setlist_page),
+        Route("/ui/p/{project}/features", features_page),
+        Route("/ui/p/{project}/features/{feature}", feature_page),
         Route("/ui/p/{project}/documents/{doc_id:int}/transition", transition, methods=["POST"]),
         Route("/ui/p/{project}/conventions", conventions_page, methods=["GET", "POST"]),
         Route("/ui/p/{project}/conventions/{doc_id:int}", convention_edit, methods=["POST"]),

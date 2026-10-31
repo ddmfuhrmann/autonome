@@ -7,7 +7,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { context, type GateConfig, type Run, type Task } from "./context.js";
-import { commitMessage, fastForwardMain, git, tryGit } from "./git.js";
+import { commitMessage, fastForwardMain, git, mainCheckout, tryGit } from "./git.js";
 
 const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const AUTONOME_HOME = process.env.AUTONOME_HOME ?? join(homedir(), ".autonome");
@@ -148,6 +148,14 @@ async function play(task: Task, worktree: string, base: string, opts: ConductOpt
   return { sessionId, tokens, cost, stop };
 }
 
+/** The scribe keeps the living docs true to main after each delivery. A failure does not undo the
+ * merge; the doc-drift cue picks the feature up later. */
+function updateDocs(repo: string, project: string, args: string[], log: ConductOptions["log"]): void {
+  const cwd = mainCheckout(repo) ?? repo;
+  const r = spawnSync(join(PLUGIN_ROOT, "bin", "autonome-docs"), ["--project", project, ...args], { cwd, encoding: "utf8" });
+  log(r.status === 0 ? `  docs: ${r.stdout.trim()}` : `  docs update failed: ${r.stderr.slice(-400)}`);
+}
+
 /** Rebase the task's branch on main, re-check the gates, and fast-forward main. */
 function integrate(repo: string, worktree: string, branch: string, push: boolean): { ok: boolean; reason?: string } {
   const rebase = tryGit(worktree, "rebase", "main");
@@ -177,7 +185,9 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<void> {
     const r = integrate(repo, last.worktree, last.branch, opts.push);
     await context.transition(task.id, r.ok ? "done" : "pending",
       { ...last, at: now(), outcome: r.ok ? "merged" : "merge-failed", reason: r.reason });
-    return log(r.ok ? `  merged` : `  could not merge: ${r.reason}`);
+    log(r.ok ? `  merged` : `  could not merge: ${r.reason}`);
+    if (r.ok && task.feature) updateDocs(repo, opts.project, ["--feature", task.feature], log);
+    return;
   }
 
   const base = git(repo, "rev-parse", "main");
@@ -218,6 +228,7 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<void> {
   if (!r.ok) return block(r.reason ?? "could not merge");
   await context.transition(task.id, "done", { ...run, outcome: "merged" });
   log(`  merged into main`);
+  if (task.feature) updateDocs(repo, opts.project, ["--feature", task.feature], log);
 }
 
 export async function conduct(opts: ConductOptions): Promise<number> {
@@ -241,6 +252,7 @@ export async function conduct(opts: ConductOptions): Promise<number> {
     }
     played++;
   }
+  if (played) updateDocs(opts.repo, opts.project, ["--overview"], opts.log);
   opts.log(played ? `played ${played} task(s)` : "nothing to play");
   return played;
 }

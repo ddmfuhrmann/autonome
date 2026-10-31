@@ -3,6 +3,8 @@ import pytest
 from autonome_context import briefing, plans, rules, store
 from autonome_context.plans import PlanBody, TaskSpec
 
+from conftest import make_handoff
+
 
 def plan_body(**kw) -> PlanBody:
     base = dict(title="Signup", goal="Self-service signup", out_of_scope=["billing"],
@@ -77,3 +79,19 @@ def test_tasks_are_claimed_in_order_respecting_dependencies(run_db, project, ind
     first, second, seen, finished, plan_status = run_db(go)
     assert seen == [first, None, second]
     assert finished and plan_status == "done"
+
+
+def test_living_docs_are_one_per_feature_plus_overview(run_db, project, indexer):
+    async def go(conn):
+        await store.put_handoff(conn, indexer, make_handoff(project), None)
+        a = await store.save_feature_doc(conn, indexer, project, "wallet", {"overview": "v1"})
+        b = await store.save_feature_doc(conn, indexer, project, "wallet", {"overview": "v2"})
+        o = await store.save_feature_doc(conn, indexer, project, None, {"overview": "system"})
+        doc = await store.feature_doc(conn, project, "wallet")
+        overview = await store.feature_doc(conn, project, None)
+        return a, b, o, doc, overview, await store.features(conn, project)
+
+    a, b, o, doc, overview, feats = run_db(go)
+    assert a == b != o
+    assert doc["version"] == 2 and doc["body"]["overview"] == "v2" and overview["body"]["overview"] == "system"
+    assert feats[0]["slug"] == "wallet" and feats[0]["documented"] and feats[0]["handoffs"] == 1

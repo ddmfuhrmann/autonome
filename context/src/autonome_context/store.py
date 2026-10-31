@@ -465,3 +465,46 @@ async def finish_plan_if_complete(conn: AsyncConnection, plan_id: int) -> bool:
         await conn.execute("update document set status = 'done' where id = %s and status = 'approved'", (plan_id,))
         return True
     return False
+
+
+# --- living docs ---------------------------------------------------------------------------------
+
+
+async def feature_doc(conn: AsyncConnection, project: str, feature: str | None) -> dict | None:
+    docs = [d for d in await list_documents(conn, project, type="feature_doc", feature=feature, limit=500)
+            if d["feature"] == feature]
+    return docs[0] if docs else None
+
+
+async def save_feature_doc(
+    conn: AsyncConnection, indexer: Indexer | None, project: str, feature: str | None, body: dict,
+    layers: list[str] | tuple = (), commit_sha: str | None = None,
+) -> int:
+    async with conn.transaction():
+        current = await feature_doc(conn, project, feature)
+        if current:
+            await add_version(conn, indexer, current["id"], body, commit_sha)
+            return current["id"]
+        return await create_document(conn, indexer, project=project, type="feature_doc", body=body,
+                                     feature=feature, layers=layers, status="active", commit_sha=commit_sha)
+
+
+async def features(conn: AsyncConnection, project: str) -> list[dict]:
+    """Every feature with its activity: the map of the project."""
+    async with conn.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            """select f.slug,
+                      count(*) filter (where d.type = 'handoff') as handoffs,
+                      count(*) filter (where d.type = 'task') as tasks,
+                      count(*) filter (where d.type = 'decision' and d.status = 'accepted') as decisions,
+                      count(*) filter (where d.type = 'feature_doc') > 0 as documented,
+                      max(d.created_at) as last_activity,
+                      avg((dv.body->>'adherence_score')::float8) filter (where d.type = 'handoff') as adherence
+               from feature f join project p on p.id = f.project_id and p.slug = %s
+               left join document d on d.feature_id = f.id
+               left join lateral (select body from document_version v where v.document_id = d.id
+                                  order by v.version desc limit 1) dv on true
+               group by f.slug order by max(d.created_at) desc nulls last""",
+            (project,),
+        )
+        return await cur.fetchall()

@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}{{ feature }}{% endblock %}
+{% block main %}
+<h1>{{ feature }}</h1>
+{% if doc %}{% include "_doc.html" %}
+{% else %}<p class="empty card">No living doc for this feature yet. It is written after the next delivery.</p>{% endif %}
+<div class="card">
+  <h2>Timeline</h2>
+  {% for d in timeline %}
+  <div class="meta"><span>{{ d.created_at.strftime('%Y-%m-%d %H:%M') }}</span><span class="pill">{{ d.type }}</span>
+    {% if d.status %}<span class="pill {{ 'ok' if d.status in ('done','accepted','final') else ('stop' if d.status in ('blocked','rejected') else '') }}">{{ d.status }}</span>{% endif %}
+    <a href="/ui/p/{{ project }}/documents/{{ d.id }}">#{{ d.id }} {{ (d.body.title or d.body.summary or '')|truncate(100) }}</a>
+    {% if d.type == 'handoff' and d.body.adherence_score is not none %}<span>adherence {{ '%.2f'|format(d.body.adherence_score) }}</span>{% endif %}</div>
+  {% else %}<p class="empty">Nothing yet.</p>{% endfor %}
+</div>
+{% endblock %}
