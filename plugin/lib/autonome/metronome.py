@@ -58,18 +58,26 @@ def signature(gate: str, output: str) -> str:
     return hashlib.sha1(f"{gate}\n{norm}".encode()).hexdigest()[:16]
 
 
+def _untracked(cwd: str) -> set[str]:
+    return set(filter(None, common.git(cwd, "ls-files", "--others", "--exclude-standard").splitlines()))
+
+
 def run_gates(cwd: str, config: dict, files: list[str], only_fast: bool = False) -> list[Outcome]:
     outcomes = []
     for gate in config.get("gates", []):
         if (only_fast and not gate.get("fast")) or not applies(gate, files):
             continue
         start = time.monotonic()
+        before = _untracked(cwd)
         try:
             proc = subprocess.run(gate["run"], shell=True, cwd=cwd, capture_output=True, text=True,
                                   timeout=gate.get("timeout_s", 900))
             output, ok = (proc.stdout + proc.stderr)[-20000:], proc.returncode == 0
         except subprocess.TimeoutExpired:
             output, ok = f"timed out after {gate.get('timeout_s', 900)}s", False
+        # A gate checks the work; files it leaves behind (coverage data, reports) are not the work.
+        for leftover in _untracked(cwd) - before:
+            Path(cwd, leftover).unlink(missing_ok=True)
         mode = gate.get("mode", "block")
         passed = ok or mode == "fix"
         outcomes.append(Outcome(gate["name"], passed, int((time.monotonic() - start) * 1000), output,

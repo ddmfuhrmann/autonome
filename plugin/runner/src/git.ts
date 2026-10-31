@@ -47,3 +47,12 @@ export function commitMessage(task: { id: number; feature: string | null; body: 
   const subject = `${type}${task.feature ? `(${task.feature})` : ""}: ${summary.charAt(0).toLowerCase()}${summary.slice(1)}`;
   return `${subject}\n\nPlan: #${task.body.plan_id}\nTask: #${task.id}\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n`;
 }
+
+/**
+ * Stages the work for the commit, recomputed from scratch each time: a file staged in an earlier
+ * round and ignored since (a coverage file, say) drops out instead of staying tracked forever.
+ */
+export function stageWork(worktree: string): void {
+  git(worktree, "reset", "-q");
+  git(worktree, "add", "-A");
+}

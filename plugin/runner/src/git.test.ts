@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { allowedTools } from "./conduct.js";
-import { commitMessage, fastForwardMain, git } from "./git.js";
+import { commitMessage, fastForwardMain, git, stageWork } from "./git.js";
 
 function repo(): string {
   const dir = mkdtempSync(join(tmpdir(), "autonome-runner-"));
@@ -73,4 +73,16 @@ test("a feature's docs drift when work landed after its doc, or it has work and 
     { slug: "undocumented", handoffs: 1, documented: false, last_work_at: "2026-10-01", doc_updated_at: null },
     { slug: "idle", handoffs: 0, documented: false, last_work_at: null, doc_updated_at: null },
   ]), ["stale", "undocumented"]);
+});
+
+test("a generated file staged in one round drops out once it is ignored (task #23 of shortlink)", () => {
+  const dir = repo();
+  writeFileSync(join(dir, "app.py"), "print(1)\n");
+  writeFileSync(join(dir, ".coverage"), "binary data");
+  stageWork(dir);
+  assert.match(git(dir, "diff", "--cached", "--name-only"), /\.coverage/);
+  writeFileSync(join(dir, ".gitignore"), ".coverage\n");
+  writeFileSync(join(dir, ".coverage"), "rewritten by the next test run");
+  stageWork(dir);
+  assert.deepEqual(git(dir, "diff", "--cached", "--name-only").split("\n"), [".gitignore", "app.py"]);
 });

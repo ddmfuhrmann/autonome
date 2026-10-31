@@ -10,7 +10,7 @@ import { consult } from "./agents.js";
 import { context, type GateConfig, type Plan, type Rehearsal, type Run, type Task } from "./context.js";
 import { findingsForEncore, review } from "./review.js";
 import { soundcheck } from "./soundcheck.js";
-import { commitMessage, fastForwardMain, git, mainCheckout, tryGit } from "./git.js";
+import { commitMessage, fastForwardMain, git, mainCheckout, stageWork, tryGit } from "./git.js";
 
 export const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 export const AUTONOME_HOME = process.env.AUTONOME_HOME ?? join(homedir(), ".autonome");
@@ -32,7 +32,9 @@ the start of this session has the task, its plan, the conventions for its layers
 - Do exactly the task. Nothing listed as out of scope, no drive-by refactors.
 - Prove each acceptance criterion with a test or a gate where possible.
 - While working, run the fast gates with \`autonome-gates --fast\`.
-- Do not commit, push, switch branches or touch git history: the runner does that.
+- Do not commit, push, switch branches or touch git history: the runner does that. It commits every
+  file you leave in the tree that .gitignore does not exclude; to keep a generated file (coverage data,
+  build output, a local database) out, add it to .gitignore.
 - Never edit, weaken or skip a gate or the rules behind it to make it pass.
 - Nobody will answer questions. If something is truly ambiguous, choose the option most consistent
   with the plan and the conventions, and say so in your final message.
@@ -261,7 +263,7 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<void> {
       const state = result.sessionId ? metronomeState(result.sessionId) : {};
       if (result.stop) return result.stop;
       if (state.status === "blocked") return `metronome: ${state.reason}`;
-      git(worktree, "add", "-A");
+      stageWork(worktree);
       if (!git(worktree, "status", "--porcelain")) return "the session changed nothing";
       const check = gates(worktree, base);
       if (!check.passed) return check.summary;

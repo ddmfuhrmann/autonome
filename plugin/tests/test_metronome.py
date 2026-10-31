@@ -80,3 +80,12 @@ def test_signature_ignores_numbers_and_hashes():
     a = metronome.signature("test", "failed at 1730000000 in 0.52s commit abcdef1234")
     b = metronome.signature("test", "failed at 1730000999 in 1.07s commit 1234abcdef")
     assert a == b and a != metronome.signature("lint", "failed at 1730000000 in 0.52s commit abcdef1234")
+
+
+def test_files_a_gate_leaves_behind_are_removed_but_the_agents_are_kept(repo):
+    (repo / "new.txt").write_text("written by the agent\n")
+    config = {"gates": [{"name": "test", "run": "echo data > .coverage && echo xml > report.xml"}]}
+    outcomes = metronome.run_gates(str(repo), config, ["new.txt"])
+    assert outcomes[0].passed
+    assert (repo / "new.txt").exists()
+    assert not (repo / ".coverage").exists() and not (repo / "report.xml").exists()
