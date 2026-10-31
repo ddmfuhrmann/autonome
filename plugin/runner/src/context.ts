@@ -15,6 +15,8 @@ export interface Task {
     plan_id: number;
     seq: number;
     fermata: boolean;
+    /** Reviewed by the human after it merges (review forward). */
+    playback?: boolean;
     after_plans?: number[];
     wave_id?: number;
     runs?: Run[];
@@ -50,6 +52,7 @@ export interface Run {
   review?: ReviewResult;
   review_rounds?: number;
   duration_s?: number;
+  merged_sha?: string;
 }
 
 export interface GateConfig {

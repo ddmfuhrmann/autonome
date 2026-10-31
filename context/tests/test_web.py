@@ -175,3 +175,41 @@ def test_a_choice_within_the_plan_is_in_effect_and_a_rejected_deviation_queues_i
     [undo] = run_db(tasks)
     assert undo["body"]["title"] == "Undo: Dict instead of a response model"
     assert undo["body"]["source"] == f"decision:{deviation['id']}" and undo["feature"] == "links"
+
+
+def test_playback_merges_then_waits_to_be_heard_and_a_fix_is_a_new_task(client, project, run_db, indexer):
+    async def go(conn):
+        async with conn.transaction():
+            await store.save_singleton(conn, indexer, project, "gate_config", {"yaml": "playback: {features: [wallet*]}\n"})
+        plan_id = await plans.draft(conn, indexer, project, "wallet", ["domain"], PlanBody(
+            title="Wallet", goal="g", tasks=[TaskSpec(title="Debit", spec="debit"), TaskSpec(title="Credit", spec="credit")]))
+        first, second = await plans.approve(conn, indexer, plan_id)
+        await conn.commit()
+        return first, second
+    first, second = run_db(go)
+    for t in (first, second):
+        client.post(f"/api/tasks/{t}/transition", json={"to": "playing"})
+        r = client.post(f"/api/tasks/{t}/transition", json={"to": "done", "run": {"outcome": "merged", "merged_sha": "a3f9c1e0",
+                                                                                  "diff": "diff --git a/x b/x\n+1"}})
+        assert r.status_code == 200
+    page = client.get(f"/ui/p/{project}/approvals").text
+    main, review = page.split('id="review-h"', 1)
+    assert "Debit" not in main and "Sounds right" in review and "a3f9c1e" in review
+    assert 'title="merged, review when you like">2<' in page and "side__count--attn" not in page
+
+    r = client.post(f"/ui/p/{project}/documents/{first}/playback", data={"verdict": "heard"}, headers=FETCH)
+    assert r.status_code == 200 and "sounds right" in r.json()["notice"]
+    r = client.post(f"/ui/p/{project}/documents/{second}/playback", data={"verdict": "fix", "reason": ""}, headers=FETCH)
+    assert r.status_code == 409 and "say what needs fixing" in r.json()["error"]
+    r = client.post(f"/ui/p/{project}/documents/{second}/playback",
+                    data={"verdict": "fix", "reason": "credit must reject negative amounts"}, headers=FETCH)
+    assert r.status_code == 200 and "fix queued" in r.json()["notice"]
+
+    async def after(conn):
+        return {t["body"]["title"]: t for t in await store.list_documents(conn, project, type="task")}
+    tasks = run_db(after)
+    assert tasks["Debit"]["body"]["playback_review"]["status"] == "heard"
+    fix = tasks["Fix: Credit"]
+    assert "credit must reject negative amounts" in fix["body"]["spec"] and fix["body"]["playback"] is True
+    assert tasks["Credit"]["body"]["playback_review"] == {**tasks["Credit"]["body"]["playback_review"], "status": "fix", "fix_task_id": fix["id"]}
+    assert "Needs a fix" in client.get(f"/ui/p/{project}/documents/{second}").text

@@ -162,7 +162,7 @@ for _name, _fn in {"ref": ref, "label": label, "ago": ago, "when": when, "tokens
 
 QUEUE_KINDS = {
     "plans": "Waves & plans", "held": "Held by rehearsal", "soundcheck": "Soundcheck", "fermata": "Fermata",
-    "blocked": "Blocked tasks", "decision": "Decisions", "convention": "Conventions",
+    "blocked": "Blocked tasks", "playback": "Playback", "decision": "Decisions", "convention": "Conventions",
 }
 
 
@@ -179,6 +179,8 @@ async def _queue(conn, project: str) -> list[dict]:
     items += [{"kind": "blocked", "doc": d} for d in await docs("task", "blocked")]
     items += [{"kind": "plans", "doc": d} for d in await docs("wave", "draft")]
     items += [{"kind": "plans", "doc": d} for d in await docs("plan", "draft") if not await plans.wave_of(conn, d)]
+    items += [{"kind": "playback", "doc": t} for t in await docs("task", "done")
+              if (t["body"].get("playback_review") or {}).get("status") == "pending"]
     items += [{"kind": "decision", "doc": d} for d in await docs("decision", "proposed")]
     items += [{"kind": "convention", "doc": d} for d in await docs("convention", "proposed")]
     return items
@@ -189,8 +191,9 @@ async def _side(conn, project: str) -> dict:
     tasks = await store.list_documents(conn, project, type="task", limit=500)
     status = Counter(t["status"] for t in tasks)
     waves = await store.list_documents(conn, project, type="wave", status="approved", limit=5)
-    waiting = [i for i in await _queue(conn, project) if i["kind"] in BLOCKING]
-    return {"waiting": len(waiting), "playing": status["playing"],
+    queue = await _queue(conn, project)
+    waiting = [i for i in queue if i["kind"] in BLOCKING]
+    return {"waiting": len(waiting), "to_hear": sum(i["kind"] == "playback" for i in queue), "playing": status["playing"],
             "on_hold": status["on_hold"], "pending": status["pending"], "wave": waves[0] if waves else None}
 
 
@@ -500,6 +503,7 @@ def _run_summary(feats: list[dict], gate_failures: Counter) -> dict:
                 "review_rounds": max((r.get("review_rounds") or 0 for r in runs), default=0),
                 "duration_s": sum(r.get("duration_s") or 0 for r in runs), "tokens": tokens, "cost": cost,
                 "reason": last.get("reason") if t["status"] in ("blocked", "on_hold") else None,
+                "playback": t["body"].get("playback_review"),
             })
     totals = {k: sum(r[k] for r in rows) for k in ("sessions", "encores", "review_rounds", "duration_s", "tokens", "cost")}
     counts = Counter(r["task"]["status"] for r in rows)
@@ -580,8 +584,11 @@ async def approvals_page(request: Request) -> Response:
             item["actions"] = actions(doc)
             if doc["type"] == "wave":
                 item["plans"] = [await store.get_document(conn, f["plan_id"]) for f in doc["body"]["features"]]
+            elif doc["type"] == "plan":
+                item["tasks_count"] = len(await _tasks_of(conn, doc["id"])) or len(doc["body"].get("tasks", []))
             elif doc["type"] == "task":
                 item["plan"] = await store.get_document(conn, doc["body"]["plan_id"])
+                item["gate_failures"] = sum(not g["passed"] for g in await store.gate_runs(conn, task_id=doc["id"], limit=200))
                 item["last"] = (doc["body"].get("runs") or [None])[-1]
                 if doc["status"] == "blocked":
                     item["failed_gate"] = next((g for g in await store.gate_runs(conn, task_id=doc["id"], limit=50)
@@ -591,6 +598,47 @@ async def approvals_page(request: Request) -> Response:
     oldest = min(items, key=lambda i: i["doc"]["created_at"]) if items else None
     return await render(request, "approvals.html", items=shown, review=review, total=len(items), counts=counts,
                         kind=kind, kinds=QUEUE_KINDS, oldest=oldest)
+
+
+async def playback(request: Request) -> Response:
+    """The human's review after merge: heard, or a fix queued as a new task. Never blocks anything."""
+    project, doc_id = request.path_params["project"], int(request.path_params["doc_id"])
+    form = await request.form()
+    verdict, reason = str(form.get("verdict") or ""), str(form.get("reason") or "")
+    back = str(form.get("next") or "")
+    if not back.startswith(f"/ui/p/{project}/"):
+        back = f"/ui/p/{project}/documents/{doc_id}"
+    from_script = request.headers.get("x-requested-with") == "fetch"
+
+    def answer(payload: dict, status: int = 200) -> Response:
+        if from_script:
+            return JSONResponse(payload, status_code=status)
+        if status != 200:
+            return Response(f"{payload['error']}\n\nNothing changed. Go back: {back}", status_code=status)
+        sep = "&" if "?" in back else "?"
+        return RedirectResponse(f"{back}{sep}{urlencode({'done': payload['notice']})}", status_code=303)
+
+    try:
+        pool, indexer = await services.get()
+        async with pool.connection() as conn:
+            doc = await store.get_document(conn, doc_id)
+            if not doc or doc["project"] != project:
+                return answer({"error": "not found"}, 404)
+            if verdict == "heard":
+                await plans.playback_heard(conn, indexer, doc_id)
+                notice = f"#{doc_id}: sounds right"
+            elif verdict == "fix":
+                fix = await plans.playback_fix(conn, indexer, doc_id, reason)
+                notice = f"#{doc_id}: fix queued as #{fix['task_id']}" + (
+                    " (approve the maintenance plan once for it to play)" if fix.get("plan_status") == "draft" else "")
+            else:
+                return answer({"error": "the review did not reach the context (no verdict was sent)"}, 400)
+    except rules.Forbidden as e:
+        return answer({"error": str(e)}, 409)
+    except Exception as e:
+        log.exception("playback of #%s failed", doc_id)
+        return answer({"error": f"the context could not save it ({type(e).__name__}); try again in a moment"}, 503)
+    return answer({"status": verdict, "notice": notice, "location": back})
 
 
 async def transition(request: Request) -> Response:
@@ -779,6 +827,7 @@ def routes() -> list:
         Route("/ui/p/{project}/insights", insights_page),
         Route("/ui/p/{project}/features/{feature}", feature_page),
         Route("/ui/p/{project}/documents/{doc_id:int}/transition", transition, methods=["POST"]),
+        Route("/ui/p/{project}/documents/{doc_id:int}/playback", playback, methods=["POST"]),
         Route("/ui/p/{project}/conventions", conventions_page, methods=["GET", "POST"]),
         Route("/ui/p/{project}/conventions/{doc_id:int}", convention_edit, methods=["POST"]),
         Mount("/static", StaticFiles(directory=_HERE / "static"), name="static"),

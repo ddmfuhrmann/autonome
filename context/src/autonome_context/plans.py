@@ -135,8 +135,7 @@ async def _queue_tasks(
     after_plans: list[int], wave_id: int | None,
 ) -> list[int]:
     gate_doc = await store.latest_of_type(conn, plan["project"], "gate_config")
-    held = GateConfig.from_yaml(gate_doc["body"]["yaml"]).fermata.features if gate_doc else []
-    fermata = bool(plan["feature"]) and any(fnmatch.fnmatch(plan["feature"], f) for f in held)
+    fermata, playback = await store.review_flags(conn, plan["project"], plan["feature"])
     gates = [g.model_dump(mode="json") for g in body.gates]
     await apply_gates(conn, indexer, plan["project"], [g for g in gates if not g["with_task"]])
     await apply_conventions(conn, indexer, plan["project"], body.conventions)
@@ -144,7 +143,7 @@ async def _queue_tasks(
     for seq, t in enumerate(body.tasks, start=1):
         task = {"title": t.title, "spec": t.spec, "acceptance": t.acceptance, "plan_id": plan["id"],
                 "seq": seq, "depends_on": [task_ids[i - 1] for i in t.depends_on if 0 < i < seq],
-                "fermata": fermata}
+                "fermata": fermata, "playback": playback}
         if after_plans:
             task["after_plans"] = after_plans
         if wave_id:
@@ -349,6 +348,7 @@ async def record_soundcheck(conn: AsyncConnection, indexer: store.Indexer, plan_
                 layers=last["layers"],
                 body={"title": fix.title, "spec": fix.spec, "acceptance": fix.acceptance, "plan_id": plan_id,
                       "seq": last["body"]["seq"] + i, "depends_on": [], "fermata": last["body"].get("fermata", False),
+                      "playback": last["body"].get("playback", False),
                       "source": "soundcheck"} | ({"wave_id": last["body"]["wave_id"]} if last["body"].get("wave_id") else {}))
             await store.link(conn, plan_id, task_id, "has_task")
     return "fixing"
@@ -413,3 +413,37 @@ async def reject_decision(conn: AsyncConnection, indexer: store.Indexer, decisio
                 f"apply. Decision #{decision_id}" + (f", recorded by handoff #{handoffs[0]}." if handoffs else "."))
         return await store.enqueue_task(conn, indexer, d["project"], title=f"Undo: {b.get('title')}", spec=spec,
                                         feature=d["feature"], layers=d["layers"], source=f"decision:{decision_id}")
+
+
+async def playback_heard(conn: AsyncConnection, indexer: store.Indexer, task_id: int) -> dict:
+    """Human-only. The merged work of a playback feature was reviewed and is fine."""
+    async with conn.transaction():
+        task = await _playback_task(conn, task_id)
+        await store.add_version(conn, indexer, task_id, {**task["body"], "playback_review": {"status": "heard", "at": _now()}})
+    return {"status": "heard"}
+
+
+async def playback_fix(conn: AsyncConnection, indexer: store.Indexer, task_id: int, reason: str) -> dict:
+    """Human-only. Review forward: what needs fixing in merged work becomes a new task, never a block."""
+    reason = reason.strip()
+    if not reason:
+        raise rules.Forbidden("say what needs fixing: it becomes the fix task's instruction")
+    async with conn.transaction():
+        task = await _playback_task(conn, task_id)
+        b = task["body"]
+        commit = ((b.get("runs") or [{}])[-1]).get("merged_sha", "")
+        spec = (f"In review after merge, the human asked for a fix to task #{task_id} ({b['title']})"
+                + (f", merged as {commit[:10]}" if commit else "") + f":\n\n{reason}\n\n"
+                f"The original task, for context: {b.get('spec', '')}")
+        fix = await store.enqueue_task(conn, indexer, task["project"], title=f"Fix: {b['title']}", spec=spec,
+                                       feature=task["feature"], layers=task["layers"], source=f"playback:{task_id}")
+        await store.add_version(conn, indexer, task_id, {**b, "playback_review": {
+            "status": "fix", "at": _now(), "reason": reason, "fix_task_id": fix["task_id"]}})
+    return {"status": "fix", **fix}
+
+
+async def _playback_task(conn: AsyncConnection, task_id: int) -> dict:
+    task = await store.get_document(conn, task_id)
+    if not task or task["type"] != "task" or (task["body"].get("playback_review") or {}).get("status") != "pending":
+        raise rules.Forbidden(f"task {task_id} has no playback waiting")
+    return task

@@ -10,6 +10,7 @@
       {% elif item.kind == 'held' %}{{ ui.st('held', text='Held by rehearsal') }}
       {% elif item.kind == 'soundcheck' %}{{ ui.st('blocked', text='Soundcheck failed') }}
       {% elif item.kind == 'blocked' %}{{ ui.st('blocked') }}
+      {% elif item.kind == 'playback' %}{{ ui.st('done', text='Playback · merged') }}
       {% else %}{{ ui.st(d.status, text=(d.type|label ~ ' ' ~ d.status) if d.type in ('wave', 'plan') else d.type|label ~ ' · ' ~ d.status) }}{% endif %}
       <span class="id">{{ d|ref }}</span>{{ ui.tags(d) }}
       {% if d.type == 'wave' %}<span class="muted">{{ item.plans|length }} plans · {{ item.plans|map(attribute='body')|map(attribute='tasks')|map('length')|sum }} tasks</span>{% endif %}
@@ -58,7 +59,21 @@
       </table></div>
     {% elif d.type == 'plan' %}
       <p class="muted">{{ d.body.goal|truncate(300) }}</p>
-      <p class="muted" style="font-size: 12px">{{ d.body.tasks|length }} tasks{% if d.body.gates %} · adds gates {{ d.body.gates|map(attribute='name')|join(', ') }}{% endif %}{% if d.body.conventions %} · adds conventions {{ d.body.conventions|map(attribute='title')|join(', ') }}{% endif %}</p>
+      <p class="muted" style="font-size: 12px">{{ item.tasks_count if item.tasks_count is defined else d.body.tasks|length }} tasks{% if d.body.gates %} · adds gates {{ d.body.gates|map(attribute='name')|join(', ') }}{% endif %}{% if d.body.conventions %} · adds conventions {{ d.body.conventions|map(attribute='title')|join(', ') }}{% endif %}</p>
+    {% elif item.kind == 'playback' %}{% set run = (d.body.runs or [none])[-1] %}
+      <p class="muted" style="font-size: 13px">Merged{% if run and run.merged_sha %} as <span class="mono">{{ run.merged_sha[:7] }}</span>{% endif %}; review when you like. Nothing waits on it.
+        {% if run and run.review %}Reviewer: {{ run.review.verdict }}{% if run.review.findings %} · {{ run.review.findings|length }} note{{ 's' if run.review.findings|length > 1 }}{% endif %}.{% endif %}
+        Gates: {{ item.gate_failures }} failure{{ 's' if item.gate_failures != 1 }} before green.</p>
+      {% if run and run.diff %}<details><summary class="muted" style="cursor: pointer; font-size: 13px">Diff{% if run.diff_stat %} · {{ run.diff_stat.strip().splitlines()[-1] }}{% endif %}</summary>{{ ui.diff(run.diff, open_files=0) }}</details>{% endif %}
+      <div class="decision__actions">
+        <form method="post" action="/ui/p/{{ project }}/documents/{{ d.id }}/playback"><input type="hidden" name="next" value="{{ here }}"><button class="btn btn--approve" name="verdict" value="heard" type="submit">Sounds right</button></form>
+        <details class="confirm"><summary class="btn">Needs a fix…</summary>
+          <div class="confirm__panel"><h4>What needs fixing in {{ d|ref }}?</h4>
+            <form class="stack stack--sm" method="post" action="/ui/p/{{ project }}/documents/{{ d.id }}/playback"><input type="hidden" name="next" value="{{ here }}">
+              <textarea name="reason" rows="4" required placeholder="It becomes the fix task's instruction"></textarea>
+              <button class="btn btn--primary" name="verdict" value="fix" type="submit">Queue the fix</button></form></div>
+        </details>
+      </div>
     {% elif d.type == 'decision' %}
       {% set why = d.body.decision or d.body.rationale or d.body.why %}{% if why %}<p class="muted">{{ why|truncate(400) }}</p>{% endif %}
     {% elif d.type == 'convention' %}
@@ -96,7 +111,7 @@
 {% if review and not kind %}
 <section class="stack" aria-labelledby="review-h">
   <div class="section-head"><h2 id="review-h">To review when you like</h2><span class="count-pill">{{ review|length }}</span></div>
-  <p class="muted" style="font-size: 13px">Nothing waits on these. Decisions that departed from a plan or a convention, and conventions the process proposes: accepting one makes it a rule later plans follow; rejecting a decision queues a task to undo it.</p>
+  <p class="muted" style="font-size: 13px">Nothing waits on these. Playback: merged work of the features you review forward; a fix becomes a new task. Decisions that departed from a plan or a convention, and conventions the process proposes: accepting one makes it a rule later plans follow; rejecting a decision queues a task to undo it.</p>
   {% for item in review %}{{ qitem(item, here) }}{% endfor %}
 </section>
 {% endif %}

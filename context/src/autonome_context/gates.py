@@ -31,6 +31,13 @@ class Fermata(BaseModel):
     features: list[str] = []
 
 
+class Playback(BaseModel):
+    """Features reviewed after merge: their tasks merge as usual and wait for the human's review in the
+    background ("review forward"); a fix becomes a new task, never a block."""
+
+    features: list[str] = []
+
+
 class Cue(BaseModel):
     name: str
     kind: Literal["command", "doc-drift", "main-red"]
@@ -95,6 +102,7 @@ class GateConfig(BaseModel):
     encore: Encore = Encore()
     budget: Budget = Budget()
     fermata: Fermata = Fermata()
+    playback: Playback = Playback()
     cues: list[Cue] = []
     review: Review = Review()
     tune_after_wave: bool = Field(default=True, description="propose conventions from each finished wave's evidence")
@@ -127,7 +135,8 @@ interactive: false
 allowed_commands: [./mvnw]
 encore: {max: 3, stop_on_repeat: true}
 budget: {task_tokens: 400000, task_minutes: 30, plan_tokens: 3000000}
-fermata: {features: []}
+fermata: {features: []}     # stop before merge for the human (blocks the setlist)
+playback: {features: []}    # merge, then the human reviews forward (never blocks)
 cues: []
 review: {enabled: true, max_rounds: 2}
 # models: {musician: {model: sonnet, effort: medium}}   # per role; see DEFAULT_MODELS for the rest

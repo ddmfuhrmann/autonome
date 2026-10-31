@@ -66,17 +66,18 @@
         <span class="push muted" style="font-size: 12px">{{ summary.merged }} merged · {{ summary.blocked }} blocked · {{ summary.held }} held · {{ summary.totals.duration_s|duration }}</span></div>
       <div class="card__body card__body--flush" style="overflow-x: auto">
         <table class="table">
-          <thead><tr><th>Task</th><th>Status</th><th class="num">Sessions</th><th class="num">Gate encores</th><th class="num">Review rounds</th><th class="num">Time</th><th class="num">Tokens</th><th class="num">Cost</th></tr></thead>
+          <thead><tr><th>Task</th><th>Status</th><th class="num">Sessions</th><th class="num">Gate encores</th><th class="num">Review rounds</th><th class="num">Time</th><th class="num">Tokens</th><th class="num">Cost</th><th>Playback</th></tr></thead>
           <tbody>
           {% for r in summary.rows %}
           <tr><td>{{ ui.doc_link(project, r.task) }}{% if r.reason %}<div class="muted" style="font-size: 12px; white-space: pre-wrap">{{ r.reason|truncate(220) }}</div>{% endif %}</td>
             <td>{{ ui.st(r.task.status, sm=true) }}</td><td class="num">{{ r.sessions }}</td><td class="num">{{ r.encores }}</td>
             <td class="num">{{ r.review_rounds }}</td><td class="num">{{ r.duration_s|duration if r.duration_s else '–' }}</td>
-            <td class="num mono">{{ r.tokens|tokens }}</td><td class="num mono">{{ r.cost|money }}</td></tr>
+            <td class="num mono">{{ r.tokens|tokens }}</td><td class="num mono">{{ r.cost|money }}</td>
+            <td>{% set pr = r.playback %}{% if not pr %}<span class="muted">—</span>{% elif pr.status == 'pending' %}<a href="/ui/p/{{ project }}/approvals?kind=playback">to hear</a>{% elif pr.status == 'heard' %}✓{% else %}<a href="/ui/p/{{ project }}/documents/{{ pr.fix_task_id }}">fix → {{ pr.fix_task_id|ref('task') }}</a>{% endif %}</td></tr>
           {% endfor %}
           </tbody>
           <tfoot><tr><th>Total</th><th></th><th class="num">{{ summary.totals.sessions }}</th><th class="num">{{ summary.totals.encores }}</th><th class="num">{{ summary.totals.review_rounds }}</th>
-            <th class="num">{{ summary.totals.duration_s|duration }}</th><th class="num mono">{{ summary.totals.tokens|tokens }}</th><th class="num mono">{{ summary.totals.cost|money }}</th></tr></tfoot>
+            <th class="num">{{ summary.totals.duration_s|duration }}</th><th class="num mono">{{ summary.totals.tokens|tokens }}</th><th class="num mono">{{ summary.totals.cost|money }}</th><th></th></tr></tfoot>
         </table>
       </div>
     </section>

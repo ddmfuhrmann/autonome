@@ -22,7 +22,7 @@
   <nav class="side__nav">
     <div class="side__group">
       {{ nav('setlist', 'Setlist', '<path d="M2.5 3.5h3v9h-3zM6.5 3.5h3v6h-3zM10.5 3.5h3v4h-3z"/>') }}
-      {% call nav('approvals', 'Approvals', '<path d="M2.2 11.5a5.8 5.8 0 0 1 11.6 0"/><circle cx="8" cy="10.6" r="1.3" fill="currentColor" stroke="none"/>') %}<span id="side-count" data-live>{% if side.waiting %}<span class="side__count side__count--attn">{{ side.waiting }}<span class="sr-only"> waiting</span></span>{% endif %}</span>{% endcall %}
+      {% call nav('approvals', 'Approvals', '<path d="M2.2 11.5a5.8 5.8 0 0 1 11.6 0"/><circle cx="8" cy="10.6" r="1.3" fill="currentColor" stroke="none"/>') %}<span id="side-count" data-live>{% if side.waiting %}<span class="side__count side__count--attn">{{ side.waiting }}<span class="sr-only"> waiting</span></span>{% endif %}{% if side.to_hear %}<span class="side__count" title="merged, review when you like">{{ side.to_hear }}<span class="sr-only"> to hear</span></span>{% endif %}</span>{% endcall %}
       {{ nav('waves', 'Waves', '<circle cx="3.5" cy="8" r="1.8"/><circle cx="12.5" cy="4" r="1.8"/><circle cx="12.5" cy="12" r="1.8"/><path d="M5.2 7.3l5.6-2.5M5.2 8.7l5.6 2.5"/>') }}
     </div>
     <div class="side__group"><span class="label">Score</span>
@@ -75,7 +75,7 @@
 // shows the new status once the context confirms it, and a failure is said out loud, not swallowed.
 document.addEventListener("submit", async (ev) => {
   const form = ev.target;
-  if (!(form instanceof HTMLFormElement) || !form.action.endsWith("/transition")) return;
+  if (!(form instanceof HTMLFormElement) || !/\/(transition|playback)$/.test(form.action)) return;
   ev.preventDefault();
   const button = ev.submitter;
   const label = button?.textContent;

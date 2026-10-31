@@ -6,7 +6,12 @@
 {% set b = doc.body %}
 <div class="page-head">
   <div class="page-head__text">
-    <div class="page-head__title"><span class="id">{{ doc|ref }}</span><h1>{{ b.title }}</h1></div>
+    <div class="page-head__title"><span class="id">{{ doc|ref }}</span><h1>{{ b.title }}</h1>
+      {% set pr = b.playback_review %}{% if pr %}
+      {% if pr.status == 'pending' %}<a class="tag" href="/ui/p/{{ project }}/approvals?kind=playback">Playback pending</a>
+      {% elif pr.status == 'heard' %}<span class="tag tag--feature">Heard ✓</span>
+      {% else %}<a class="tag" href="/ui/p/{{ project }}/documents/{{ pr.fix_task_id }}" title="{{ pr.reason }}">Needs a fix → {{ pr.fix_task_id|ref('task') }}</a>{% endif %}
+      {% endif %}</div>
     <div class="page-head__meta">
       {{ ui.st(doc.status, live=true) }}
       {% if stages %}<ol class="stages" aria-label="Stages">{% for name, cls in stages %}<li class="{{ cls }}"{% if cls == 'is-current' %} aria-current="step"{% endif %}><span>{{ name }}</span></li>{% endfor %}</ol>{% endif %}

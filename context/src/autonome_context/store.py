@@ -1,3 +1,4 @@
+import fnmatch
 import gzip
 import json
 import logging
@@ -524,6 +525,16 @@ async def next_task(conn: AsyncConnection, project: str) -> dict | None:
     return await get_document(conn, row[0]) if row else None
 
 
+async def review_flags(conn: AsyncConnection, project: str, feature: str | None) -> tuple[bool, bool]:
+    """(fermata, playback) for a task of this feature, from the gate config's feature patterns."""
+    doc = await latest_of_type(conn, project, "gate_config")
+    if not doc or not feature:
+        return False, False
+    cfg = GateConfig.from_yaml(doc["body"]["yaml"])
+    match = lambda patterns: any(fnmatch.fnmatch(feature, p) for p in patterns)
+    return match(cfg.fermata.features), match(cfg.playback.features)
+
+
 async def pending_gates(conn: AsyncConnection, project: str) -> list[dict]:
     """Gates of approved plans that join the gate config when their setup task merges (`with_task`)."""
     out = []
@@ -636,7 +647,8 @@ async def enqueue_task(
         task_id = await create_document(
             conn, indexer, project=project, type="task", status="pending", feature=feature, layers=layers,
             body={"title": title, "spec": spec, "acceptance": [], "plan_id": plan["id"], "seq": len(existing) + 1,
-                  "depends_on": [], "fermata": False, "source": source},
+                  "depends_on": [], "fermata": False, "playback": (await review_flags(conn, project, feature))[1],
+                  "source": source},
         )
         await link(conn, plan["id"], task_id, "has_task")
     return {"task_id": task_id, "plan_id": plan["id"], "plan_status": plan["status"], "duplicate": False}

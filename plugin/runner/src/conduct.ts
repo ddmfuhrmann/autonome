@@ -399,9 +399,15 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<Run | unde
     await context.transition(task.id, "on_hold", run);
     return run;
   }
+  if (task.body.playback) {
+    // Kept for the review after merge: what went in, as it went in.
+    Object.assign(run, { diff_stat: git(worktree, "diff", "--stat", `${base}..HEAD`),
+      diff: git(worktree, "diff", `${base}..HEAD`).slice(0, 60_000) });
+  }
   const r = integrate(repo, worktree, branch, opts.push);
   if (!r.ok) return block(r.reason ?? "could not merge");
   run.outcome = "merged";
+  run.merged_sha = git(repo, "rev-parse", "main");
   await recordMerged(task, run, opts);
   log(`  merged into main`);
   if (task.feature) updateDocs(repo, opts.project, ["--feature", task.feature], log);

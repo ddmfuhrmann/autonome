@@ -106,9 +106,11 @@ async def task_transition(request: Request) -> JSONResponse:
                 task = await rules.transition(conn, doc_id, body["to"], "runner")
             except rules.Forbidden as e:
                 return _json({"error": str(e)}, 409)
-            if body.get("run"):
-                runs = task["body"].get("runs", []) + [body["run"]]
-                await store.add_version(conn, None, doc_id, {**task["body"], "runs": runs})
+            if body.get("run") or (body["to"] == "done" and task["body"].get("playback")):
+                new = {**task["body"], "runs": task["body"].get("runs", []) + ([body["run"]] if body.get("run") else [])}
+                if body["to"] == "done" and task["body"].get("playback"):
+                    new["playback_review"] = {"status": "pending"}  # merged; the human hears it when they like
+                await store.add_version(conn, None, doc_id, new)
             if body["to"] == "done":
                 # Gates a plan proposed (approved by the human with it) start once their tooling is merged.
                 await plans.apply_gates(conn, indexer, task["project"], task["body"].get("adds_gates", []))
