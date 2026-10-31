@@ -1,48 +1,10 @@
-import asyncio
-import hashlib
-import uuid
+import gzip
 
-import psycopg
-import pytest
-
-from autonome_context import config, store
-from autonome_context.chunking import SectionV1
-from autonome_context.handoff import Decision, GateResult, Handoff, PlanItem
-from autonome_context.migrate import migrate
+from autonome_context import evaluation, store
+from autonome_context.chunking import STRATEGIES, Doc, SectionV1, WholeV1
 from autonome_context.redact import redact
 
-
-class FakeEmbedder:
-    """Deterministic bag-of-words vectors: shared words mean closer vectors. No Ollama needed."""
-
-    model = "fake-bow"
-    dims = 64
-
-    async def embed(self, texts, purpose):
-        out = []
-        for t in texts:
-            v = [0.0] * self.dims
-            for word in t.lower().split():
-                v[int(hashlib.md5(word.encode()).hexdigest(), 16) % self.dims] += 1.0
-            out.append(v if any(v) else [1.0] + [0.0] * (self.dims - 1))
-        return out
-
-
-def handoff(project: str, **kw) -> Handoff:
-    base = dict(
-        project=project,
-        session_id="s-1",
-        feature="wallet",
-        layers=["domain", "persistence"],
-        summary="Implemented the append-only ledger for the wallet balance.",
-        plan_adherence=[PlanItem(item="LedgerEntry entity", status="done")],
-        gates=[GateResult(name="test", passed=False, encores=1, root_cause="missing tenant filter")],
-        decisions=[Decision(title="Balance is derived", rationale="never stored, summed from entries")],
-        friction=["no convention for money rounding"],
-        adherence_score=0.8,
-    )
-    base.update(kw)
-    return Handoff(**base)
+from conftest import make_handoff
 
 
 def test_redact_masks_identifiers_and_secrets():
@@ -54,49 +16,76 @@ def test_redact_masks_identifiers_and_secrets():
 
 
 def test_section_strategy_drops_empty_sections_and_prefixes_context():
-    chunks = SectionV1().chunk(handoff("p", deviations=[]))
+    h = make_handoff("p", deviations=[])
+    chunks = SectionV1().chunk(Doc("handoff", h.model_dump(), h.feature, h.layers))
     sections = [c.section for c in chunks]
     assert "deviations" not in sections
     assert sections[0] == "summary"
-    assert chunks[0].text.startswith("feature: wallet | layers: domain, persistence")
+    assert chunks[0].text.startswith("handoff | feature: wallet | layers: domain, persistence")
 
 
-@pytest.fixture(scope="module")
-def db_url():
-    """A separate autonome_test database, so fake embeddings never reach the dev index."""
-    dev_url = config.load().database_url
-    try:
-        with psycopg.connect(dev_url, connect_timeout=2, autocommit=True) as conn:
-            if not conn.execute("select 1 from pg_database where datname = 'autonome_test'").fetchone():
-                conn.execute("create database autonome_test")
-    except psycopg.OperationalError:
-        pytest.skip("postgres not running (docker compose up -d)")
-    url = dev_url.rsplit("/", 1)[0] + "/autonome_test"
-    migrate(url)
-    return url
+def test_generic_documents_chunk_by_top_level_field():
+    doc = Doc("plan", {"title": "Signup", "goal": "Self-service signup", "tasks": [{"title": "form"}]}, None, [])
+    assert [c.section for c in SectionV1().chunk(doc)] == ["title", "goal", "tasks"]
+    assert len(WholeV1().chunk(doc)) == 1
 
 
-def test_put_and_search_roundtrip(db_url):
-    async def run():
-        project = f"test-{uuid.uuid4().hex[:8]}"
-        emb, strat = FakeEmbedder(), SectionV1()
-        async with await psycopg.AsyncConnection.connect(db_url) as conn:
-            await store.put_handoff(conn, handoff(project), "raw cpf 123.456.789-09", strat, emb)
-            await store.put_handoff(
-                conn,
-                handoff(project, feature="signup", layers=["ui"], summary="Built the signup form.",
-                        decisions=[], gates=[], friction=[]),
-                None, strat, emb,
-            )
-            hits = await store.search(conn, "tenant filter", project, strat, emb)
-            filtered = await store.search(conn, "form", project, strat, emb, layer="ui")
-            raw = await (await conn.execute(
-                "select content_gz from raw_transcript rt join document d on d.id = rt.document_id"
-                " join project p on p.id = d.project_id where p.slug = %s", (project,))).fetchone()
-        return hits, filtered, raw
+def test_metrics():
+    m = evaluation.score([5, 3, 9], {3}, k=3)
+    assert m.recall == 1 and m.mrr == 0.5 and round(m.ndcg, 3) == 0.631
+    assert evaluation.score([1, 2], {7}, k=2).recall == 0
 
-    hits, filtered, raw = asyncio.run(run())
-    assert hits[0].section == "gates" and hits[0].feature == "wallet"
+
+def test_put_and_search_roundtrip(run_db, project, indexer):
+    async def go(conn):
+        await store.put_handoff(conn, indexer, make_handoff(project), "raw cpf 123.456.789-09")
+        await store.put_handoff(conn, indexer, make_handoff(
+            project, feature="signup", layers=["ui"], summary="Built the signup form.",
+            decisions=[], gates=[], friction=[]), None)
+        hits = await store.search(conn, "tenant filter", project, SectionV1(), indexer.embedder)
+        filtered = await store.search(conn, "form", project, SectionV1(), indexer.embedder, layer="ui")
+        fts = await store.search(conn, "rounding", project, SectionV1(), indexer.embedder, mode="fts")
+        decisions = await store.list_documents(conn, project, type="decision")
+        raw = await (await conn.execute(
+            "select content_gz from raw_transcript rt join document d on d.id = rt.document_id"
+            " join project p on p.id = d.project_id where p.slug = %s", (project,))).fetchone()
+        return hits, filtered, fts, decisions, raw
+
+    hits, filtered, fts, decisions, raw = run_db(go)
+    assert hits[0].type == "handoff" and hits[0].section == "gates"
+    assert len({h.document_id for h in hits}) == len(hits)  # one hit per document
     assert {h.feature for h in filtered} == {"signup"}
-    import gzip
+    assert [h.section for h in fts] == ["friction"] and fts[0].ranks == {"fts": 1}
+    assert decisions[0]["status"] == "proposed" and decisions[0]["body"]["title"] == "Balance is derived"
     assert b"123.456.789-09" not in gzip.decompress(raw[0])
+
+
+def test_every_strategy_indexes_and_new_versions_replace_old_in_search(run_db, project, indexer):
+    async def go(conn):
+        doc_id = await store.create_document(conn, indexer, project=project, type="convention",
+                                             body={"title": "Money", "rule": "round half even"})
+        await store.add_version(conn, indexer, doc_id, {"title": "Money", "rule": "round half up"})
+        per_strategy = await (await conn.execute(
+            "select s.name, count(*) from chunk c join strategy s on s.id = c.strategy_id"
+            " join document_version dv on dv.id = c.document_version_id where dv.document_id = %s"
+            " group by s.name", (doc_id,))).fetchall()
+        hits = await store.search(conn, "even", project, SectionV1(), indexer.embedder, mode="fts")
+        doc = await store.get_document(conn, doc_id)
+        return dict(per_strategy), hits, doc
+
+    per_strategy, hits, doc = run_db(go)
+    assert set(per_strategy) == set(STRATEGIES)
+    assert hits == []  # "even" only exists in version 1
+    assert doc["version"] == 2 and doc["body"]["rule"] == "round half up"
+
+
+def test_eval_run_records_metrics(run_db, project, indexer):
+    async def go(conn):
+        doc_id = await store.put_handoff(conn, indexer, make_handoff(project), None)
+        await evaluation.add_question(conn, project, "missing tenant filter in tests", [doc_id], "manual")
+        result = await evaluation.run(conn, project, SectionV1(), indexer.embedder, "hybrid", 5)
+        return result, await evaluation.runs(conn, project)
+
+    result, runs = run_db(go)
+    assert result["n"] == 1 and result["recall"] == 1.0
+    assert runs[0]["strategy"] == "section-v1"

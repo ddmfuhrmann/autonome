@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block main %}
+<h1>Projects</h1>
+<div class="card">
+{% for p in projects %}<div><a href="/ui/p/{{ p }}">{{ p }}</a></div>
+{% else %}<p class="empty">No project yet. Projects appear when their first handoff arrives.</p>{% endfor %}
+</div>
+{% endblock %}

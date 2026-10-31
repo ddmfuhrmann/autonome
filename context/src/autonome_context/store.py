@@ -1,14 +1,24 @@
 import gzip
 import json
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
+from typing import Literal
 
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 
-from .chunking import Strategy
+from .chunking import Doc, Strategy
 from .embed import Embedder
 from .handoff import Handoff
 from .redact import redact
+
+SearchMode = Literal["hybrid", "vector", "fts"]
+
+
+@dataclass
+class Indexer:
+    strategies: list[Strategy]
+    embedder: Embedder
 
 
 def _redact_strings(value):
@@ -35,12 +45,28 @@ async def ensure_project(conn: AsyncConnection, slug: str) -> int:
     )
 
 
+async def _ensure_feature(conn: AsyncConnection, project_id: int, slug: str) -> int:
+    return await _id(
+        conn,
+        "insert into feature (project_id, slug, name) values (%s, %s, %s)"
+        " on conflict (project_id, slug) do update set slug = excluded.slug returning id",
+        (project_id, slug, slug),
+    )
+
+
+async def _ensure_layer(conn: AsyncConnection, project_id: int, slug: str) -> int:
+    return await _id(
+        conn,
+        "insert into layer (project_id, slug) values (%s, %s)"
+        " on conflict (project_id, slug) do update set slug = excluded.slug returning id",
+        (project_id, slug),
+    )
+
+
 async def ensure_strategy(conn: AsyncConnection, strategy: Strategy, embedder: Embedder) -> int:
     """A strategy is identified by name; changing its params or model means a new name."""
     row = await (
-        await conn.execute(
-            "select id, embed_model, dims from strategy where name = %s", (strategy.name,)
-        )
+        await conn.execute("select id, embed_model, dims from strategy where name = %s", (strategy.name,))
     ).fetchone()
     if row:
         if (row[1], row[2]) != (embedder.model, embedder.dims):
@@ -56,81 +82,210 @@ async def ensure_strategy(conn: AsyncConnection, strategy: Strategy, embedder: E
     )
 
 
-async def put_handoff(
+# --- documents -----------------------------------------------------------------------------------
+
+
+async def create_document(
     conn: AsyncConnection,
-    h: Handoff,
-    raw_transcript: str | None,
-    strategy: Strategy,
-    embedder: Embedder,
+    indexer: Indexer | None,
+    *,
+    project: str,
+    type: str,
+    body: dict,
+    feature: str | None = None,
+    layers: list[str] | tuple = (),
+    status: str | None = None,
+    commit_sha: str | None = None,
 ) -> int:
-    """Stores a redacted handoff as a new document and indexes it. One transaction."""
-    h = Handoff.model_validate(_redact_strings(h.model_dump()))
+    """Stores a redacted document as version 1 and indexes it. Call inside a transaction."""
+    body = _redact_strings(body)
+    project_id = await ensure_project(conn, project)
+    feature_id = await _ensure_feature(conn, project_id, feature) if feature else None
+    doc_id = await _id(
+        conn,
+        "insert into document (project_id, feature_id, type, status) values (%s, %s, %s, %s) returning id",
+        (project_id, feature_id, type, status),
+    )
+    for layer in dict.fromkeys(layers):
+        layer_id = await _ensure_layer(conn, project_id, layer)
+        await conn.execute("insert into document_layer (document_id, layer_id) values (%s, %s)", (doc_id, layer_id))
+    version_id = await _id(
+        conn,
+        "insert into document_version (document_id, version, body, commit_sha) values (%s, 1, %s, %s) returning id",
+        (doc_id, json.dumps(body), commit_sha),
+    )
+    if indexer:
+        await index_version(conn, indexer, version_id, Doc(type, body, feature, list(layers)))
+    return doc_id
+
+
+async def add_version(
+    conn: AsyncConnection, indexer: Indexer | None, doc_id: int, body: dict, commit_sha: str | None = None
+) -> int:
+    """Append-only change: a new version, indexed; older versions stay but drop out of search."""
+    body = _redact_strings(body)
+    version_id = await _id(
+        conn,
+        "insert into document_version (document_id, version, body, commit_sha)"
+        " select %s, coalesce(max(version), 0) + 1, %s, %s from document_version where document_id = %s"
+        " returning id",
+        (doc_id, json.dumps(body), commit_sha, doc_id),
+    )
+    if indexer:
+        doc = await get_document(conn, doc_id)
+        await index_version(conn, indexer, version_id, Doc(doc["type"], body, doc["feature"], doc["layers"]))
+    return version_id
+
+
+async def set_status(conn: AsyncConnection, doc_id: int, status: str) -> None:
+    await conn.execute("update document set status = %s where id = %s", (status, doc_id))
+
+
+async def link(conn: AsyncConnection, from_id: int, to_id: int, kind: str) -> None:
+    await conn.execute(
+        "insert into link (from_id, to_id, kind) values (%s, %s, %s) on conflict do nothing", (from_id, to_id, kind)
+    )
+
+
+_DOC_SELECT = """
+    select d.id, p.slug as project, d.type, d.status, f.slug as feature, d.created_at,
+           dv.version, dv.body, dv.commit_sha, dv.created_at as updated_at,
+           coalesce((select array_agg(l.slug order by l.slug) from document_layer dl
+                     join layer l on l.id = dl.layer_id where dl.document_id = d.id), '{}') as layers
+    from document d
+    join project p on p.id = d.project_id
+    left join feature f on f.id = d.feature_id
+    join lateral (select * from document_version v where v.document_id = d.id
+                  order by v.version desc limit 1) dv on true
+"""
+
+
+async def get_document(conn: AsyncConnection, doc_id: int) -> dict | None:
+    async with conn.cursor(row_factory=dict_row) as cur:
+        await cur.execute(_DOC_SELECT + " where d.id = %s", (doc_id,))
+        return await cur.fetchone()
+
+
+async def list_documents(
+    conn: AsyncConnection,
+    project: str,
+    *,
+    type: str | None = None,
+    status: str | None = None,
+    feature: str | None = None,
+    limit: int = 200,
+) -> list[dict]:
+    async with conn.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            _DOC_SELECT
+            + """ where p.slug = %(project)s
+                  and (%(type)s::text is null or d.type = %(type)s)
+                  and (%(status)s::text is null or d.status = %(status)s)
+                  and (%(feature)s::text is null or f.slug = %(feature)s)
+                order by d.created_at desc limit %(limit)s""",
+            {"project": project, "type": type, "status": status, "feature": feature, "limit": limit},
+        )
+        return await cur.fetchall()
+
+
+async def links_of(conn: AsyncConnection, doc_id: int) -> list[dict]:
+    async with conn.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            """select l.kind, 'out' as direction, d.id, d.type, d.status from link l join document d on d.id = l.to_id
+               where l.from_id = %(id)s
+               union all
+               select l.kind, 'in', d.id, d.type, d.status from link l join document d on d.id = l.from_id
+               where l.to_id = %(id)s""",
+            {"id": doc_id},
+        )
+        return await cur.fetchall()
+
+
+async def list_projects(conn: AsyncConnection) -> list[str]:
+    rows = await (await conn.execute("select slug from project order by slug")).fetchall()
+    return [r[0] for r in rows]
+
+
+# --- handoffs ------------------------------------------------------------------------------------
+
+
+async def put_handoff(conn: AsyncConnection, indexer: Indexer, h: Handoff, raw_transcript: str | None) -> int:
+    """Stores a redacted handoff with its decisions and raw transcript, and indexes it. One transaction."""
     async with conn.transaction():
-        project_id = await ensure_project(conn, h.project)
-        feature_id = None
-        if h.feature:
-            feature_id = await _id(
-                conn,
-                "insert into feature (project_id, slug, name) values (%s, %s, %s)"
-                " on conflict (project_id, slug) do update set slug = excluded.slug returning id",
-                (project_id, h.feature, h.feature),
-            )
-        doc_id = await _id(
-            conn,
-            "insert into document (project_id, feature_id, type, status) values (%s, %s, 'handoff', 'final')"
-            " returning id",
-            (project_id, feature_id),
+        doc_id = await create_document(
+            conn, indexer,
+            project=h.project, type="handoff", body=h.model_dump(mode="json"),
+            feature=h.feature, layers=h.layers, status="final", commit_sha=h.commit_sha,
         )
-        for layer in h.layers:
-            layer_id = await _id(
-                conn,
-                "insert into layer (project_id, slug) values (%s, %s)"
-                " on conflict (project_id, slug) do update set slug = excluded.slug returning id",
-                (project_id, layer),
+        for d in h.decisions:
+            decision_id = await create_document(
+                conn, indexer,
+                project=h.project, type="decision", body={"title": d.title, "decision": d.rationale},
+                feature=h.feature, layers=h.layers, status="proposed",
             )
-            await conn.execute(
-                "insert into document_layer (document_id, layer_id) values (%s, %s)", (doc_id, layer_id)
-            )
-        version_id = await _id(
-            conn,
-            "insert into document_version (document_id, version, body, commit_sha) values (%s, 1, %s, %s)"
-            " returning id",
-            (doc_id, h.model_dump_json(), h.commit_sha),
-        )
+            await link(conn, doc_id, decision_id, "records")
         if raw_transcript:
             await conn.execute(
                 "insert into raw_transcript (document_id, session_id, content_gz) values (%s, %s, %s)",
                 (doc_id, h.session_id, gzip.compress(redact(raw_transcript).encode())),
             )
-        await index_version(conn, version_id, h, strategy, embedder)
     return doc_id
 
 
-async def index_version(
-    conn: AsyncConnection, version_id: int, h: Handoff, strategy: Strategy, embedder: Embedder
-) -> int:
-    chunks = strategy.chunk(h)
-    if not chunks:
-        return 0
+# --- indexing ------------------------------------------------------------------------------------
+
+
+async def index_version(conn: AsyncConnection, indexer: Indexer, version_id: int, doc: Doc) -> int:
+    total = 0
+    for strategy in indexer.strategies:
+        chunks = strategy.chunk(doc)
+        if not chunks:
+            continue
+        strategy_id = await ensure_strategy(conn, strategy, indexer.embedder)
+        vectors = await indexer.embedder.embed([c.text for c in chunks], "document")
+        async with conn.cursor() as cur:
+            await cur.executemany(
+                "insert into chunk (document_version_id, strategy_id, ord, section, text, embedding)"
+                " values (%s, %s, %s, %s, %s, %s::vector) on conflict do nothing",
+                [(version_id, strategy_id, c.ord, c.section, c.text, str(v)) for c, v in zip(chunks, vectors)],
+            )
+        total += len(chunks)
+    return total
+
+
+async def reindex(conn: AsyncConnection, strategy: Strategy, embedder: Embedder) -> int:
+    """Indexes every document version that this strategy has not seen yet."""
     strategy_id = await ensure_strategy(conn, strategy, embedder)
-    vectors = await embedder.embed([c.text for c in chunks], "document")
-    async with conn.cursor() as cur:
-        await cur.executemany(
-            "insert into chunk (document_version_id, strategy_id, ord, section, text, embedding)"
-            " values (%s, %s, %s, %s, %s, %s::vector)",
-            [(version_id, strategy_id, c.ord, c.section, c.text, str(v)) for c, v in zip(chunks, vectors)],
+    async with conn.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            """select dv.id, d.type, dv.body, f.slug as feature,
+                      coalesce((select array_agg(l.slug) from document_layer dl join layer l on l.id = dl.layer_id
+                                where dl.document_id = d.id), '{}') as layers
+               from document_version dv join document d on d.id = dv.document_id
+               left join feature f on f.id = d.feature_id
+               where not exists (select 1 from chunk c where c.document_version_id = dv.id and c.strategy_id = %s)""",
+            (strategy_id,),
         )
-    return len(chunks)
+        rows = await cur.fetchall()
+    indexer = Indexer([strategy], embedder)
+    for r in rows:
+        await index_version(conn, indexer, r["id"], Doc(r["type"], r["body"], r["feature"], r["layers"]))
+    return len(rows)
+
+
+# --- search --------------------------------------------------------------------------------------
 
 
 @dataclass
 class Hit:
     document_id: int
+    type: str
     feature: str | None
     section: str | None
     text: str
     score: float
     created_at: str
+    ranks: dict = field(default_factory=dict)
 
 
 _RRF_K = 60  # standard reciprocal-rank-fusion constant
@@ -147,21 +302,20 @@ async def search(
     feature: str | None = None,
     layer: str | None = None,
     doc_type: str | None = None,
+    mode: SearchMode = "hybrid",
+    per_document: bool = True,
     k: int = 8,
 ) -> list[Hit]:
-    """Hybrid search: vector similarity and full-text, fused by reciprocal rank."""
-    [qvec] = await embedder.embed([query], "query")
+    """Vector similarity and/or full-text over the latest version of each document, fused by
+    reciprocal rank. With per_document, only the best chunk of each document is returned
+    (search small, return the parent)."""
+    qvec = (await embedder.embed([query], "query"))[0] if mode != "fts" else None
+    # Questions rarely contain every word of the answer: match any word and let ts_rank order them.
+    words = re.findall(r"\w+", query)
     params = {
-        "q": query,
-        "qvec": str(qvec),
-        "project": project,
-        "strategy": strategy.name,
-        "feature": feature,
-        "layer": layer,
-        "type": doc_type,
-        "n": _CANDIDATES,
-        "rrf": _RRF_K,
-        "k": k,
+        "q": " or ".join(words) or query, "qvec": str(qvec) if qvec else None, "project": project, "strategy": strategy.name,
+        "feature": feature, "layer": layer, "type": doc_type, "n": _CANDIDATES, "rrf": _RRF_K,
+        "limit": k * 5 if per_document else k,
     }
     scope = """
         from chunk c
@@ -170,39 +324,45 @@ async def search(
         join document d on d.id = dv.document_id
         join project p on p.id = d.project_id and p.slug = %(project)s
         left join feature f on f.id = d.feature_id
-        where (%(feature)s::text is null or f.slug = %(feature)s)
+        where dv.version = (select max(version) from document_version where document_id = d.id)
+          and (%(feature)s::text is null or f.slug = %(feature)s)
           and (%(type)s::text is null or d.type = %(type)s)
           and (%(layer)s::text is null or exists (
                 select 1 from document_layer dl join layer l on l.id = dl.layer_id
                 where dl.document_id = d.id and l.slug = %(layer)s))
     """
+    vec = f"""
+        select c.id, 'vector' as source, row_number() over (order by c.embedding <=> %(qvec)s::vector) as r
+        {scope}
+        order by c.embedding <=> %(qvec)s::vector limit %(n)s
+    """
+    fts = f"""
+        select c.id, 'fts' as source,
+               row_number() over (order by ts_rank(c.tsv, websearch_to_tsquery('simple', %(q)s)) desc) as r
+        {scope} and c.tsv @@ websearch_to_tsquery('simple', %(q)s)
+        order by ts_rank(c.tsv, websearch_to_tsquery('simple', %(q)s)) desc limit %(n)s
+    """
+    ranked = {"hybrid": f"({vec}) union all ({fts})", "vector": vec, "fts": fts}[mode]
     sql = f"""
-        with vec as (
-            select c.id, row_number() over (order by c.embedding <=> %(qvec)s::vector) as r
-            {scope}
-            order by c.embedding <=> %(qvec)s::vector
-            limit %(n)s
-        ), fts as (
-            select c.id, row_number() over (order by ts_rank(c.tsv, websearch_to_tsquery('simple', %(q)s)) desc) as r
-            {scope}
-              and c.tsv @@ websearch_to_tsquery('simple', %(q)s)
-            order by ts_rank(c.tsv, websearch_to_tsquery('simple', %(q)s)) desc
-            limit %(n)s
-        ), fused as (
-            select id, sum(1.0 / (%(rrf)s + r))::float8 as score
-            from (select * from vec union all select * from fts) x
-            group by id
+        with ranked as ({ranked}),
+        fused as (
+            select id, sum(1.0 / (%(rrf)s + r))::float8 as score, jsonb_object_agg(source, r) as ranks
+            from ranked group by id
         )
-        select d.id as document_id, f.slug as feature, c.section, c.text, fused.score,
-               d.created_at::text as created_at
+        select d.id as document_id, d.type, f.slug as feature, c.section, c.text, fused.score,
+               d.created_at::text as created_at, fused.ranks
         from fused
         join chunk c on c.id = fused.id
         join document_version dv on dv.id = c.document_version_id
         join document d on d.id = dv.document_id
         left join feature f on f.id = d.feature_id
         order by fused.score desc
-        limit %(k)s
+        limit %(limit)s
     """
     async with conn.cursor(row_factory=dict_row) as cur:
         await cur.execute(sql, params)
-        return [Hit(**row) for row in await cur.fetchall()]
+        hits = [Hit(**row) for row in await cur.fetchall()]
+    if per_document:
+        seen: set[int] = set()
+        hits = [h for h in hits if not (h.document_id in seen or seen.add(h.document_id))]
+    return hits[:k]

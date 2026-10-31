@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Lab{% endblock %}
+{% block main %}
+<h1>Lab</h1>
+<div class="card">
+  <h2>Strategies</h2>
+  <div class="tablewrap"><table>
+    <tr><th>Name</th><th>Params</th><th>Chunks</th></tr>
+    {% for s in strategies %}<tr><td>{{ s.name }}</td><td><code>{{ s.params|tojson }}</code></td><td class="num">{{ s.chunks }}</td></tr>{% endfor %}
+  </table></div>
+</div>
+
+<div class="card">
+  <h2>Compare</h2>
+  <form class="inline" method="get">
+    <input class="wide" type="text" name="q" id="cmp-q" value="{{ q }}" placeholder="Same question, every strategy">
+    <button>Compare</button>
+  </form>
+  {% if q %}
+  <div class="cols">
+    {% for name, hits in compare.items() %}
+    <div class="card"><h2>{{ name }}</h2>
+      {% for h in hits %}{% include "_hit.html" %}{% else %}<p class="empty">Nothing found.</p>{% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Evaluation runs</h2>
+  <form class="inline" method="post" action="/ui/p/{{ project }}/lab/eval">
+    <label for="k">k</label><input type="number" name="k" id="k" value="5" min="1" max="20">
+    <button class="accent" {{ 'disabled' if not questions }}>Run every strategy × mode</button>
+    <span class="muted">{{ questions|length }} questions</span>
+  </form>
+  {% set best = runs|map(attribute='ndcg')|max if runs else None %}
+  <div class="tablewrap"><table>
+    <tr><th>When</th><th>Strategy</th><th>Model</th><th>Mode</th><th>k</th><th>n</th><th>Recall@k</th><th>MRR</th><th>nDCG</th></tr>
+    {% for r in runs %}
+    <tr><td>{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td><td>{{ r.strategy }}</td><td>{{ r.embed_model }}</td><td>{{ r.mode }}</td>
+      <td class="num">{{ r.k }}</td><td class="num">{{ r.n_questions }}</td><td class="num">{{ '%.3f'|format(r.recall) }}</td>
+      <td class="num">{{ '%.3f'|format(r.mrr) }}</td><td class="num {{ 'best' if r.ndcg == best }}">{{ '%.3f'|format(r.ndcg) }}</td></tr>
+    {% else %}<tr><td colspan="9" class="empty">No runs yet. Generate questions with <code>autonome-context eval-generate --project {{ project }}</code> or add one below.</td></tr>{% endfor %}
+  </table></div>
+</div>
+
+<div class="card">
+  <h2>Questions</h2>
+  <form class="inline" method="post" action="/ui/p/{{ project }}/lab/questions">
+    <input class="wide" type="text" name="question" id="question" placeholder="Question">
+    <input type="text" name="expected" id="expected" placeholder="expected doc ids, e.g. 3 7">
+    <button class="secondary">Add</button>
+  </form>
+  <div class="tablewrap"><table>
+    <tr><th>#</th><th>Question</th><th>Expected</th><th>Source</th></tr>
+    {% for q in questions %}<tr><td>{{ q.id }}</td><td>{{ q.question }}</td>
+      <td>{% for d in q.expected_document_ids %}<a href="/ui/p/{{ project }}/documents/{{ d }}">#{{ d }}</a> {% endfor %}</td>
+      <td><span class="pill">{{ q.source }}</span></td></tr>{% endfor %}
+  </table></div>
+</div>
+{% endblock %}

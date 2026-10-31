@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Documents{% endblock %}
+{% block main %}
+<h1>Documents</h1>
+<form class="inline card" method="get">
+  <select name="type" id="type"><option value="">any type</option>{% for t in types %}<option {{ 'selected' if filters.get('type') == t }}>{{ t }}</option>{% endfor %}</select>
+  <input type="text" name="status" id="status" value="{{ filters.get('status','') }}" placeholder="status">
+  <input type="text" name="feature" id="feature" value="{{ filters.get('feature','') }}" placeholder="feature">
+  <button>Filter</button>
+</form>
+<div class="card tablewrap"><table>
+  <tr><th>#</th><th>Type</th><th>Status</th><th>Feature</th><th>Layers</th><th>Title</th><th>Created</th></tr>
+  {% for d in docs %}
+  <tr><td><a href="/ui/p/{{ project }}/documents/{{ d.id }}">{{ d.id }}</a></td><td><span class="pill">{{ d.type }}</span></td>
+    <td>{{ d.status or '' }}</td><td>{{ d.feature or '' }}</td><td>{{ d.layers|join(', ') }}</td>
+    <td>{{ (d.body.title or d.body.summary or '')|truncate(90) }}</td><td>{{ d.created_at.strftime('%Y-%m-%d %H:%M') }}</td></tr>
+  {% else %}<tr><td colspan="7" class="empty">No documents.</td></tr>{% endfor %}
+</table></div>
+{% endblock %}

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}autonome{% endblock %}{% if project %} · {{ project }}{% endif %}</title>
+<link rel="stylesheet" href="/static/app.css">
+{% block head %}{% endblock %}
+</head>
+<body>
+<header class="top"><div class="in">
+  <a class="brand" href="/ui">auto<span>nome</span></a>
+  {% if project %}
+  <span class="project">{{ project }}</span>
+  <nav>
+    {% set here = request.url.path %}
+    {% for slug, label in nav_items|default([("search","Search"),("lab","Lab"),("documents","Documents")]) %}
+    <a href="/ui/p/{{ project }}/{{ slug }}" class="{{ 'on' if here.startswith('/ui/p/' ~ project ~ '/' ~ slug) }}">{{ label }}</a>
+    {% endfor %}
+  </nav>
+  {% endif %}
+</div></header>
+<main>{% block main %}{% endblock %}</main>
+</body>
+</html>

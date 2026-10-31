@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}#{{ doc.id }}{% endblock %}
+{% block main %}
+<h1>{{ doc.body.title or (doc.type ~ ' #' ~ doc.id) }}</h1>
+<div class="meta">
+  <span class="pill">{{ doc.type }}</span>{% if doc.status %}<span class="pill accent">{{ doc.status }}</span>{% endif %}
+  {% if doc.feature %}<span>feature {{ doc.feature }}</span>{% endif %}
+  {% if doc.layers %}<span>layers {{ doc.layers|join(', ') }}</span>{% endif %}
+  <span>version {{ doc.version }}</span><span>{{ doc.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+  {% if doc.commit_sha %}<span>commit {{ doc.commit_sha[:10] }}</span>{% endif %}
+</div>
+{% block actions %}{% endblock %}
+{% if links %}
+<div class="card"><h2>Links</h2>
+  {% for l in links %}<div class="meta"><span>{{ l.direction }} · {{ l.kind }}</span>
+    <a href="/ui/p/{{ project }}/documents/{{ l.id }}">#{{ l.id }}</a><span class="pill">{{ l.type }}</span><span>{{ l.status or '' }}</span></div>{% endfor %}
+</div>
+{% endif %}
+<div class="card"><pre class="body">{{ doc.body|pretty }}</pre></div>
+{% endblock %}

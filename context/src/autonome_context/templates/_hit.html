@@ -1,0 +1,11 @@
+<div class="hit">
+  <div class="meta">
+    <a href="/ui/p/{{ project }}/documents/{{ h.document_id }}">#{{ h.document_id }}</a>
+    <span class="pill">{{ h.type }}</span>
+    {% if h.feature %}<span class="pill accent">{{ h.feature }}</span>{% endif %}
+    <span>{{ h.section }}</span>
+    <span>score {{ '%.4f'|format(h.score) }}</span>
+    {% for src, r in h.ranks.items() %}<span>{{ src }} #{{ r }}</span>{% endfor %}
+  </div>
+  <pre>{{ h.text }}</pre>
+</div>

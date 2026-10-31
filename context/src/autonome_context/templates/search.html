@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Search{% endblock %}
+{% block main %}
+<h1>Search</h1>
+<form class="inline card" method="get">
+  <input class="wide" type="text" name="q" id="q" value="{{ q }}" placeholder="Why is the ledger append-only?" autofocus>
+  <select name="mode" id="mode">{% for m in modes %}<option {{ 'selected' if m == mode }}>{{ m }}</option>{% endfor %}</select>
+  <select name="strategy" id="strategy">{% for s in strategies %}<option {{ 'selected' if s == strategy }}>{{ s }}</option>{% endfor %}</select>
+  <select name="type" id="type"><option value="">any type</option>{% for t in types %}<option {{ 'selected' if filters.get('type') == t }}>{{ t }}</option>{% endfor %}</select>
+  <input type="text" name="feature" id="feature" value="{{ filters.get('feature','') }}" placeholder="feature">
+  <input type="text" name="layer" id="layer" value="{{ filters.get('layer','') }}" placeholder="layer">
+  <button>Search</button>
+</form>
+{% if q %}
+<div class="card">
+  <h2>{{ hits|length }} documents</h2>
+  {% for h in hits %}{% include "_hit.html" %}{% else %}<p class="empty">Nothing found.</p>{% endfor %}
+</div>
+{% endif %}
+{% endblock %}
