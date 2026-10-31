@@ -13,6 +13,7 @@ import { review } from "./review.js";
 
 const BENCH = resolve(dirname(fileURLToPath(import.meta.url)), "../bench");
 const SHORTLINK = process.env.SHORTLINK_REPO ?? join(homedir(), "git", "shortlink");
+const SHORTLINK_V2 = process.env.SHORTLINK_V2_REPO ?? join(homedir(), "git", "shortlink-v2");
 
 export interface Score {
   role: string;
@@ -25,14 +26,14 @@ export interface Score {
 }
 
 /** A throwaway worktree of shortlink at `base`, with `commit`'s changes staged on top (if given). */
-function checkout(base: string, commit?: string): { dir: string; done: () => void } {
+function checkout(base: string, commit?: string, repo = SHORTLINK): { dir: string; done: () => void } {
   const dir = join(mkdtempSync(join(tmpdir(), "autonome-bench-")), "shortlink");
-  git(SHORTLINK, "worktree", "add", "-q", "--detach", dir, base);
+  git(repo, "worktree", "add", "-q", "--detach", dir, base);
   if (commit) {
     execFileSync("git", ["checkout", "-q", commit, "--", "."], { cwd: dir });
     git(dir, "add", "-A");
   }
-  return { dir, done: () => { git(SHORTLINK, "worktree", "remove", "--force", dir); rmSync(dirname(dir), { recursive: true, force: true }); } };
+  return { dir, done: () => { git(repo, "worktree", "remove", "--force", dir); rmSync(dirname(dir), { recursive: true, force: true }); } };
 }
 
 /** Reviewer: shortlink's "POST /links" commit shipped three gaps the conventions rule out. */
@@ -49,6 +50,25 @@ async function reviewerCase(who: RoleModel): Promise<Omit<Score, "role" | "case"
     const found = Object.entries(gaps).filter(([, re]) => re.test(text)).map(([k]) => k);
     return { score: found.length / 3 * (result.verdict === "fail" ? 1 : 0.5), cost,
       note: `found ${found.join(", ") || "none"}; verdict ${result.verdict}` };
+  } finally {
+    done();
+  }
+}
+
+/** Reviewer severity: shortlink-v2's "POST /links and GET /{code}" commit, with the task's real
+ * briefing. Five code collisions still end in a raw 500, which an active convention forbids; the
+ * Haiku reviewer of the time saw it, rated it low and let it merge. 1.0 = it blocks on it. */
+async function reviewerSeverityCase(who: RoleModel): Promise<Omit<Score, "role" | "case" | "who" | "seconds">> {
+  const commit = "56acffe";
+  const { dir, done } = checkout(`${commit}~1`, commit, SHORTLINK_V2);
+  try {
+    const task = { id: 115, project: "shortlink-v2", status: "playing", feature: "links", layers: ["api"],
+      body: { title: "POST /links and GET /{code}", spec: "", acceptance: [], plan_id: 0, seq: 8, fermata: false } };
+    const { result, cost } = await review(task, readFileSync(join(BENCH, "reviewer-v2-briefing.md"), "utf8"), dir,
+      git(SHORTLINK_V2, "rev-parse", `${commit}~1`), who);
+    const raw500 = result.findings.find((f) => /\b500\b|RuntimeError/.test(f.issue));
+    const score = raw500?.severity === "high" && result.verdict === "fail" ? 1 : raw500 ? 0.5 : 0;
+    return { score, cost, note: raw500 ? `raw 500 found, ${raw500.severity}; verdict ${result.verdict}` : `raw 500 not found; verdict ${result.verdict}` };
   } finally {
     done();
   }
@@ -77,6 +97,7 @@ async function rehearsalCase(who: RoleModel): Promise<Omit<Score, "role" | "case
 
 const CASES: Record<string, { role: string; run: (who: RoleModel) => ReturnType<typeof reviewerCase> }> = {
   "reviewer/post-links": { role: "reviewer", run: reviewerCase },
+  "reviewer/raw-500": { role: "reviewer", run: reviewerSeverityCase },
   "rehearsal/plan-16": { role: "rehearsal", run: rehearsalCase },
 };
 
