@@ -9,6 +9,7 @@ class Settings:
     embed_model: str
     host: str
     port: int
+    public_url: str  # where people and agents reach the UI; differs from host inside a container
 
 
 def load() -> Settings:
@@ -20,4 +21,5 @@ def load() -> Settings:
         embed_model=os.getenv("AUTONOME_EMBED_MODEL", "nomic-embed-text"),
         host=os.getenv("AUTONOME_HOST", "127.0.0.1"),
         port=int(os.getenv("AUTONOME_PORT", "8765")),
+        public_url=os.getenv("AUTONOME_PUBLIC_URL", f"http://127.0.0.1:{os.getenv('AUTONOME_PORT', '8765')}"),
     )

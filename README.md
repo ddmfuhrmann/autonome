@@ -44,16 +44,13 @@ An orchestra doesn't need the composer on stage.
 
 ## Quick start
 
-Prerequisites: Docker, [uv](https://docs.astral.sh/uv/), [Ollama](https://ollama.com), Claude Code,
-and Node 20+ with pnpm for the runner.
+Prerequisites: Docker, Claude Code, and Node 20+ with pnpm for the runner.
 
 **1. Start the context** (the memory, its MCP server and the UI at <http://127.0.0.1:8765/ui>):
 
 ```bash
 git clone https://github.com/ddmfuhrmann/autonome.git && cd autonome
-docker compose up -d --wait
-ollama serve & ollama pull nomic-embed-text
-cd context && uv run autonome-context
+docker compose up -d --wait     # postgres, ollama and the context; restarts with Docker
 ```
 
 **2. Install the plugin** in Claude Code:

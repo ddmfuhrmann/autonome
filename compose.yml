@@ -1,5 +1,6 @@
 name: autonome
 
+# The whole context: `docker compose up -d --wait`. Ports bind to localhost only.
 services:
   postgres:
     image: pgvector/pgvector:pg17
@@ -9,7 +10,7 @@ services:
       POSTGRES_USER: autonome
       POSTGRES_PASSWORD: autonome
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -17,5 +18,42 @@ services:
       interval: 2s
       retries: 15
 
+  ollama:
+    image: ollama/ollama:0.24.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 2s
+      retries: 15
+
+  ollama-pull:  # one-shot: make sure the embedding model is there
+    image: ollama/ollama:0.24.0
+    environment:
+      OLLAMA_HOST: ollama:11434
+    entrypoint: ["ollama", "pull", "nomic-embed-text"]
+    depends_on:
+      ollama: { condition: service_healthy }
+
+  context:
+    build: ./context
+    restart: unless-stopped
+    environment:
+      AUTONOME_DATABASE_URL: postgresql://autonome:autonome@postgres:5432/autonome
+      OLLAMA_URL: http://ollama:11434
+    ports:
+      - "127.0.0.1:8765:8765"
+    depends_on:
+      postgres: { condition: service_healthy }
+      ollama-pull: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health')"]
+      interval: 3s
+      retries: 20
+
 volumes:
   pgdata:
+  ollama:

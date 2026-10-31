@@ -43,10 +43,9 @@ plugin/runner/  the maestro (TypeScript, Claude Agent SDK): one session + worktr
 ## Running
 
 ```bash
-docker compose up -d --wait                     # postgres + pgvector on :5433
-ollama serve & ollama pull nomic-embed-text     # embeddings, native for GPU
-cd context && uv run autonome-context           # migrates, then serves on :8765 (/mcp, /api, /health)
-scripts/install-service.sh                      # or: keep it running as a launchd agent (macOS)
+docker compose up -d --wait                     # postgres :5433, ollama :11434, context :8765 (/mcp, /api, /ui)
+docker compose up -d --build context            # after changing context code
+cd context && uv run autonome-context           # or run the context natively (stop its container first)
 claude plugin marketplace add . && claude plugin install autonome@autonome   # use it for real
 cd context && uv run pytest                     # the gate; DB tests skip if postgres is down
 uv run --project context pytest plugin/tests    # plugin (stdlib code, tested with the context's pytest)

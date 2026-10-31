@@ -12,6 +12,7 @@ from pathlib import Path
 
 import uvicorn
 from mcp.server.mcpserver import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import Field, ValidationError
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -86,7 +87,7 @@ async def plan_draft(
         except rules.Forbidden as e:
             return {"error": str(e)}
     return {"plan_id": doc_id, "status": "draft",
-            "approve_at": f"http://{services.settings.host}:{services.settings.port}/ui/p/{project}/documents/{doc_id}"}
+            "approve_at": f"{services.settings.public_url}/ui/p/{project}/documents/{doc_id}"}
 
 
 @mcp.tool()
@@ -184,7 +185,13 @@ async def post_handoff(request: Request) -> JSONResponse:
 
 
 def build_app():
-    app = mcp.streamable_http_app(host=services.settings.host)
+    # Only local clients, even when bound to 0.0.0.0 inside a container (DNS rebinding protection).
+    local = TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*"],
+        allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
+    )
+    app = mcp.streamable_http_app(transport_security=local)
     app.router.routes.extend(api.routes() + web.routes())
     return app
 
