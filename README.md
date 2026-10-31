@@ -19,7 +19,9 @@ An orchestra doesn't need the composer on stage.
 - **The metronome keeps time.** Linters, tests and static analysis decide pass or fail. An
   agent's opinion never does. A failure gets an *encore* with the error in hand, and a repeated
   failure stops instead of looping.
-- **A fermata holds.** Critical areas wait for your eyes on the diff. Nothing else does.
+- **Review goes forward.** Critical areas merge like the rest and come back to you as a *playback*:
+  you listen when you like, and anything off becomes a new task, never a block. (A *fermata*, which
+  stops before merge, is there for projects that want it.)
 - **Every piece leaves notes.** A handoff written by a *different* agent records plan vs.
   implementation vs. gates, deviations, decisions and friction.
 - **The orchestra tunes itself.** Repeated friction becomes a better convention; a repeated
@@ -27,8 +29,9 @@ An orchestra doesn't need the composer on stage.
 
 ## Principles
 
-- **Humans approve, agents execute.** Approving a plan or releasing a hold exists only in the
-  UI. No tool lets an agent approve its own work.
+- **Humans approve, agents execute.** Only a human approves a plan, in the UI or in a dialog the
+  context shows them directly (MCP elicitation) that the agent cannot answer. No tool lets an agent
+  approve its own work.
 - **Facts over claims.** Gate results and diffs come from data, not from what the agent says.
 - **Memory, not markdown.** Plans, handoffs and decisions live in a searchable store organized
   by **feature**, **layer** and **time**. The repo keeps only what the build needs.
@@ -41,6 +44,17 @@ An orchestra doesn't need the composer on stage.
 |---|---|
 | `context/` | **autonome-context**: the memory. Postgres + pgvector, vector search by default (full-text and an RRF hybrid on request), an MCP server for agents and a web UI for humans. It's also a lab for comparing chunking strategies and embedding models. |
 | `plugin/` | **autonome plugin** for Claude Code: the recommended process (compose, conduct, tune) as skills, agents and hooks. It's the context's first client, not its only one. |
+
+## Documentation
+
+| Doc | Read it to… |
+|---|---|
+| [plugin/README.md](plugin/README.md) | understand the cycle step by step: compose, approve, conduct (rehearsal, review, soundcheck, playback), tune, cues, and what the metronome does |
+| [docs/configuration.md](docs/configuration.md) | set a project up and tune it: what activates it, every key of the gate config (gates, review, models, fermata, playback, soundcheck, cues), the commands and environment variables, backup and restore |
+| [docs/conventions.md](docs/conventions.md) | write the rules agents follow and the reviewer enforces: where they come from, who reads them, convention vs. gate vs. decision, how to write good ones |
+| [docs/memory.md](docs/memory.md) | see how the memory works: what it stores (plans, tasks, handoffs, decisions, conventions, waves, backlog), how it is redacted, chunked, embedded and searched, and what each agent gets from it |
+| [docs/benchmarks/](docs/benchmarks) | see the numbers from real runs: shortlink v1, v2 and v4 compared, which model and effort each role needs, and whether vector search earns its keep |
+| [CLAUDE.md](CLAUDE.md) | work on autonome itself: layout, rules and how to run and test it |
 
 ## Quick start
 
