@@ -83,3 +83,15 @@ test("greenfield: a pending gate whose command is not installed fails like a con
   assert.equal(c.ok, false);
   assert.match(c.detail, /not found in .*: nope-not-installed → install them/);
 });
+
+test("greenfield: a pending gate's repo-local command is created by its setup task, so it is not required yet", async () => {
+  const c = await gatesCheck({ version: null, config: { gates: [] }, pending: [
+    { name: "build", run: "./gradlew build", task_id: 291, plan_id: 278 }] });
+  assert.equal(c.ok, true, c.detail);
+});
+
+test("a configured gate's repo-local command must exist", async () => {
+  const c = await gatesCheck({ version: 1, config: { gates: [{ name: "build", run: "./gradlew build" }] }, pending: [] });
+  assert.equal(c.ok, false);
+  assert.match(c.detail, /not found in .*: \.\/gradlew/);
+});
