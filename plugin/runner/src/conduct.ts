@@ -275,18 +275,20 @@ async function replayJournal(opts: ConductOptions): Promise<void> {
   }
 }
 
-async function conductTask(task: Task, opts: ConductOptions): Promise<void> {
+/** Plays one task; returns its last run, for the summary. */
+async function conductTask(task: Task, opts: ConductOptions): Promise<Run | undefined> {
   const { repo, log } = opts;
   if (task.status === "released") {
     const last = task.body.runs?.at(-1);
     if (!last) return void (await context.transition(task.id, "pending"));
     log(`#${task.id} released at the fermata; merging ${last.branch}`);
     const r = integrate(repo, last.worktree, last.branch, opts.push);
-    if (r.ok) await recordMerged(task, { ...last, at: now(), outcome: "merged" }, opts);
-    else await context.transition(task.id, "pending", { ...last, at: now(), outcome: "merge-failed", reason: r.reason });
+    const final: Run = { ...last, at: now(), outcome: r.ok ? "merged" : "merge-failed", reason: r.reason };
+    if (r.ok) await recordMerged(task, final, opts);
+    else await context.transition(task.id, "pending", final);
     log(r.ok ? `  merged` : `  could not merge: ${r.reason}`);
     if (r.ok && task.feature) updateDocs(repo, opts.project, ["--feature", task.feature], log);
-    return;
+    return final;
   }
 
   const base = git(repo, "rev-parse", "main");
@@ -294,6 +296,7 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<void> {
   const worktree = join(dirname(repo), ".autonome-worktrees", branch.replaceAll("/", "-"));
   git(repo, "worktree", "add", "-q", "-b", branch, worktree, base);
   log(`#${task.id} ${task.body.title} — playing in ${worktree}`);
+  const started = Date.now();
 
   const cfg = (await context.gateConfig(opts.project)).config;
   let result = await play(task, worktree, base, opts);
@@ -301,8 +304,10 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<void> {
     tokens: result.tokens, cost_usd: result.cost };
   const block = async (reason: string) => {
     log(`  blocked: ${reason}`);
-    await context.transition(task.id, "blocked", { ...run, outcome: "blocked", reason });
+    Object.assign(run, { outcome: "blocked", reason, duration_s: Math.round((Date.now() - started) / 1000) });
+    await context.transition(task.id, "blocked", run);
     tryGit(repo, "worktree", "remove", "--force", worktree); // the branch stays for inspection
+    return run;
   };
 
   // Gates, then the reviewer; blocking findings send the musician back to the same session.
@@ -351,19 +356,44 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<void> {
   if (failure) return block(failure);
   execFileSync("git", ["commit", "-q", "-F", "-"], { cwd: worktree, input: commitMessage(task) });
 
+  run.duration_s = Math.round((Date.now() - started) / 1000);
   if (task.body.fermata) {
     log(`  green; held at the fermata for your review`);
-    return void (await context.transition(task.id, "on_hold", {
-      ...run, outcome: "on_hold",
-      diff_stat: git(worktree, "diff", "--stat", `${base}..HEAD`),
-      diff: git(worktree, "diff", `${base}..HEAD`).slice(0, 60_000),
-    }));
+    Object.assign(run, { outcome: "on_hold", diff_stat: git(worktree, "diff", "--stat", `${base}..HEAD`),
+      diff: git(worktree, "diff", `${base}..HEAD`).slice(0, 60_000) });
+    await context.transition(task.id, "on_hold", run);
+    return run;
   }
   const r = integrate(repo, worktree, branch, opts.push);
   if (!r.ok) return block(r.reason ?? "could not merge");
-  await recordMerged(task, { ...run, outcome: "merged" }, opts);
+  run.outcome = "merged";
+  await recordMerged(task, run, opts);
   log(`  merged into main`);
   if (task.feature) updateDocs(repo, opts.project, ["--feature", task.feature], log);
+  return run;
+}
+
+export interface Played {
+  id: number;
+  title: string;
+  outcome: string;
+  review_rounds: number;
+  duration_s: number;
+  tokens: number;
+  reason?: string;
+}
+
+/** What the conductor prints when it stops; the wave page shows the same from the context. */
+export function summary(played: Played[]): string {
+  if (!played.length) return "";
+  const n = (o: string) => played.filter((p) => p.outcome === o).length;
+  const total = played.reduce((a, p) => ({ d: a.d + p.duration_s, t: a.t + p.tokens }), { d: 0, t: 0 });
+  const mins = (s: number) => `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
+  const lines = played.map((p) => `  #${p.id} ${p.outcome.padEnd(8)} ${mins(p.duration_s).padStart(7)}` +
+    ` ${String(p.tokens).padStart(8)} tok  review ${p.review_rounds}  ${p.title}` +
+    (p.reason ? `\n      ${p.reason.split("\n")[0].slice(0, 160)}` : ""));
+  return [`summary: ${n("merged")} merged, ${n("blocked")} blocked, ${n("on_hold")} held` +
+    ` · ${mins(total.d)} · ${total.t} tokens`, ...lines].join("\n");
 }
 
 async function soundcheckPlan(plan: Plan, opts: ConductOptions): Promise<void> {
@@ -389,49 +419,62 @@ export async function conduct(opts: ConductOptions): Promise<number> {
   await replayJournal(opts);
   let played = 0;
   let sinceOverview = 0;
-  while (played < opts.maxTasks) {
-    const { task, rehearse: plan, soundcheck: finished } = await context.claim(opts.project);
-    if (finished) {
-      await soundcheckPlan(finished, opts);
-      continue;
-    }
-    if (!task) {
-      if (!opts.watch) break;
-      if (sinceOverview) updateDocs(opts.repo, opts.project, ["--overview"], opts.log);
-      sinceOverview = 0;
-      await new Promise((r) => setTimeout(r, opts.watch! * 1000));
-      continue;
-    }
-    try {
-      if (plan) {
-        opts.log(`plan #${plan.id} ${plan.body.title}: rehearsing against main`);
-        const r = await rehearse(plan, opts);
-        const { plan_status } = await context.rehearsal(plan.id, r);
-        if (plan_status === "held") {
-          opts.log(`  the plan needs revising; held for your approval`);
-          await context.transition(task.id, "pending");
-          continue;
-        }
-        opts.log(`  ready`);
-      }
-      await conductTask(task, opts);
-    } catch (e) {
-      if (e instanceof MergedUnrecorded) throw e;
-      if (e instanceof ContextError) {
-        // Not the task's fault: hand it back and stop, rather than block it or spin on a broken context.
-        opts.log(`${e.message}\n  #${task.id} goes back to pending; stopping the conductor`);
-        await context.transition(task.id, "pending").catch(() => undefined);
-        throw e;
-      }
-      opts.log(`#${task.id} failed unexpectedly: ${String(e)}`);
-      await context.transition(task.id, task.status === "released" ? "pending" : "blocked", {
-        at: now(), branch: "", worktree: "", base: "", outcome: "error", reason: String(e).slice(0, 2000),
-      }).catch(() => undefined);
-    }
-    played++;
-    sinceOverview++;
+  const tally: Played[] = [];
+  try {
+    return await playAll();
+  } finally {
+    const text = summary(tally);
+    if (text) opts.log(text);
   }
-  if (sinceOverview) updateDocs(opts.repo, opts.project, ["--overview"], opts.log);
-  opts.log(played ? `played ${played} task(s)` : "nothing to play");
-  return played;
+
+  async function playAll(): Promise<number> {
+    while (played < opts.maxTasks) {
+      const { task, rehearse: plan, soundcheck: finished } = await context.claim(opts.project);
+      if (finished) {
+        await soundcheckPlan(finished, opts);
+        continue;
+      }
+      if (!task) {
+        if (!opts.watch) break;
+        if (sinceOverview) updateDocs(opts.repo, opts.project, ["--overview"], opts.log);
+        sinceOverview = 0;
+        await new Promise((r) => setTimeout(r, opts.watch! * 1000));
+        continue;
+      }
+      try {
+        if (plan) {
+          opts.log(`plan #${plan.id} ${plan.body.title}: rehearsing against main`);
+          const r = await rehearse(plan, opts);
+          const { plan_status } = await context.rehearsal(plan.id, r);
+          if (plan_status === "held") {
+            opts.log(`  the plan needs revising; held for your approval`);
+            await context.transition(task.id, "pending");
+            continue;
+          }
+          opts.log(`  ready`);
+        }
+        const run = await conductTask(task, opts);
+        if (run) tally.push({ id: task.id, title: task.body.title, outcome: run.outcome, reason: run.reason,
+          review_rounds: run.review_rounds ?? 0, duration_s: run.duration_s ?? 0, tokens: run.tokens ?? 0 });
+      } catch (e) {
+        if (e instanceof MergedUnrecorded) throw e;
+        if (e instanceof ContextError) {
+          // Not the task's fault: hand it back and stop, rather than block it or spin on a broken context.
+          opts.log(`${e.message}\n  #${task.id} goes back to pending; stopping the conductor`);
+          await context.transition(task.id, "pending").catch(() => undefined);
+          throw e;
+        }
+        opts.log(`#${task.id} failed unexpectedly: ${String(e)}`);
+        tally.push({ id: task.id, title: task.body.title, outcome: "error", reason: String(e), review_rounds: 0, duration_s: 0, tokens: 0 });
+        await context.transition(task.id, task.status === "released" ? "pending" : "blocked", {
+          at: now(), branch: "", worktree: "", base: "", outcome: "error", reason: String(e).slice(0, 2000),
+        }).catch(() => undefined);
+      }
+      played++;
+      sinceOverview++;
+    }
+    if (sinceOverview) updateDocs(opts.repo, opts.project, ["--overview"], opts.log);
+    opts.log(played ? `played ${played} task(s)` : "nothing to play");
+    return played;
+  }
 }

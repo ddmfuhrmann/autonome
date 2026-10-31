@@ -272,6 +272,14 @@ def _cost(t: dict) -> tuple[int, float]:
     return sum(r.get("tokens") or 0 for r in runs), sum(r.get("cost_usd") or 0 for r in runs)
 
 
+def duration(seconds: float) -> str:
+    seconds = int(seconds or 0)
+    return f"{seconds // 60}m {seconds % 60:02d}s" if seconds >= 60 else f"{seconds}s"
+
+
+templates.env.filters["duration"] = duration
+
+
 def _progress(tasks: list[dict]) -> dict:
     """Counts and bar widths (in %) of a group of tasks."""
     live = [t for t in tasks if t["status"] != "abandoned"]
@@ -458,7 +466,30 @@ async def _wave(conn, wave: dict) -> dict:
                       "after": [wave["body"]["features"][d - 1]["plan_id"] for d in f.get("depends_on", [])
                                 if 0 < d <= len(wave["body"]["features"])]})
     all_tasks = [t for f in feats for t in f["tasks"]]
-    return {"features": feats, "progress": _progress(all_tasks)}
+    failures = Counter(g["task_id"] for g in await store.gate_runs(conn, project=wave["project"], limit=5000)
+                       if not g["passed"])
+    return {"features": feats, "progress": _progress(all_tasks), "summary": _run_summary(feats, failures)}
+
+
+def _run_summary(feats: list[dict], gate_failures: Counter) -> dict:
+    """How the wave played, task by task: what the maestro prints when it stops, kept on the page."""
+    rows = []
+    for f in feats:
+        for t in f["tasks"]:
+            runs = t["body"].get("runs") or []
+            last = runs[-1] if runs else {}
+            tokens, cost = _cost(t)
+            rows.append({
+                "task": t, "feature": f["plan"]["feature"] if f["plan"] else None, "sessions": len(runs),
+                "encores": gate_failures.get(t["id"], 0),
+                "review_rounds": max((r.get("review_rounds") or 0 for r in runs), default=0),
+                "duration_s": sum(r.get("duration_s") or 0 for r in runs), "tokens": tokens, "cost": cost,
+                "reason": last.get("reason") if t["status"] in ("blocked", "on_hold") else None,
+            })
+    totals = {k: sum(r[k] for r in rows) for k in ("sessions", "encores", "review_rounds", "duration_s", "tokens", "cost")}
+    counts = Counter(r["task"]["status"] for r in rows)
+    return {"rows": rows, "totals": totals, "merged": counts["done"], "blocked": counts["blocked"],
+            "held": counts["on_hold"]}
 
 
 async def _plan(conn, plan: dict) -> dict:

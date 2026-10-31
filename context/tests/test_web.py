@@ -60,3 +60,26 @@ def test_a_refused_or_failed_transition_is_reported_and_changes_nothing(client, 
     r = client.post(f"/ui/p/{project}/documents/{blocked_task}/transition", data={"to": "pending"}, headers=FETCH)
     assert r.status_code == 503 and "could not save it" in r.json()["error"]
     assert status(run_db, blocked_task) == "blocked"
+
+
+def test_the_wave_page_shows_how_each_task_played(client, project, run_db, indexer):
+    async def go(conn):
+        a = await plans.draft(conn, indexer, project, "links", [], PlanBody(title="Links", goal="g", tasks=[
+            TaskSpec(title="Schema", spec="s"), TaskSpec(title="Routes", spec="s")]))
+        wave = await plans.draft_wave(conn, indexer, project, plans.WaveBody(
+            title="MVP", goal="g", features=[plans.WaveFeature(plan_id=a)]))
+        first, second = (await plans.approve_wave(conn, indexer, wave))[a]
+        for t, to, run in [(first, "done", {"outcome": "merged", "duration_s": 300, "tokens": 40000, "review_rounds": 1}),
+                           (second, "blocked", {"outcome": "blocked", "duration_s": 61, "tokens": 9000, "review_rounds": 3,
+                                                "reason": "review: still blocking"})]:
+            await rules.transition(conn, t, "playing", "runner")
+            await rules.transition(conn, t, to, "runner")
+            doc = await store.get_document(conn, t)
+            await store.add_version(conn, None, t, {**doc["body"], "runs": [run]})
+        await conn.commit()
+        return wave
+
+    wave = run_db(go)
+    page = client.get(f"/ui/p/{project}/documents/{wave}").text
+    assert "How it played" in page and "1 merged · 1 blocked · 0 held · 6m 01s" in page
+    assert "review: still blocking" in page and "5m 00s" in page

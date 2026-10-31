@@ -49,6 +49,7 @@ export interface Run {
   diff?: string;
   review?: ReviewResult;
   review_rounds?: number;
+  duration_s?: number;
 }
 
 export interface GateConfig {

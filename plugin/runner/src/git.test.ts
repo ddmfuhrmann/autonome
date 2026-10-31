@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { allowedTools, rehearsalPrompt } from "./conduct.js";
+import { allowedTools, rehearsalPrompt, summary } from "./conduct.js";
 import { commitMessage, fastForwardMain, git, stageWork, strayFiles } from "./git.js";
 
 function repo(): string {
@@ -123,4 +123,15 @@ test("the rehearsal sees the gates a plan must pass, with their commands", () =>
   assert.match(text, /## Gates it must pass\n- imports: `uv run lint-imports`\n- pytest: `uv run pytest -q`/);
   assert.match(text, /app imports db/);
   assert.doesNotMatch(text, /"rehearsal"/);
+});
+
+test("the conductor's summary counts outcomes and totals time and tokens", () => {
+  const text = summary([
+    { id: 24, title: "SQLite schema", outcome: "merged", review_rounds: 1, duration_s: 312, tokens: 41000 },
+    { id: 25, title: "POST /links", outcome: "blocked", review_rounds: 3, duration_s: 95, tokens: 9000,
+      reason: "imports: the same failure repeated\nmore" },
+  ]);
+  assert.match(text, /^summary: 1 merged, 1 blocked, 0 held · 6m47s · 50000 tokens/);
+  assert.match(text, /#25 blocked .*review 3  POST \/links\n {6}imports: the same failure repeated$/);
+  assert.equal(summary([]), "");
 });
