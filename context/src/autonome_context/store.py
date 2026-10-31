@@ -524,6 +524,18 @@ async def next_task(conn: AsyncConnection, project: str) -> dict | None:
     return await get_document(conn, row[0]) if row else None
 
 
+async def pending_gates(conn: AsyncConnection, project: str) -> list[dict]:
+    """Gates of approved plans that join the gate config when their setup task merges (`with_task`)."""
+    out = []
+    for t in await list_documents(conn, project, type="task", limit=1000):
+        if t["status"] in ("done", "abandoned") or not t["body"].get("adds_gates"):
+            continue
+        plan = await get_document(conn, t["body"]["plan_id"])
+        if plan and plan["status"] == "approved":
+            out += [{**g, "task_id": t["id"], "plan_id": plan["id"]} for g in t["body"]["adds_gates"]]
+    return out
+
+
 async def finish_plan_if_complete(conn: AsyncConnection, plan_id: int) -> bool:
     plan = await get_document(conn, plan_id)
     if plan and plan["body"].get("kind") == "maintenance":

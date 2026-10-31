@@ -54,6 +54,8 @@ export interface Run {
 
 export interface GateConfig {
   version: number | null;
+  /** Gates of approved plans that join the config once their setup task merges (`with_task`). */
+  pending?: { name: string; run: string; task_id: number; plan_id: number }[];
   config: {
     gates: { name: string; run: string }[];
     allowed_commands?: string[];

@@ -126,6 +126,12 @@ export async function rehearse(plan: Plan, opts: ConductOptions): Promise<Rehear
   return answer;
 }
 
+/** The musician may also run the commands of gates still pending from approved plans: on a greenfield
+ * project the setup task that installs them (e.g. `uv add --dev mypy`) is the first thing to play. */
+export function musicianTools(gc: GateConfig): string[] {
+  return allowedTools({ ...gc.config, gates: [...gc.config.gates, ...(gc.pending ?? [])] });
+}
+
 function now(): string {
   return new Date().toISOString();
 }
@@ -173,7 +179,8 @@ function writeHandoff(sessionId: string, cwd: string, taskId: number, project: s
 /** One session of the musician; `encore` resumes it with what to fix. */
 async function play(task: Task, worktree: string, base: string, opts: ConductOptions,
   encore?: { sessionId: string; prompt: string }) {
-  const cfg = (await context.gateConfig(opts.project)).config;
+  const gateConfig = await context.gateConfig(opts.project);
+  const cfg = gateConfig.config;
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), cfg.budget.task_minutes * 60_000);
   let sessionId = "";
@@ -189,7 +196,7 @@ async function play(task: Task, worktree: string, base: string, opts: ConductOpt
         ...roleModel(cfg, "musician", opts),
         abortController: abort,
         permissionMode: "dontAsk",
-        allowedTools: allowedTools(cfg),
+        allowedTools: musicianTools(gateConfig),
         settingSources: ["project"],
         plugins: [{ type: "local", path: PLUGIN_ROOT }],
         systemPrompt: { type: "preset", preset: "claude_code", append: MUSICIAN_PROMPT },

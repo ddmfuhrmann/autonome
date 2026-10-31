@@ -152,3 +152,23 @@ def test_proposed_conventions_become_active_on_approval_and_never_replace_one(ru
     assert [c["body"]["title"] for c in before] == ["Response models"]
     assert sorted(c["body"]["title"] for c in after) == ["Foreign keys on", "No raw 500", "Response models"]
     assert next(c for c in after if c["body"]["title"] == "Response models")["body"]["rule"] == "the original"
+
+
+def test_gates_waiting_for_their_setup_task_are_listed_as_pending(run_db, project, indexer):
+    from autonome_context import api
+
+    async def go(conn):
+        plan_id = await plans.draft(conn, indexer, project, "links", [], body("Links", tasks=2, gates=[
+            ProposedGate(name="ruff-format", run="uv run ruff format --check .", with_task=1),
+            ProposedGate(name="pytest", run="uv run pytest -q", with_task=1)]))
+        first, _ = await plans.approve(conn, indexer, plan_id)
+        before = await api.gate_config_body(conn, project)
+        await play(conn, first)
+        await plans.apply_gates(conn, indexer, project, (await store.get_document(conn, first))["body"]["adds_gates"])
+        after = await api.gate_config_body(conn, project)
+        return first, before, after
+
+    first, before, after = run_db(go)
+    assert before["version"] is None and before["config"]["gates"] == []
+    assert [(g["name"], g["task_id"]) for g in before["pending"]] == [("ruff-format", first), ("pytest", first)]
+    assert [g["name"] for g in after["config"]["gates"]] == ["ruff-format", "pytest"] and after["pending"] == []

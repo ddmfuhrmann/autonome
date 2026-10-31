@@ -5,6 +5,9 @@ import { mkdirSync, mkdtempSync, readdirSync, realpathSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
+import { fileURLToPath } from "node:url";
+
+const PLUGIN_BIN = join(fileURLToPath(import.meta.url), "..", "..", "..", "bin");
 
 const home = mkdtempSync(join(tmpdir(), "autonome-home-"));
 process.env.AUTONOME_HOME = home;
@@ -54,4 +57,29 @@ test("a merge the context could not record is recorded as done by the next condu
   await conduct({ project: "p", repo, maxTasks: 1, push: false, log: () => {} });
   assert.deepEqual(transitions, [{ to: "done", run: { outcome: "merged" } }]);
   assert.deepEqual(readdirSync(join(home, "state")).filter((f) => f.startsWith("merged-")), []);
+});
+
+test("a setup task on a greenfield project may run the pending gates' tools, and no gate blocks it", async () => {
+  const { musicianTools } = await import("./conduct.js");
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const { createServer } = await import("node:http");
+  const gc = { version: null, config: { gates: [], allowed_commands: [], encore: { max: 3, stop_on_repeat: true },
+    budget: { task_tokens: 1, task_minutes: 1, plan_tokens: 1 }, review: { enabled: true, max_rounds: 2 }, soundcheck: null },
+    pending: [{ name: "mypy", run: "uv run mypy", task_id: 202, plan_id: 185 }] };
+  assert.ok(musicianTools(gc).includes("Bash(uv:*)"));
+
+  // The judge's gate run on a config with no gates yet: nothing applies, so it passes.
+  const server = createServer((_req, res) => { res.setHeader("content-type", "application/json"); res.end(JSON.stringify(gc)); });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+  const port = (server.address() as { port: number }).port;
+  const repo = realpathSync(mkdtempSync(join(tmpdir(), "autonome-greenfield-")));
+  git(repo, "init", "-q", "-b", "main");
+  git(repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init");
+  writeFileSync(join(repo, "pyproject.toml"), "[project]\nname = 'x'\n");
+  // Async: the fake context lives in this process and must keep answering while the gates run.
+  const r = await promisify(execFile)(join(PLUGIN_BIN, "autonome-gates"), ["--json", "--base", "HEAD"], { cwd: repo,
+    env: { ...process.env, AUTONOME_CONTEXT_URL: `http://127.0.0.1:${port}`, AUTONOME_PROJECT: "shortlink-4" } });
+  server.close();
+  assert.deepEqual(JSON.parse(r.stdout), { passed: true, config_version: null, outcomes: [] });
 });

@@ -48,3 +48,38 @@ test("doctor says when the context is down instead of failing on it", async () =
   const checks = await doctor("p", repo());
   assert.deepEqual(checks.map((c) => [c.name, c.ok]), [["context", false], ["ollama", false], ["main", true]]);
 });
+
+function contextWith(gateConfig: unknown) {
+  globalThis.fetch = async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.endsWith("/api/tags")) return json({ models: [{ name: "nomic-embed-text:latest" }] });
+    if (url.endsWith("/gate-config")) return json(gateConfig);
+    return json({ status: "ok" });
+  };
+}
+
+const gatesCheck = async (gateConfig: unknown) => {
+  contextWith(gateConfig);
+  return (await doctor("p", repo())).find((c) => c.name === "gates")!;
+};
+
+test("greenfield: no gates configured and none pending from a plan still fails", async () => {
+  const c = await gatesCheck({ version: null, config: { gates: [] }, pending: [] });
+  assert.equal(c.ok, false);
+  assert.match(c.detail, /no gates configured → add them in the UI/);
+});
+
+test("greenfield: gates pending from approved plans let conduct start, and are named", async () => {
+  const c = await gatesCheck({ version: null, config: { gates: [] }, pending: [
+    { name: "ruff-format", run: "git status", task_id: 202, plan_id: 185 },
+    { name: "pytest", run: "git status", task_id: 202, plan_id: 185 }] });
+  assert.equal(c.ok, true);
+  assert.equal(c.detail, "no gates yet; 2 pending from approved plans (ruff-format, pytest), they join when their setup task merges");
+});
+
+test("greenfield: a pending gate whose command is not installed fails like a configured one", async () => {
+  const c = await gatesCheck({ version: null, config: { gates: [] }, pending: [
+    { name: "mypy", run: "nope-not-installed run mypy", task_id: 202, plan_id: 185 }] });
+  assert.equal(c.ok, false);
+  assert.match(c.detail, /not found in .*: nope-not-installed → install them/);
+});

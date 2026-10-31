@@ -21,10 +21,11 @@ def _json(data, status_code: int = 200) -> JSONResponse:
 
 
 async def gate_config_body(conn, project: str) -> dict:
+    """The gate config, plus the gates approved plans will add once their setup task merges."""
     doc = await store.latest_of_type(conn, project, "gate_config")
-    if not doc:
-        return {"version": None, "config": GateConfig().model_dump(mode="json")}
-    return {"version": doc["version"], "config": GateConfig.from_yaml(doc["body"]["yaml"]).model_dump(mode="json")}
+    cfg = GateConfig.from_yaml(doc["body"]["yaml"]) if doc else GateConfig()
+    return {"version": doc["version"] if doc else None, "config": cfg.model_dump(mode="json"),
+            "pending": await store.pending_gates(conn, project)}
 
 
 async def get_gate_config(request: Request) -> JSONResponse:

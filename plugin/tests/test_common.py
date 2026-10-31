@@ -86,7 +86,10 @@ def _fake_context(gate_versions: dict[str, int | None]):
             parts = self.path.split("/")
             body = b'{"status": "ok"}'
             if self.path.endswith("/gate-config"):
-                body = ('{"version": %s, "config": {}}' % json.dumps(gate_versions.get(parts[3]))).encode()
+                version = gate_versions.get(parts[3])
+                pending = [{"name": "mypy", "run": "uv run mypy"}] if version == "pending" else []
+                body = json.dumps({"version": None if version == "pending" else version, "config": {},
+                                   "pending": pending}).encode()
             elif "/briefing" in self.path:
                 body = b'{"text": "autonome: memory pointer"}'
             self.send_response(200), self.end_headers(), self.wfile.write(body)
@@ -114,9 +117,9 @@ def _hook(name, repo, url, event, home):
 
 
 def test_hooks_stay_silent_in_projects_not_set_up_for_autonome(tmp_path):
-    url, calls, server = _fake_context({"shortlink": 3, "confere-v2": None})
+    url, calls, server = _fake_context({"shortlink": 3, "confere-v2": None, "shortlink-4": "pending"})
     try:
-        for name, active in [("shortlink", True), ("confere-v2", False)]:
+        for name, active in [("shortlink", True), ("confere-v2", False), ("shortlink-4", True)]:
             repo = _repo(tmp_path, name)
             out = _hook("session_start.py", repo, url, {"cwd": str(repo)}, tmp_path / "home")
             assert ("memory pointer" in out.stdout) is active, name

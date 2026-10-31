@@ -37,15 +37,23 @@ export async function doctor(project: string, repo: string): Promise<Check[]> {
       : `${EMBED_MODEL} is not pulled → docker compose run --rm ollama-pull`);
   }
 
-  const cfg = health?.ok ? await call<GateConfig>(`/api/projects/${project}/gate-config`).then((g) => g.config, () => null) : null;
-  if (health?.ok && !cfg) add("gates", false, "the gate config could not be read from the context");
-  if (cfg) {
-    const missing = [...new Set(cfg.gates.map((g) => g.run.trim().replace(/^!\s*/, "").split(/\s+/)[0]))]
+  const got = health?.ok ? await call<GateConfig>(`/api/projects/${project}/gate-config`).catch(() => null) : null;
+  if (health?.ok && !got) add("gates", false, "the gate config could not be read from the context");
+  if (got) {
+    // A greenfield project may have no gates yet but approved plans that bring them: they join the
+    // config when their setup task merges, and that task must be able to play first.
+    const configured = got.config.gates;
+    const pending = got.pending ?? [];
+    const all = [...configured, ...pending];
+    const missing = [...new Set(all.map((g) => g.run.trim().replace(/^!\s*/, "").split(/\s+/)[0]))]
       .filter((cmd) => cmd && spawnSync("sh", ["-c", `command -v ${JSON.stringify(cmd)}`], { cwd: repo }).status !== 0);
-    add("gates", cfg.gates.length > 0 && missing.length === 0,
-      cfg.gates.length === 0 ? "no gates configured → add them in the UI (Config)"
+    add("gates", all.length > 0 && missing.length === 0,
+      all.length === 0 ? "no gates configured → add them in the UI (Config)"
         : missing.length ? `not found in ${repo}: ${missing.join(", ")} → install them or fix the gate command`
-          : `${cfg.gates.map((g) => g.name).join(", ")}: commands found`);
+          : configured.length ? `${configured.map((g) => g.name).join(", ")}: commands found` +
+              (pending.length ? `; ${pending.length} more pending from approved plans` : "")
+            : `no gates yet; ${pending.length} pending from approved plans (${pending.map((g) => g.name).join(", ")}),` +
+              " they join when their setup task merges");
   }
 
   const main = mainCheckout(repo);
