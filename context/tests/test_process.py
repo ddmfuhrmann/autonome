@@ -148,3 +148,18 @@ def test_insights_keep_the_reviewers_advisory_findings_for_the_tune_loop(run_db,
     i = run_db(go)
     assert [(f["feature"], f["kind"], f["issue"]) for f in i["review_findings"]] == [
         ("links", "missing", "control characters accepted")]
+
+
+def test_deleting_a_project_removes_everything_in_it_and_nothing_else(run_db, project, indexer):
+    async def go(conn):
+        await store.put_handoff(conn, indexer, make_handoff(project), "raw transcript")
+        await store.put_handoff(conn, indexer, make_handoff(project + "-other"), None)
+        await store.record_gate_runs(conn, project, "s", [{"gate": "t", "passed": True, "duration_ms": 1}])
+        counts = await store.delete_project(conn, project)
+        gone = await store.list_documents(conn, project)
+        kept = await store.list_documents(conn, project + "-other")
+        return counts, gone, kept, await store.list_projects(conn)
+
+    counts, gone, kept, projects = run_db(go)
+    assert counts["project"] == 1 and counts["document"] >= 2 and counts["chunk"] > 0 and counts["raw_transcript"] == 1
+    assert gone == [] and len(kept) >= 1 and project not in projects and project + "-other" in projects

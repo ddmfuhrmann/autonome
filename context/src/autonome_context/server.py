@@ -298,6 +298,9 @@ async def _cli(args: argparse.Namespace) -> None:
                                                 status="active", body={"title": title, "rule": text},
                                                 layers=args.layer or [])
                 print(f"imported {path.name}")
+        elif args.command == "delete-project":
+            counts = await store.delete_project(conn, args.project)
+            print(", ".join(f"{t} {n}" for t, n in counts.items() if n) or f"no project {args.project}")
         elif args.command == "eval-generate":
             print(f"{await evaluation.generate(conn, args.project, args.per_document)} questions created")
         elif args.command == "eval-run":
@@ -316,6 +319,8 @@ def main() -> None:
     conv.add_argument("--project", required=True)
     conv.add_argument("--dir", required=True)
     conv.add_argument("--layer", action="append", help="layers the conventions apply to (repeatable)")
+    delete = sub.add_parser("delete-project", help="remove a project and everything in it (back up first)")
+    delete.add_argument("--project", required=True)
     generate = sub.add_parser("eval-generate", help="synthetic eval questions from handoffs and decisions")
     generate.add_argument("--project", required=True)
     generate.add_argument("--per-document", type=int, default=2)

@@ -67,6 +67,9 @@ plugin/bin/autonome cues --project <slug>       # scheduled checks; queue mainte
 plugin/bin/autonome doctor --project <slug>     # what conduct needs; conduct runs it first
 plugin/bin/autonome-docs --feature <slug>       # rewrite a feature's living doc (or --overview)
 claude plugin eval plugin --trust-plugin --model sonnet   # skill evals, with vs without the plugin
+docker compose exec -T postgres pg_dump -U autonome -Fc autonome > ~/autonome-backups/autonome-$(date +%Y%m%d-%H%M).dump
+docker compose exec -T postgres pg_restore -U autonome -d autonome --clean < <file>.dump   # restore
+cd context && uv run autonome-context delete-project --project <slug>   # irreversible: back up first
 ```
 
 **Skill evals** (`plugin/evals/`): compose, tune and handoff cases with the `autonome` MCP mocked

@@ -205,6 +205,31 @@ async def links_of(conn: AsyncConnection, doc_id: int) -> list[dict]:
         return await cur.fetchall()
 
 
+async def delete_project(conn: AsyncConnection, slug: str) -> dict[str, int]:
+    """Removes a project and everything in it, children first. Irreversible: back up the database
+    before (see CLAUDE.md). Returns how many rows went from each table."""
+    counts: dict[str, int] = {}
+    docs = "select d.id from document d join project p on p.id = d.project_id where p.slug = %(s)s"
+    statements = [
+        ("chunk", f"delete from chunk where document_version_id in (select id from document_version where document_id in ({docs}))"),
+        ("link", f"delete from link where from_id in ({docs}) or to_id in ({docs})"),
+        ("raw_transcript", f"delete from raw_transcript where document_id in ({docs})"),
+        ("document_layer", f"delete from document_layer where document_id in ({docs})"),
+        ("document_version", f"delete from document_version where document_id in ({docs})"),
+        ("document", "delete from document where project_id = (select id from project where slug = %(s)s)"),
+        ("eval_run", "delete from eval_run where project_id = (select id from project where slug = %(s)s)"),
+        ("eval_question", "delete from eval_question where project_id = (select id from project where slug = %(s)s)"),
+        ("gate_run", "delete from gate_run where project_id = (select id from project where slug = %(s)s)"),
+        ("feature", "delete from feature where project_id = (select id from project where slug = %(s)s)"),
+        ("layer", "delete from layer where project_id = (select id from project where slug = %(s)s)"),
+        ("project", "delete from project where slug = %(s)s"),
+    ]
+    async with conn.transaction():
+        for table, sql in statements:
+            counts[table] = (await conn.execute(sql, {"s": slug})).rowcount
+    return counts
+
+
 async def list_projects(conn: AsyncConnection) -> list[str]:
     rows = await (await conn.execute("select slug from project order by slug")).fetchall()
     return [r[0] for r in rows]
