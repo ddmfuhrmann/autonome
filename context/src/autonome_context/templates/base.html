@@ -80,11 +80,13 @@ document.addEventListener("submit", async (ev) => {
   const button = ev.submitter;
   const label = button?.textContent;
   const buttons = form.querySelectorAll("button");
+  // Read the form before disabling: a disabled button's value is not sent, and it carries the decision.
+  const body = new FormData(form, button);
   buttons.forEach((b) => { b.disabled = true; });
   if (button) button.textContent = "Saving…";
   const notices = document.getElementById("notices");
   try {
-    const res = await fetch(form.action, { method: "POST", body: new FormData(form, button), headers: { "X-Requested-With": "fetch" } });
+    const res = await fetch(form.action, { method: "POST", body, headers: { "X-Requested-With": "fetch" } });
     const data = await res.json().catch(() => ({ error: `the context answered ${res.status}` }));
     if (!res.ok) throw new Error(data.error);
     const to = new URL(data.location, location.href);

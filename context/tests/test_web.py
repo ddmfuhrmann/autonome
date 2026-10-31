@@ -128,3 +128,9 @@ def test_finished_waves_are_listed_until_tuned(client, project, run_db, indexer)
     assert client.post(f"/api/waves/{wave}/tuned", json={"summary": "proposed C-1"}).json() == {"ok": True}
     assert client.get(f"/api/projects/{project}/waves/untuned").json() == []
     assert "What the process learned" in client.get(f"/ui/p/{project}/documents/{wave}").text
+
+
+def test_a_decision_without_a_target_is_refused_clearly(client, project, blocked_task, run_db):
+    r = client.post(f"/ui/p/{project}/documents/{blocked_task}/transition", data={}, headers=FETCH)
+    assert r.status_code == 400 and "no target status" in r.json()["error"]
+    assert status(run_db, blocked_task) == "blocked"

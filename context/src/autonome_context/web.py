@@ -592,7 +592,7 @@ async def transition(request: Request) -> Response:
     is redirected with a notice."""
     project, doc_id = request.path_params["project"], int(request.path_params["doc_id"])
     form = await request.form()
-    to = str(form.get("to"))
+    to = str(form.get("to") or "")
     back = str(form.get("next") or "")
     if not back.startswith(f"/ui/p/{project}/"):
         back = f"/ui/p/{project}/documents/{doc_id}"
@@ -603,6 +603,8 @@ async def transition(request: Request) -> Response:
             return JSONResponse({"error": message}, status_code=status)
         return Response(f"{message}\n\nNothing changed. Go back: {back}", status_code=status)
 
+    if not to:
+        return failed("the decision did not reach the context (no target status was sent)", 400)
     try:
         pool, indexer = await services.get()
         async with pool.connection() as conn:
