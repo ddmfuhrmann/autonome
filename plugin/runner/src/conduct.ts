@@ -10,7 +10,7 @@ import { consult } from "./agents.js";
 import { ContextError, context, roleModel, waitForContext, type Effort, type GateConfig, type Plan, type Rehearsal, type ReviewResult, type Run, type Task } from "./context.js";
 import { doctor, report } from "./doctor.js";
 import { scopedFileCommands } from "./fsguard.js";
-import { findingsForEncore, review } from "./review.js";
+import { encoreMessage, findingsForEncore, review } from "./review.js";
 import { soundcheck } from "./soundcheck.js";
 import { isUsageLimit, UsageLimitError, untilReset } from "./limits.js";
 import { tuneFinishedWaves } from "./tune.js";
@@ -399,13 +399,14 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<Run | unde
       run.review_rounds = round + 1;
       opts.events?.push({ task_id: task.id, role: "reviewer", kind: "say", text: verdictLine(rv.result) });
       run.cost_usd = (run.cost_usd ?? 0) + rv.cost;
-      if (rv.result.verdict === "pass") return null;
-      const high = findingsForEncore(rv.result);
-      if (round >= cfg.review.max_rounds) return `review: still blocking after ${round} encore(s):\n${high}`;
+      const message = encoreMessage(rv.result, round < cfg.review.max_rounds);
+      if (rv.result.verdict === "pass" && !message) return null; // what is left becomes loose ends at merge
+      if (round >= cfg.review.max_rounds) return `review: still blocking after ${round} encore(s):\n${findingsForEncore(rv.result)}`;
       round++;
-      log(`  review: blocking findings; encore ${round}`);
-      stage(opts, { task_id: task.id }, `encore ${round}: back to the musician with the reviewer's findings`);
-      await encore(`An independent reviewer read your diff and found blocking issues. Fix them, then end your turn:\n${high}`);
+      const why = rv.result.verdict === "pass" ? "medium findings" : "blocking findings";
+      log(`  review: ${why}; encore ${round}`);
+      stage(opts, { task_id: task.id }, `encore ${round}: back to the musician with the reviewer's ${why}`);
+      await encore(message!);
     }
   };
   let failure: string | null;

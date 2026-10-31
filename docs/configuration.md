@@ -74,8 +74,10 @@ encore: {max: 3, stop_on_repeat: true}   # gate failures sent back to the implem
 budget: {task_tokens: 400000, task_minutes: 30, plan_tokens: 3000000}
 
 review: {enabled: true, max_rounds: 2}   # an independent agent reviews each diff against the plan,
-                                         # its edges and the conventions; blocking findings send the
-                                         # implementer back up to max_rounds times
+                                         # its edges and the conventions. High findings block and send the
+                                         # implementer back up to max_rounds times; medium ones go back too
+                                         # while rounds remain ("fix, or explain in the handoff") and wait
+                                         # as loose ends after; low ones never go back
 
 # Human review of critical features. Feature slugs, glob patterns.
 fermata: {features: []}    # stop BEFORE merge and wait for the human (blocks what depends on it)

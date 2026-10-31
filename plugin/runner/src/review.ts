@@ -92,7 +92,27 @@ export function enforceConventions(findings: Finding[], titles: string[]): Findi
   });
 }
 
-export function findingsForEncore(r: ReviewResult): string {
-  return r.findings.filter((f) => f.severity === "high")
+export function findingsForEncore(r: ReviewResult, severity: Finding["severity"] = "high"): string {
+  return r.findings.filter((f) => f.severity === severity)
     .map((f) => `- ${f.file ? `${f.file}: ` : ""}${f.issue}`).join("\n");
+}
+
+const FIX_OR_EXPLAIN = "Fix each one, or, when it is not a problem in the code (a deviation the plan allowed, a " +
+  "check you could not run), say so in your final summary so the handoff records it.";
+
+/** What goes back to the implementer after a review, or null when nothing does. High findings block;
+ * medium ones go back too while review rounds remain, so debt is paid while the session has the
+ * context, and become loose ends at merge once rounds run out. Low ones never go back. */
+export function encoreMessage(r: ReviewResult, roundsLeft: boolean): string | null {
+  const high = findingsForEncore(r, "high");
+  const medium = findingsForEncore(r, "medium");
+  if (high) {
+    return "An independent reviewer read your diff and found blocking issues. Fix them, then end your turn:\n" + high
+      + (medium ? `\n\nAlso worth fixing now. ${FIX_OR_EXPLAIN}\n${medium}` : "");
+  }
+  if (medium && roundsLeft) {
+    return `An independent reviewer passed your diff with findings worth fixing now. ${FIX_OR_EXPLAIN} ` +
+      "Then end your turn:\n" + medium;
+  }
+  return null;
 }
