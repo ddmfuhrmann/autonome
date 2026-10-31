@@ -3,6 +3,7 @@ name: autonome
 services:
   postgres:
     image: pgvector/pgvector:pg17
+    restart: unless-stopped
     environment:
       POSTGRES_DB: autonome
       POSTGRES_USER: autonome
