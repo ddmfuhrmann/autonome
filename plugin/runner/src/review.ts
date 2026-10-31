@@ -51,10 +51,12 @@ const SCHEMA = {
   required: ["verdict", "findings"],
 } as const;
 
-export async function review(task: Task, briefing: string, worktree: string, base: string, who: RoleModel) {
+export async function review(task: Task, briefing: string, worktree: string, base: string, who: RoleModel,
+  onMessage?: (msg: unknown) => void) {
   const diff = git(worktree, "diff", "--cached", base).slice(0, 80_000);
   const { answer, cost } = await consult<ReviewResult>({
     cwd: worktree,
+    onMessage,
     ...who,
     role: REVIEWER_PROMPT,
     schema: SCHEMA,

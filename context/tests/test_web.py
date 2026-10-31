@@ -213,3 +213,29 @@ def test_playback_merges_then_waits_to_be_heard_and_a_fix_is_a_new_task(client, 
     assert "credit must reject negative amounts" in fix["body"]["spec"] and fix["body"]["playback"] is True
     assert tasks["Credit"]["body"]["playback_review"] == {**tasks["Credit"]["body"]["playback_review"], "status": "fix", "fix_task_id": fix["id"]}
     assert "Needs a fix" in client.get(f"/ui/p/{project}/documents/{second}").text
+
+
+def test_a_playing_task_shows_what_its_session_is_doing(client, project, run_db, indexer, monkeypatch):
+    from autonome_context import store as store_mod
+
+    async def go(conn):
+        plan_id = await plans.draft(conn, indexer, project, "links", [], PlanBody(title="L", goal="g", tasks=[TaskSpec(title="Routes", spec="s")]))
+        [task] = await plans.approve(conn, indexer, plan_id)
+        await rules.transition(conn, task, "playing", "runner")
+        await conn.commit()
+        return task
+    task = run_db(go)
+    monkeypatch.setattr(store_mod, "EVENTS_PER_TASK", 3)
+    r = client.post("/api/events", json={"project": project, "events": [
+        {"task_id": task, "role": "maestro", "kind": "stage", "text": "playing on autonome/task-1"},
+        {"task_id": task, "role": "musician", "kind": "say", "text": "Customer 123.456.789-09 is a fixture"},
+        {"task_id": task, "role": "musician", "kind": "tool", "text": "Bash: uv run pytest -q"},
+        {"task_id": task, "role": "musician", "kind": "error", "text": "1 failed"}]})
+    assert r.status_code == 201
+    events = client.get(f"/api/tasks/{task}/events").json()
+    assert [e["kind"] for e in events] == ["say", "tool", "error"]  # pruned to the newest 3
+    assert "123.456.789-09" not in events[0]["text"]  # redacted like everything else
+    setlist = client.get(f"/ui/p/{project}/setlist").text
+    assert "now__doing" in setlist and "1 failed" in setlist
+    page = client.get(f"/ui/p/{project}/documents/{task}").text
+    assert 'id="live"' in page and 'data-refresh="3"' in page and "Bash: uv run pytest -q" in page

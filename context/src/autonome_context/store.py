@@ -213,6 +213,7 @@ async def delete_project(conn: AsyncConnection, slug: str) -> dict[str, int]:
     docs = "select d.id from document d join project p on p.id = d.project_id where p.slug = %(s)s"
     statements = [
         ("gate_run", "delete from gate_run where project_id = (select id from project where slug = %(s)s)"),
+        ("task_event", "delete from task_event where project_id = (select id from project where slug = %(s)s)"),
         ("chunk", f"delete from chunk where document_version_id in (select id from document_version where document_id in ({docs}))"),
         ("link", f"delete from link where from_id in ({docs}) or to_id in ({docs})"),
         ("raw_transcript", f"delete from raw_transcript where document_id in ({docs})"),
@@ -485,6 +486,51 @@ async def gate_runs(
             {"project": project, "session": session_id, "task": task_id, "limit": limit},
         )
         return await cur.fetchall()
+
+
+# --- live session events --------------------------------------------------------------------------
+
+EVENTS_PER_TASK = 2000  # the most recent kept per task or plan; older ones are pruned
+_EVENT_TEXT = 2000
+
+
+async def add_events(conn: AsyncConnection, project: str, events: list[dict]) -> int:
+    """Stores what running sessions are doing. Text is redacted like everything else and cut short."""
+    if not events:
+        return 0
+    project_id = await ensure_project(conn, project)
+    rows = [(project_id, e.get("task_id"), e.get("plan_id"), str(e.get("role", ""))[:40], str(e.get("kind", ""))[:20],
+             redact(str(e.get("text", "")))[:_EVENT_TEXT], e.get("at")) for e in events]
+    async with conn.transaction():
+        async with conn.cursor() as cur:
+            await cur.executemany(
+                "insert into task_event (project_id, task_id, plan_id, role, kind, text, at)"
+                " values (%s, %s, %s, %s, %s, %s, coalesce(%s::timestamptz, now()))", rows)
+        for column in ("task_id", "plan_id"):
+            for owner in {r[1 if column == "task_id" else 2] for r in rows} - {None}:
+                await conn.execute(
+                    f"delete from task_event where {column} = %s and id < (select min(id) from (select id from task_event"
+                    f" where {column} = %s order by id desc limit {EVENTS_PER_TASK}) recent)", (owner, owner))
+    return len(rows)
+
+
+async def events(conn: AsyncConnection, *, task_id: int | None = None, plan_id: int | None = None,
+                 after: int = 0, limit: int = 500) -> list[dict]:
+    column, owner = ("task_id", task_id) if task_id is not None else ("plan_id", plan_id)
+    async with conn.cursor(row_factory=dict_row) as cur:
+        await cur.execute(f"select id, role, kind, text, at from task_event where {column} = %s and id > %s"
+                          f" order by id desc limit %s", (owner, after, limit))
+        return list(reversed(await cur.fetchall()))
+
+
+async def last_events(conn: AsyncConnection, task_ids: list[int]) -> dict[int, dict]:
+    """The latest event of each task: what it is doing right now."""
+    if not task_ids:
+        return {}
+    async with conn.cursor(row_factory=dict_row) as cur:
+        await cur.execute("select distinct on (task_id) task_id, role, kind, text, at from task_event"
+                          " where task_id = any(%s) order by task_id, id desc", (task_ids,))
+        return {r["task_id"]: r for r in await cur.fetchall()}
 
 
 # --- conventions ---------------------------------------------------------------------------------

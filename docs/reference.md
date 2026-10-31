@@ -83,6 +83,8 @@ connection errors.
 | `POST /api/tasks/{id}/transition` | runner moves (playing → done, blocked, on_hold, pending; released → done): `{to, run?}`; on done it applies gates the task set up, closes the plan and wave, and opens a playback when configured |
 | `POST /api/plans/{id}/rehearsal` | `{verdict: ready\|revise, notes, plan?}` → `{plan_status}` |
 | `POST /api/plans/{id}/soundcheck` | `{passed, report, checks, fixes}` → `{outcome: done\|fixing\|blocked}` |
+| `POST /api/events` | what running sessions are doing: `{project, events: [{task_id?, plan_id?, role, kind, text, at?}]}`; redacted, the newest 2,000 kept per task or plan |
+| `GET /api/tasks/{id}/events?after=` | a task's live events, oldest first |
 | `GET /api/projects/{project}/waves/untuned` | finished waves tune has not looked at |
 | `POST /api/waves/{id}/tuned` | `{summary}` |
 | `POST /api/projects/{project}/tasks` | queue a task in the maintenance plan (cues): `{title, spec, source, feature?, layers?}` |

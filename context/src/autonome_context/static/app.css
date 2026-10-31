@@ -636,3 +636,19 @@ pre.mermaid { margin: 0; background: none; border: 0; overflow-x: auto; }
 .notice--ok::before { content: "✓ "; }
 .notice--error { color: var(--red-fg); background: var(--red-bg); border-color: var(--red-line); }
 .notice--error::before { content: "✕ "; }
+
+/* What a playing session is doing right now (from the runner's live events). */
+.now__doing { display: flex; gap: 8px; align-items: baseline; font-size: 12px; color: var(--fg-2); text-decoration: none; min-width: 0; }
+.now__doing:hover { text-decoration: none; color: var(--fg); }
+.now__role { font: 11px var(--mono); color: var(--muted); flex: none; }
+.now__what { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+.now__what.is-error { color: var(--red-fg); }
+.live-log { list-style: none; margin: 0; padding: 0; font-size: 12.5px; display: grid; gap: 2px; max-height: 520px; overflow: auto; }
+.live-log li { display: grid; grid-template-columns: 5.5rem 6rem 1fr; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--line); }
+.live-log .t { font: 11px var(--mono); color: var(--faint); }
+.live-log .r { font: 11px var(--mono); color: var(--muted); }
+.live-log .x { white-space: pre-wrap; word-break: break-word; }
+.live-log .k-tool .x, .live-log .k-result .x { font-family: var(--mono); }
+.live-log .k-stage .x { font-weight: 600; }
+.live-log .k-error .x { color: var(--red-fg); font-family: var(--mono); }
+.live-log .k-result .x { color: var(--muted); }

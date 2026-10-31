@@ -28,6 +28,10 @@
       <div class="now__top"><span class="id">{{ t|ref }}</span>{{ ui.tags(t) }}{% if t.body.runs %}{{ ui.st('encore', sm=true, text='Attempt ' ~ (t.body.runs|length + 1)) }}{% endif %}</div>
       <a class="now__title" href="/ui/p/{{ project }}/documents/{{ t.id }}">{{ t.body.title }}</a>
       <p class="now__step">{% if t.body.plan_id in plans %}{{ plans[t.body.plan_id]|ref }} · {{ plans[t.body.plan_id].body.title }}{% endif %}</p>
+      {% set ev = now_doing.get(t.id) %}{% if ev %}
+      <a class="now__doing" href="/ui/p/{{ project }}/documents/{{ t.id }}#live"><span class="now__role">{{ ev.role }}</span>
+        <span class="now__what{{ ' is-error' if ev.kind == 'error' }}">{{ ev.text|truncate(120) }}</span><span class="muted">{{ ev.at|ago }}</span></a>
+      {% endif %}
       <div class="now__metrics">
         <div class="now__metric"><span class="label">Since</span><b>{{ t.updated_at|ago }}</b></div>
         {% if t.body.fermata %}<div class="now__metric"><span class="label">Ends at</span><b>fermata</b></div>{% endif %}

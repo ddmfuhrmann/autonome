@@ -540,7 +540,8 @@ async def _task(conn, task: dict) -> dict:
         summary[sid] = list(per.values())
     return {"runs": runs, "gates_by_session": summary, "plan": plan, "last": last, "diff_run": diff_run,
             "stages": _stages(last, task["status"]), "cfg": await _gate_config(conn, task["project"]),
-            "encores": sum(1 for g in gate_runs if not g["passed"])}
+            "encores": sum(1 for g in gate_runs if not g["passed"]),
+            "events": await store.events(conn, task_id=task["id"], limit=400)}
 
 
 async def config_page(request: Request) -> Response:
@@ -751,9 +752,11 @@ async def setlist_page(request: Request) -> Response:
     for c, n in COLUMN_LIMIT.items():
         columns[c] = columns[c][:n]
     status_of = {t["id"]: t["status"] for t in tasks} | {p["id"]: p["status"] for p in plans_.values()}
+    async with pool.connection() as conn:
+        now_doing = await store.last_events(conn, [t["id"] for t in tasks if t["status"] == "playing"])
     return await render(request, "setlist.html", columns=columns, totals=totals, plans=plans_, status_of=status_of,
                         wave=waves[0] if waves else None, progress=_progress(tasks),
-                        playing=[t for t in tasks if t["status"] == "playing"])
+                        playing=[t for t in tasks if t["status"] == "playing"], now_doing=now_doing)
 
 
 async def waves_page(request: Request) -> Response:

@@ -13,6 +13,13 @@ import { findingsForEncore, review } from "./review.js";
 import { soundcheck } from "./soundcheck.js";
 import { isUsageLimit, UsageLimitError, untilReset } from "./limits.js";
 import { tuneFinishedWaves } from "./tune.js";
+import { EventStream, fromMessage } from "./events.js";
+
+/** Forwards a session's SDK messages to the live view under a role. */
+const live = (opts: ConductOptions, role: string, owner: { task_id?: number; plan_id?: number }) =>
+  (msg: unknown) => fromMessage(msg).forEach((e) => opts.events?.push({ ...e, role, ...owner }));
+const stage = (opts: ConductOptions, owner: { task_id?: number; plan_id?: number }, text: string) =>
+  opts.events?.push({ role: "maestro", kind: "stage", text, ...owner });
 import { commitMessage, fastForwardMain, git, mainCheckout, stageWork, strayFiles, tryGit } from "./git.js";
 
 export const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -29,6 +36,8 @@ export interface ConductOptions {
   /** Keep waiting for newly approved work instead of stopping when the queue is empty (seconds between checks). */
   watch?: number;
   log: (line: string) => void;
+  /** Where the live view's events go; conduct makes one when none is given. */
+  events?: EventStream;
 }
 
 const MUSICIAN_PROMPT = `You are the implementer of one task in the autonome process. The briefing injected at
@@ -127,6 +136,7 @@ export async function rehearse(plan: Plan, opts: ConductOptions): Promise<Rehear
     role: REHEARSAL_PROMPT,
     schema: PLAN_SCHEMA,
     prompt: rehearsalPrompt(plan, opts.project, gates),
+    onMessage: live(opts, "rehearsal", { plan_id: plan.id }),
   });
   return answer;
 }
@@ -216,6 +226,7 @@ async function play(task: Task, worktree: string, base: string, opts: ConductOpt
       },
     })) {
       if (msg.type === "system" && msg.subtype === "init") sessionId = msg.session_id;
+      live(opts, "musician", { task_id: task.id })(msg);
       if (msg.type === "assistant") {
         const u = msg.message.usage;
         tokens += (u?.input_tokens ?? 0) + (u?.output_tokens ?? 0) + (u?.cache_creation_input_tokens ?? 0);
@@ -320,6 +331,7 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<Run | unde
   const worktree = join(dirname(repo), ".autonome-worktrees", branch.replaceAll("/", "-"));
   git(repo, "worktree", "add", "-q", "-b", branch, worktree, base);
   log(`#${task.id} ${task.body.title} — playing in ${worktree}`);
+  stage(opts, { task_id: task.id }, `playing on ${branch}`);
   const started = Date.now();
 
   const cfg = (await context.gateConfig(opts.project)).config;
@@ -328,6 +340,7 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<Run | unde
     tokens: result.tokens, cost_usd: result.cost };
   const block = async (reason: string) => {
     log(`  blocked: ${reason}`);
+    stage(opts, { task_id: task.id }, `blocked: ${reason}`);
     Object.assign(run, { outcome: "blocked", reason, duration_s: Math.round((Date.now() - started) / 1000) });
     await context.transition(task.id, "blocked", run);
     tryGit(repo, "worktree", "remove", "--force", worktree); // the branch stays for inspection
@@ -356,15 +369,19 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<Run | unde
         if (cleanups >= cfg.encore.max) return `stray files still in the change:\n${list}`;
         cleanups++;
         log(`  stray files in the change; encore ${cleanups}`);
+        stage(opts, { task_id: task.id }, `encore: stray files in the change`);
         await encore(`These files would be committed but do not belong in the change. Add them (or their ` +
           `pattern) to .gitignore; the runner restages from scratch, so ignoring them is enough:\n${list}`);
         continue;
       }
+      stage(opts, { task_id: task.id }, "gates");
       const check = gates(worktree, base);
       if (!check.passed) return check.summary;
       if (!cfg.review.enabled) return null;
       const briefing = (await context.briefing(opts.project, task.id)).text;
-      const rv = await review(task, briefing, worktree, base, roleModel(cfg, "reviewer", opts));
+      stage(opts, { task_id: task.id }, `review, round ${round + 1}`);
+      const rv = await review(task, briefing, worktree, base, roleModel(cfg, "reviewer", opts),
+        live(opts, "reviewer", { task_id: task.id }));
       run.review = rv.result;
       run.review_rounds = round + 1;
       run.cost_usd = (run.cost_usd ?? 0) + rv.cost;
@@ -373,6 +390,7 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<Run | unde
       if (round >= cfg.review.max_rounds) return `review: still blocking after ${round} encore(s):\n${high}`;
       round++;
       log(`  review: blocking findings; encore ${round}`);
+      stage(opts, { task_id: task.id }, `encore ${round}: back to the musician with the reviewer's findings`);
       await encore(`An independent reviewer read your diff and found blocking issues. Fix them, then end your turn:\n${high}`);
     }
   };
@@ -395,6 +413,7 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<Run | unde
   run.duration_s = Math.round((Date.now() - started) / 1000);
   if (task.body.fermata) {
     log(`  green; held at the fermata for your review`);
+    stage(opts, { task_id: task.id }, "held at the fermata");
     Object.assign(run, { outcome: "on_hold", diff_stat: git(worktree, "diff", "--stat", `${base}..HEAD`),
       diff: git(worktree, "diff", `${base}..HEAD`).slice(0, 60_000) });
     await context.transition(task.id, "on_hold", run);
@@ -411,6 +430,7 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<Run | unde
   run.merged_sha = git(repo, "rev-parse", "main");
   await recordMerged(task, run, opts);
   log(`  merged into main`);
+  stage(opts, { task_id: task.id }, `merged into main (${run.merged_sha?.slice(0, 7) ?? ""})`);
   if (task.feature) updateDocs(repo, opts.project, ["--feature", task.feature], log);
   return run;
 }
@@ -442,8 +462,10 @@ async function soundcheckPlan(plan: Plan, opts: ConductOptions): Promise<void> {
   const cfg = (await context.gateConfig(opts.project)).config.soundcheck;
   if (!cfg) return;
   opts.log(`plan #${plan.id} ${plan.body.title}: every task merged; soundcheck`);
+  stage(opts, { plan_id: plan.id }, "soundcheck");
   const r = await soundcheck(plan, cfg, mainCheckout(opts.repo) ?? opts.repo,
-    roleModel((await context.gateConfig(opts.project)).config, "listener", opts), opts.log);
+    roleModel((await context.gateConfig(opts.project)).config, "listener", opts), opts.log,
+    live(opts, "listener", { plan_id: plan.id }));
   const { outcome } = await context.soundcheck(plan.id, r);
   opts.log(outcome === "done" ? `  passed; the feature is done`
     : outcome === "fixing" ? `  failed; ${r.fixes.length} fix task(s) queued`
@@ -463,9 +485,11 @@ export async function conduct(opts: ConductOptions): Promise<number> {
   let played = 0;
   let sinceOverview = 0;
   const tally: Played[] = [];
+  opts.events ??= new EventStream(opts.project);
   try {
     return await playAll();
   } finally {
+    await opts.events?.flush();
     const text = summary(tally);
     if (text) opts.log(text);
   }

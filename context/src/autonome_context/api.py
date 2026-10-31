@@ -217,6 +217,22 @@ async def wave_tuned(request: Request) -> JSONResponse:
     return _json({"ok": True})
 
 
+async def post_events(request: Request) -> JSONResponse:
+    """The runner streams what its sessions are doing: {project, events: [{task_id?, plan_id?, role, kind, text}]}."""
+    body = await request.json()
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        n = await store.add_events(conn, body["project"], body.get("events", []))
+    return _json({"stored": n}, 201)
+
+
+async def get_events(request: Request) -> JSONResponse:
+    p = request.query_params
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        return _json(await store.events(conn, task_id=int(request.path_params["doc_id"]), after=int(p.get("after", 0))))
+
+
 def routes() -> list:
     return [
         Route("/api/projects/{project}/insights", get_insights),
@@ -234,6 +250,8 @@ def routes() -> list:
         Route("/api/waves/{doc_id:int}/tuned", wave_tuned, methods=["POST"]),
         Route("/api/projects/{project}/briefing", get_briefing),
         Route("/api/projects/{project}/gate-config", get_gate_config),
+        Route("/api/events", post_events, methods=["POST"]),
+        Route("/api/tasks/{doc_id:int}/events", get_events),
         Route("/api/gate-runs", post_gate_runs, methods=["POST"]),
         Route("/api/gate-runs", get_gate_runs),
     ]

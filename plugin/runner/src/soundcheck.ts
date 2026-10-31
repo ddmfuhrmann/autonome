@@ -47,6 +47,7 @@ function sh(cmd: string, cwd: string, env: Record<string, string>, timeoutS = 90
 
 export async function soundcheck(
   plan: Plan, cfg: Soundcheck, cwd: string, who: RoleModel | undefined, log: (line: string) => void,
+  onMessage?: (msg: unknown) => void,
 ): Promise<SoundcheckResult> {
   const env = { AUTONOME_APP_URL: cfg.url };
   const blocked = (report: string): SoundcheckResult => ({ passed: false, report, checks: [], fixes: [] });
@@ -76,7 +77,7 @@ export async function soundcheck(
     }
     const { title, goal, acceptance, tasks, out_of_scope } = plan.body as Record<string, unknown>;
     const { answer } = await consult<Omit<SoundcheckResult, "checks">>({
-      cwd, ...who, role: LISTENER_PROMPT, schema: SCHEMA, maxTurns: 60, env,
+      cwd, ...who, onMessage, role: LISTENER_PROMPT, schema: SCHEMA, maxTurns: 60, env,
       tools: ["Bash(curl:*)"],
       prompt: [
         `The app runs at ${cfg.url}. Soundcheck plan #${plan.id} (feature ${plan.feature ?? "-"}).`,

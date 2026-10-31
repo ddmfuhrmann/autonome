@@ -19,6 +19,8 @@ export interface Consult {
   tools?: string[];
   env?: Record<string, string>;
   maxTurns?: number;
+  /** Every SDK message, for the live view. */
+  onMessage?: (msg: unknown) => void;
 }
 
 /** Runs one read-only session and returns its structured answer. */
@@ -41,6 +43,7 @@ export async function consult<T>(c: Consult): Promise<{ answer: T; cost: number 
       env: { ...process.env, ...(c.env ?? {}) } as Record<string, string>,
     },
   })) {
+    c.onMessage?.(msg);
     if (msg.type === "result") {
       cost = msg.total_cost_usd;
       if (msg.subtype === "success") answer = msg.structured_output as T;
