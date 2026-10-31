@@ -1,0 +1,16 @@
+{# Renders a document body as readable sections; raw JSON stays one click away. #}
+{% for key, value in body.items() if value not in (None, '', [], {}) and key != 'title' %}
+<section class="card">
+  <h2>{{ key|replace('_', ' ')|capitalize }}</h2>
+  {% if value is string %}<pre class="body">{{ value }}</pre>
+  {% elif value is mapping %}<div class="tablewrap"><table>{% for k, v in value.items() %}<tr><th>{{ k }}</th><td>{{ v }}</td></tr>{% endfor %}</table></div>
+  {% elif value is sequence and value and value[0] is mapping %}
+    {% set cols = value[0].keys()|list %}
+    <div class="tablewrap"><table><tr>{% if key == 'tasks' %}<th>#</th>{% endif %}{% for c in cols %}<th>{{ c }}</th>{% endfor %}</tr>
+    {% for row in value %}<tr>{% if key == 'tasks' %}<td>{{ loop.index }}</td>{% endif %}{% for c in cols %}<td>{% set v = row[c] %}{% if v is sequence and v is not string %}{{ v|join('; ') }}{% else %}<span style="white-space: pre-wrap">{{ v }}</span>{% endif %}</td>{% endfor %}</tr>{% endfor %}
+    </table></div>
+  {% elif value is sequence %}<ul>{% for v in value %}<li>{{ v }}</li>{% endfor %}</ul>
+  {% else %}<p>{{ value }}</p>{% endif %}
+</section>
+{% endfor %}
+<details class="card"><summary class="muted">Raw JSON</summary><pre class="body">{{ body|pretty }}</pre></details>

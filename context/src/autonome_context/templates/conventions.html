@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Conventions{% endblock %}
+{% block main %}
+<h1>Conventions</h1>
+<p class="muted">How code is written in this project, per layer. Injected into agent sessions for the layers a task touches. Only editable here; every edit is a new version.</p>
+{% for c in conventions %}
+<form class="card" method="post" action="/ui/p/{{ project }}/conventions/{{ c.id }}">
+  <div class="meta"><span class="pill {{ 'ok' if c.status == 'active' else '' }}">{{ c.status }}</span>
+    <span>layers: {{ c.layers|join(', ') or 'all' }}</span><span>version {{ c.version }}</span>
+    <a href="/ui/p/{{ project }}/documents/{{ c.id }}">#{{ c.id }}</a></div>
+  <input type="text" name="title" id="title-{{ c.id }}" value="{{ c.body.title }}">
+  <textarea name="rule" id="rule-{{ c.id }}" style="min-height: 160px">{{ c.body.rule }}</textarea>
+  <div class="inline"><button class="secondary">Save version</button>
+    <button name="archive" value="1" class="secondary">{{ 'Archive' if c.status == 'active' else 'Reactivate' }}</button></div>
+</form>
+{% endfor %}
+<form class="card" method="post">
+  <h2>New convention</h2>
+  <input type="text" name="title" id="new-title" placeholder="Title, e.g. Money and rounding">
+  <input type="text" name="layers" id="new-layers" placeholder="layers, comma separated; empty = all">
+  <textarea name="rule" id="new-rule" style="min-height: 160px" placeholder="The rule, in markdown"></textarea>
+  <div><button class="accent">Add</button></div>
+</form>
+{% endblock %}

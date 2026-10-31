@@ -13,7 +13,7 @@
   <span class="project">{{ project }}</span>
   <nav>
     {% set here = request.url.path %}
-    {% for slug, label in nav_items|default([("search","Search"),("lab","Lab"),("documents","Documents"),("config","Config")]) %}
+    {% for slug, label in nav_items|default([("approvals","Approvals"),("search","Search"),("documents","Documents"),("conventions","Conventions"),("config","Config"),("lab","Lab")]) %}
     <a href="/ui/p/{{ project }}/{{ slug }}" class="{{ 'on' if here.startswith('/ui/p/' ~ project ~ '/' ~ slug) }}">{{ label }}</a>
     {% endfor %}
   </nav>

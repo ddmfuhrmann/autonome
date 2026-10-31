@@ -419,3 +419,14 @@ async def gate_runs(
             {"project": project, "session": session_id, "task": task_id, "limit": limit},
         )
         return await cur.fetchall()
+
+
+# --- conventions ---------------------------------------------------------------------------------
+
+
+async def conventions_for(conn: AsyncConnection, project: str, layers: list[str] | None = None) -> list[dict]:
+    """Active conventions that apply to any of these layers; conventions without layers apply to all."""
+    docs = await list_documents(conn, project, type="convention", status="active")
+    if layers is None:
+        return docs
+    return [d for d in docs if not d["layers"] or set(d["layers"]) & set(layers)]

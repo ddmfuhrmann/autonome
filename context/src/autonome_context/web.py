@@ -9,7 +9,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 
-from . import evaluation, services, store
+from . import evaluation, plans, rules, services, store
 from .chunking import DEFAULT_STRATEGY, STRATEGIES
 from .gates import EXAMPLE, GateConfig
 
@@ -114,7 +114,9 @@ async def document_page(request: Request) -> Response:
         if not doc or doc["project"] != request.path_params["project"]:
             return Response("not found", status_code=404)
         links = await store.links_of(conn, doc["id"])
-    return render(request, "document.html", doc=doc, links=links)
+    actions = [to for (type_, frm, to), actors in rules.TRANSITIONS.items()
+               if type_ == doc["type"] and frm == (doc["status"] or "") and "human" in actors]
+    return render(request, "document.html", doc=doc, links=links, actions=actions)
 
 
 async def config_page(request: Request) -> Response:
@@ -138,6 +140,72 @@ async def config_page(request: Request) -> Response:
     return render(request, "config.html", text=text, doc=doc, error=error, runs=runs)
 
 
+async def approvals_page(request: Request) -> Response:
+    project = request.path_params["project"]
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        groups = {
+            "Plans to approve": await store.list_documents(conn, project, type="plan", status="draft"),
+            "Held at the fermata": await store.list_documents(conn, project, type="task", status="on_hold"),
+            "Blocked tasks": await store.list_documents(conn, project, type="task", status="blocked"),
+            "Proposed decisions": await store.list_documents(conn, project, type="decision", status="proposed"),
+        }
+    return render(request, "approvals.html", groups=groups)
+
+
+async def transition(request: Request) -> Response:
+    """The human gate. Only reachable from the UI."""
+    project, doc_id = request.path_params["project"], int(request.path_params["doc_id"])
+    to = str((await request.form()).get("to"))
+    pool, indexer = await services.get()
+    async with pool.connection() as conn:
+        doc = await store.get_document(conn, doc_id)
+        if not doc or doc["project"] != project:
+            return Response("not found", status_code=404)
+        try:
+            if doc["type"] == "plan" and to == "approved":
+                await plans.approve(conn, indexer, doc_id)
+            else:
+                await rules.transition(conn, doc_id, to, "human")
+        except rules.Forbidden as e:
+            return Response(str(e), status_code=409)
+    return RedirectResponse(f"/ui/p/{project}/documents/{doc_id}", status_code=303)
+
+
+async def conventions_page(request: Request) -> Response:
+    project = request.path_params["project"]
+    pool, indexer = await services.get()
+    async with pool.connection() as conn:
+        if request.method == "POST":
+            form = await request.form()
+            title, rule = str(form.get("title", "")).strip(), str(form.get("rule", "")).strip()
+            layers = [l.strip() for l in str(form.get("layers", "")).split(",") if l.strip()]
+            if title and rule:
+                async with conn.transaction():
+                    await store.create_document(conn, indexer, project=project, type="convention", status="active",
+                                                body={"title": title, "rule": rule}, layers=layers)
+            return RedirectResponse(f"/ui/p/{project}/conventions", status_code=303)
+        conventions = await store.list_documents(conn, project, type="convention")
+    return render(request, "conventions.html", conventions=conventions)
+
+
+async def convention_edit(request: Request) -> Response:
+    project, doc_id = request.path_params["project"], int(request.path_params["doc_id"])
+    form = await request.form()
+    pool, indexer = await services.get()
+    async with pool.connection() as conn:
+        doc = await store.get_document(conn, doc_id)
+        if not doc or doc["project"] != project or doc["type"] != "convention":
+            return Response("not found", status_code=404)
+        if form.get("archive"):
+            await store.set_status(conn, doc_id, "archived" if doc["status"] == "active" else "active")
+        else:
+            async with conn.transaction():
+                await store.add_version(conn, indexer, doc_id, {"title": str(form["title"]).strip(),
+                                                                "rule": str(form["rule"]).strip()})
+    return RedirectResponse(f"/ui/p/{project}/conventions", status_code=303)
+
+
 def routes() -> list:
     return [
         Route("/", lambda r: RedirectResponse("/ui")),
@@ -150,5 +218,9 @@ def routes() -> list:
         Route("/ui/p/{project}/documents", documents_page),
         Route("/ui/p/{project}/documents/{doc_id:int}", document_page),
         Route("/ui/p/{project}/config", config_page, methods=["GET", "POST"]),
+        Route("/ui/p/{project}/approvals", approvals_page),
+        Route("/ui/p/{project}/documents/{doc_id:int}/transition", transition, methods=["POST"]),
+        Route("/ui/p/{project}/conventions", conventions_page, methods=["GET", "POST"]),
+        Route("/ui/p/{project}/conventions/{doc_id:int}", convention_edit, methods=["POST"]),
         Mount("/static", StaticFiles(directory=_HERE / "static"), name="static"),
     ]

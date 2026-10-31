@@ -1,0 +1,53 @@
+"""Who may move a document from one status to another. Human-only transitions are the human
+gates of the process; the context enforces them, so no agent (or process) can skip them."""
+
+from typing import Literal
+
+from psycopg import AsyncConnection
+
+from . import store
+
+Actor = Literal["human", "agent", "runner"]
+
+# (type, from, to) -> actors allowed
+TRANSITIONS: dict[tuple[str, str, str], set[str]] = {
+    ("plan", "draft", "approved"): {"human"},
+    ("plan", "draft", "abandoned"): {"human", "agent"},
+    ("plan", "approved", "abandoned"): {"human"},
+    ("plan", "approved", "done"): {"runner"},
+    ("task", "pending", "playing"): {"runner"},
+    ("task", "playing", "done"): {"runner"},
+    ("task", "playing", "blocked"): {"runner"},
+    ("task", "playing", "on_hold"): {"runner"},
+    ("task", "playing", "pending"): {"runner"},  # interrupted run, try again later
+    ("task", "on_hold", "released"): {"human"},
+    ("task", "on_hold", "pending"): {"human"},  # rejected at the fermata: play it again
+    ("task", "released", "done"): {"runner"},
+    ("task", "blocked", "pending"): {"human"},
+    ("task", "blocked", "abandoned"): {"human"},
+    ("task", "pending", "abandoned"): {"human"},
+    ("decision", "proposed", "accepted"): {"human"},
+    ("decision", "proposed", "rejected"): {"human"},
+    ("decision", "accepted", "superseded"): {"human"},
+}
+
+# Documents whose content only a human may change (from the UI).
+HUMAN_EDITED_TYPES = {"convention", "gate_config"}
+
+
+class Forbidden(Exception):
+    pass
+
+
+def allowed(type: str, current: str | None, to: str, actor: Actor) -> bool:
+    return actor in TRANSITIONS.get((type, current or "", to), set())
+
+
+async def transition(conn: AsyncConnection, doc_id: int, to: str, actor: Actor) -> dict:
+    doc = await store.get_document(conn, doc_id)
+    if doc is None:
+        raise Forbidden(f"document {doc_id} does not exist")
+    if not allowed(doc["type"], doc["status"], to, actor):
+        raise Forbidden(f"{actor} may not move {doc['type']} #{doc_id} from {doc['status']} to {to}")
+    await store.set_status(conn, doc_id, to)
+    return {**doc, "status": to}

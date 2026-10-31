@@ -8,13 +8,15 @@ import gzip
 from dataclasses import asdict
 from typing import Annotated, Literal
 
+from pathlib import Path
+
 import uvicorn
 from mcp.server.mcpserver import MCPServer
 from pydantic import Field, ValidationError
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from . import api, evaluation, services, store, web
+from . import api, evaluation, plans, rules, services, store, web
 from .chunking import DEFAULT_STRATEGY, STRATEGIES
 from .handoff import Handoff
 from .migrate import migrate
@@ -68,6 +70,73 @@ async def gate_config_get(project: Annotated[str, Field(description="Project slu
         return await api.gate_config_body(conn, project)
 
 
+@mcp.tool()
+async def plan_draft(
+    project: str,
+    plan: plans.PlanBody,
+    feature: Annotated[str | None, Field(description="kebab-case feature slug")] = None,
+    layers: list[str] = [],
+    plan_id: Annotated[int | None, Field(description="revise this draft instead of creating a new one")] = None,
+) -> dict:
+    """Save a draft plan for the human to approve in the UI. Agents cannot approve plans."""
+    pool, indexer = await services.get()
+    async with pool.connection() as conn:
+        try:
+            doc_id = await plans.draft(conn, indexer, project, feature, layers, plan, plan_id)
+        except rules.Forbidden as e:
+            return {"error": str(e)}
+    return {"plan_id": doc_id, "status": "draft",
+            "approve_at": f"http://{services.settings.host}:{services.settings.port}/ui/p/{project}/documents/{doc_id}"}
+
+
+@mcp.tool()
+async def plan_get(plan_id: int) -> dict:
+    """A plan with its status and the status of its tasks."""
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        doc = await store.get_document(conn, plan_id)
+        if not doc or doc["type"] != "plan":
+            return {"error": f"plan {plan_id} not found"}
+        tasks = [l for l in await store.links_of(conn, plan_id) if l["kind"] == "has_task"]
+    return api.jsonable({**doc, "tasks": tasks})
+
+
+@mcp.tool()
+async def plan_list(project: str, status: str | None = None) -> list[dict]:
+    """Plans of a project, newest first: id, title, status, feature."""
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        docs = await store.list_documents(conn, project, type="plan", status=status, limit=50)
+    return [{"id": d["id"], "title": d["body"].get("title"), "status": d["status"], "feature": d["feature"]}
+            for d in docs]
+
+
+@mcp.tool()
+async def conventions_get(
+    project: str,
+    layers: Annotated[list[str] | None, Field(description="only conventions for these layers; omit for all")] = None,
+) -> list[dict]:
+    """The project's conventions (code style, testing, patterns...). Read-only: humans edit them in the UI."""
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        docs = await store.conventions_for(conn, project, layers)
+    return [{"id": d["id"], "title": d["body"].get("title"), "layers": d["layers"], "rule": d["body"].get("rule")}
+            for d in docs]
+
+
+@mcp.tool()
+async def decision_propose(project: str, title: str, decision: str, context: str = "",
+                           consequences: str = "", feature: str | None = None, layers: list[str] = []) -> dict:
+    """Propose an architectural or product decision. A human accepts or rejects it in the UI."""
+    pool, indexer = await services.get()
+    async with pool.connection() as conn:
+        async with conn.transaction():
+            doc_id = await store.create_document(
+                conn, indexer, project=project, type="decision", status="proposed", feature=feature, layers=layers,
+                body={"title": title, "context": context, "decision": decision, "consequences": consequences})
+    return {"decision_id": doc_id, "status": "proposed"}
+
+
 @mcp.custom_route("/health", methods=["GET"])
 async def health(_: Request) -> JSONResponse:
     return JSONResponse({"status": "ok"})
@@ -99,6 +168,15 @@ async def _cli(args: argparse.Namespace) -> None:
             names = [args.strategy] if args.strategy else list(STRATEGIES)
             for name in names:
                 print(f"{name}: {await store.reindex(conn, STRATEGIES[name], indexer.embedder)} versions indexed")
+        elif args.command == "import-conventions":
+            for path in sorted(Path(args.dir).glob("*.md")):
+                text = path.read_text()
+                title = next((l.lstrip("# ").strip() for l in text.splitlines() if l.startswith("#")), path.stem)
+                async with conn.transaction():
+                    await store.create_document(conn, indexer, project=args.project, type="convention",
+                                                status="active", body={"title": title, "rule": text},
+                                                layers=args.layer or [])
+                print(f"imported {path.name}")
         elif args.command == "eval-generate":
             print(f"{await evaluation.generate(conn, args.project, args.per_document)} questions created")
         elif args.command == "eval-run":
@@ -113,6 +191,10 @@ def main() -> None:
     sub.add_parser("serve", help="migrate and serve MCP, API and UI (default)")
     reindex = sub.add_parser("reindex", help="index documents a strategy has not seen yet")
     reindex.add_argument("--strategy", choices=list(STRATEGIES))
+    conv = sub.add_parser("import-conventions", help="import every *.md in a folder as a convention")
+    conv.add_argument("--project", required=True)
+    conv.add_argument("--dir", required=True)
+    conv.add_argument("--layer", action="append", help="layers the conventions apply to (repeatable)")
     generate = sub.add_parser("eval-generate", help="synthetic eval questions from handoffs and decisions")
     generate.add_argument("--project", required=True)
     generate.add_argument("--per-document", type=int, default=2)

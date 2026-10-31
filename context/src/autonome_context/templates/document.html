@@ -9,12 +9,17 @@
   <span>version {{ doc.version }}</span><span>{{ doc.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
   {% if doc.commit_sha %}<span>commit {{ doc.commit_sha[:10] }}</span>{% endif %}
 </div>
-{% block actions %}{% endblock %}
+{% if actions %}
+<form class="inline card" method="post" action="/ui/p/{{ project }}/documents/{{ doc.id }}/transition">
+  <span class="muted">Your call:</span>
+  {% for to in actions %}<button name="to" value="{{ to }}" class="{{ 'accent' if to in ('approved','accepted','released') else ('danger' if to in ('abandoned','rejected') else 'secondary') }}">{{ to|capitalize }}</button>{% endfor %}
+</form>
+{% endif %}
 {% if links %}
 <div class="card"><h2>Links</h2>
   {% for l in links %}<div class="meta"><span>{{ l.direction }} · {{ l.kind }}</span>
     <a href="/ui/p/{{ project }}/documents/{{ l.id }}">#{{ l.id }}</a><span class="pill">{{ l.type }}</span><span>{{ l.status or '' }}</span></div>{% endfor %}
 </div>
 {% endif %}
-<div class="card"><pre class="body">{{ doc.body|pretty }}</pre></div>
+{% with body = doc.body %}{% include "_body.html" %}{% endwith %}
 {% endblock %}

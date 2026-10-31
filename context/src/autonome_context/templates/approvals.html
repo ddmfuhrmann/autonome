@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Approvals{% endblock %}
+{% block main %}
+<h1>Approvals</h1>
+<p class="muted">The human side of the process. Nothing here can be decided by an agent.</p>
+{% for label, docs in groups.items() %}
+<div class="card">
+  <h2>{{ label }} <span class="pill">{{ docs|length }}</span></h2>
+  {% for d in docs %}
+  <div class="meta"><a href="/ui/p/{{ project }}/documents/{{ d.id }}">#{{ d.id }} {{ d.body.title or d.body.summary|truncate(80) }}</a>
+    {% if d.feature %}<span class="pill accent">{{ d.feature }}</span>{% endif %}<span>{{ d.created_at.strftime('%Y-%m-%d %H:%M') }}</span></div>
+  {% else %}<p class="empty">Nothing waiting.</p>{% endfor %}
+</div>
+{% endfor %}
+{% endblock %}

@@ -6,12 +6,17 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from . import services, store
+from . import briefing, services, store
 from .gates import GateConfig
 
 
+def jsonable(data):
+    """Dates and other rich values as strings."""
+    return json.loads(json.dumps(data, default=str))
+
+
 def _json(data, status_code: int = 200) -> JSONResponse:
-    return JSONResponse(json.loads(json.dumps(data, default=str)), status_code=status_code)
+    return JSONResponse(jsonable(data), status_code=status_code)
 
 
 async def gate_config_body(conn, project: str) -> dict:
@@ -49,8 +54,17 @@ async def get_gate_runs(request: Request) -> JSONResponse:
     return _json(runs)
 
 
+async def get_briefing(request: Request) -> JSONResponse:
+    task_id = request.query_params.get("task_id")
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        text = await briefing.build(conn, request.path_params["project"], int(task_id) if task_id else None)
+    return _json({"text": text})
+
+
 def routes() -> list:
     return [
+        Route("/api/projects/{project}/briefing", get_briefing),
         Route("/api/projects/{project}/gate-config", get_gate_config),
         Route("/api/gate-runs", post_gate_runs, methods=["POST"]),
         Route("/api/gate-runs", get_gate_runs),
