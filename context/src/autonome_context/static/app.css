@@ -651,6 +651,9 @@ pre.mermaid { margin: 0; background: none; border: 0; overflow-x: auto; }
 .live-log .t { font: 11px var(--mono); color: var(--faint); }
 .live-log .r { font: 11px var(--mono); color: var(--muted); }
 .live-log .x { white-space: pre-wrap; word-break: break-word; }
+.live-log .x.prose { white-space: normal; font-size: 12.5px; }
+.live-log .x.prose > :first-child { margin-top: 0; }
+.live-log .x.prose > :last-child { margin-bottom: 0; }
 .live-log .k-tool .x, .live-log .k-result .x { font-family: var(--mono); }
 .live-log .k-stage .x { font-weight: 600; }
 .live-log .k-error .x { color: var(--red-fg); font-family: var(--mono); }

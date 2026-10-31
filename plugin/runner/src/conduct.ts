@@ -7,7 +7,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { consult } from "./agents.js";
-import { ContextError, context, roleModel, waitForContext, type Effort, type GateConfig, type Plan, type Rehearsal, type Run, type Task } from "./context.js";
+import { ContextError, context, roleModel, waitForContext, type Effort, type GateConfig, type Plan, type Rehearsal, type ReviewResult, type Run, type Task } from "./context.js";
 import { doctor, report } from "./doctor.js";
 import { findingsForEncore, review } from "./review.js";
 import { soundcheck } from "./soundcheck.js";
@@ -310,6 +310,14 @@ async function replayJournal(opts: ConductOptions): Promise<void> {
   }
 }
 
+/** The reviewer's verdict for the live view: the verdict, then one line per finding. */
+export function verdictLine(r: ReviewResult): string {
+  if (!r.findings.length) return `**${r.verdict}**, no findings`;
+  const n = r.findings.length;
+  return `**${r.verdict}**, ${n} finding${n > 1 ? "s" : ""}:\n` + r.findings.map((f) =>
+    `- ${f.severity} ${f.kind}${f.file ? ` in \`${f.file}\`` : ""}: ${f.issue.replace(/\s+/g, " ").slice(0, 200)}`).join("\n");
+}
+
 /** Plays one task; returns its last run, for the summary. */
 async function conductTask(task: Task, opts: ConductOptions): Promise<Run | undefined> {
   const { repo, log } = opts;
@@ -376,6 +384,7 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<Run | unde
       }
       stage(opts, { task_id: task.id }, "gates");
       const check = gates(worktree, base);
+      stage(opts, { task_id: task.id }, check.passed ? "gates passed" : `gates: ${check.summary.split(":")[0]}`);
       if (!check.passed) return check.summary;
       if (!cfg.review.enabled) return null;
       const briefing = (await context.briefing(opts.project, task.id)).text;
@@ -384,6 +393,7 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<Run | unde
         live(opts, "reviewer", { task_id: task.id }));
       run.review = rv.result;
       run.review_rounds = round + 1;
+      opts.events?.push({ task_id: task.id, role: "reviewer", kind: "say", text: verdictLine(rv.result) });
       run.cost_usd = (run.cost_usd ?? 0) + rv.cost;
       if (rv.result.verdict === "pass") return null;
       const high = findingsForEncore(rv.result);

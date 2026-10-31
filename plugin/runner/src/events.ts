@@ -16,29 +16,47 @@ const short = (text: string, n: number) => {
   return one.length > n ? `${one.slice(0, n - 1)}…` : one;
 };
 
+/** Worktree paths read as repo paths: `/…/.autonome-worktrees/task-1-x/src/a.ts` becomes `src/a.ts`. */
+export const relative = (text: string) => text.replace(/\S*\/\.autonome-worktrees\/[^/\s]+\//g, "");
+
+/** The tools whose calls are still waiting for a result, by tool_use id: only some results are worth showing. */
+const calls = new Map<string, string>();
+// Results worth a line: what a command printed. A written file or a read file's contents is noise.
+const SHOWN = new Set(["Bash"]);
+
 /** What a tool call was about, in one line: the command, the file, the pattern. */
 export function describeTool(name: string, input: Record<string, unknown>): string {
   const pick = ["command", "file_path", "pattern", "path", "url", "query", "description"]
     .map((k) => input[k]).find((v) => typeof v === "string") as string | undefined;
   const tool = name.replace(/^mcp__(plugin_autonome_)?autonome__/, "memory:");
-  return pick ? `${tool}: ${short(pick, 200)}` : tool;
+  return pick ? `${tool}: ${short(relative(pick), 200)}` : tool;
 }
 
-/** SDK messages as events: what the agent says, the tools it calls, and failed or short results. */
+/** SDK messages as events: what the agent says (newlines kept, it is markdown), the tools it calls,
+ * failures, and the end of what commands printed. The reviewer's StructuredOutput is left out: conduct
+ * reports the verdict itself. */
 export function fromMessage(msg: unknown): Omit<LiveEvent, "role" | "task_id" | "plan_id">[] {
   const m = msg as { type?: string; message?: { content?: unknown } };
   const content = Array.isArray(m.message?.content) ? (m.message!.content as Record<string, unknown>[]) : [];
   const out: Omit<LiveEvent, "role" | "task_id" | "plan_id">[] = [];
   for (const block of content) {
     if (m.type === "assistant" && block.type === "text" && typeof block.text === "string" && block.text.trim()) {
-      out.push({ kind: "say", text: short(block.text, 600) });
+      const text = relative(block.text.trim()).replace(/\n{3,}/g, "\n\n");
+      out.push({ kind: "say", text: text.length > 1200 ? `${text.slice(0, 1199)}…` : text });
     } else if (m.type === "assistant" && block.type === "tool_use") {
-      out.push({ kind: "tool", text: describeTool(String(block.name), (block.input ?? {}) as Record<string, unknown>) });
+      const name = String(block.name);
+      calls.set(String(block.id), name);
+      if (name !== "StructuredOutput") {
+        out.push({ kind: "tool", text: describeTool(name, (block.input ?? {}) as Record<string, unknown>) });
+      }
     } else if (m.type === "user" && block.type === "tool_result") {
-      const raw = typeof block.content === "string" ? block.content
-        : Array.isArray(block.content) ? (block.content as { text?: string }[]).map((c) => c.text ?? "").join(" ") : "";
-      if (block.is_error) out.push({ kind: "error", text: short(raw, 300) });
-      else if (raw.trim()) out.push({ kind: "result", text: short(raw, 200) });
+      const name = calls.get(String(block.tool_use_id));
+      calls.delete(String(block.tool_use_id));
+      const raw = relative(typeof block.content === "string" ? block.content
+        : Array.isArray(block.content) ? (block.content as { text?: string }[]).map((c) => c.text ?? "").join("\n") : "");
+      const tail = (n: number) => { const one = raw.replace(/\s+/g, " ").trim(); return one.length > n ? `…${one.slice(-n)}` : one; };
+      if (block.is_error && name !== "StructuredOutput") out.push({ kind: "error", text: tail(300) });
+      else if (name && SHOWN.has(name) && raw.trim()) out.push({ kind: "result", text: tail(240) });
     }
   }
   return out;
