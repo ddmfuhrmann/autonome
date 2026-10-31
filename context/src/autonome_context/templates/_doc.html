@@ -15,3 +15,8 @@
 <section class="card"><div class="card__head"><h2 class="card__title">{{ label }}</h2></div><div class="card__body prose"><ul>{% for i in b[key] %}<li>{{ i|mdi }}</li>{% endfor %}</ul></div></section>
 {% endfor %}
 </div>
+{% if b.get('development') %}
+<section class="card card--dev" aria-labelledby="dev-h"><div class="card__head"><h2 class="card__title" id="dev-h">Development</h2>
+  <span class="push muted" style="font-size: 12px">running, testing and the gates; not part of the product</span></div>
+  <div class="card__body prose">{{ b.development|md }}</div></section>
+{% endif %}

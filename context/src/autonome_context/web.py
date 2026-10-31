@@ -718,8 +718,9 @@ async def features_page(request: Request) -> Response:
         for p in await store.list_documents(conn, project, type="plan", limit=500):
             latest_plan.setdefault(p["feature"], p)  # newest first
         docs = {f["slug"]: await store.feature_doc(conn, project, f["slug"]) for f in feats if f["documented"]}
+    tooling = [slug for slug, d in docs.items() if d and d["body"].get("kind") == "tooling"]
     return await render(request, "features.html", features=feats, overview=overview, latest_plan=latest_plan,
-                        docs=docs)
+                        docs=docs, tooling_slugs=tooling)
 
 
 async def feature_page(request: Request) -> Response:

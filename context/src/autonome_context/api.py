@@ -157,7 +157,8 @@ async def get_features(request: Request) -> JSONResponse:
         out = []
         for f in await store.features(conn, project):
             doc = await store.feature_doc(conn, project, f["slug"])
-            out.append({**f, "overview": doc["body"].get("overview") if doc else None})
+            out.append({**f, "overview": doc["body"].get("overview") if doc else None,
+                        "kind": doc["body"].get("kind", "product") if doc else "product"})
     return _json(out)
 
 

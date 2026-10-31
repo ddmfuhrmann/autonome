@@ -3,8 +3,9 @@
 {% block title %}Features{% endblock %}
 {% block main %}
 <div class="page-head"><div class="page-head__text"><h1>Features</h1><p class="page-head__meta">Each feature keeps a living doc rebuilt from plans and handoffs.</p></div></div>
+{% macro cards(list) %}
 <div class="grid grid--3">
-  {% for f in features %}{% set p = latest_plan.get(f.slug) %}{% set doc = docs.get(f.slug) %}
+  {% for f in list %}{% set p = latest_plan.get(f.slug) %}{% set doc = docs.get(f.slug) %}
   <a class="card{{ ' card--live' if p and p.status == 'approved' }}" href="/ui/p/{{ project }}/features/{{ f.slug }}">
     <div class="card__head"><span class="card__title">{{ f.slug }}</span>{% if p %}<span class="push">{{ ui.st(p.status, sm=true) }}</span>{% endif %}</div>
     <div class="card__body">
@@ -21,6 +22,15 @@
   </a>
   {% else %}<p class="empty">No features yet.</p>{% endfor %}
 </div>
+{% endmacro %}
+{% set tooling = features|selectattr('slug', 'in', tooling_slugs)|list %}
+{{ cards(features|rejectattr('slug', 'in', tooling_slugs)|list) }}
+{% if tooling %}
+<section class="stack">
+  <div class="section-head"><h2>Development</h2><span class="muted" style="font-size: 13px">features that set up gates and tooling, not part of the product</span></div>
+  {{ cards(tooling) }}
+</section>
+{% endif %}
 <section class="stack">
   <div class="section-head"><h2>System overview</h2></div>
   {% if overview %}{% with doc = overview %}{% include "_doc.html" %}{% endwith %}
