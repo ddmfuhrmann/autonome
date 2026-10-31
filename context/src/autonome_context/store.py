@@ -1,5 +1,6 @@
 import gzip
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Literal
@@ -12,6 +13,8 @@ from .embed import Embedder
 from .gates import GateConfig
 from .handoff import Handoff
 from .redact import redact
+
+log = logging.getLogger(__name__)
 
 SearchMode = Literal["hybrid", "vector", "fts"]
 
@@ -116,7 +119,7 @@ async def create_document(
         (doc_id, json.dumps(body), commit_sha),
     )
     if indexer:
-        await index_version(conn, indexer, version_id, Doc(type, body, feature, list(layers)))
+        await _index_or_defer(conn, indexer, version_id, Doc(type, body, feature, list(layers)))
     return doc_id
 
 
@@ -134,7 +137,7 @@ async def add_version(
     )
     if indexer:
         doc = await get_document(conn, doc_id)
-        await index_version(conn, indexer, version_id, Doc(doc["type"], body, doc["feature"], doc["layers"]))
+        await _index_or_defer(conn, indexer, version_id, Doc(doc["type"], body, doc["feature"], doc["layers"]))
     return version_id
 
 
@@ -234,6 +237,16 @@ async def put_handoff(conn: AsyncConnection, indexer: Indexer, h: Handoff, raw_t
 
 
 # --- indexing ------------------------------------------------------------------------------------
+
+
+async def _index_or_defer(conn: AsyncConnection, indexer: Indexer, version_id: int, doc: Doc) -> None:
+    """Indexing never costs a write: if it fails, the version is kept without chunks, which is what
+    `autonome-context reindex` looks for."""
+    try:
+        async with conn.transaction():  # a savepoint, so a failed insert does not poison the caller's
+            await index_version(conn, indexer, version_id, doc)
+    except Exception:
+        log.exception("indexing version %s failed; it is saved and `reindex` will pick it up", version_id)
 
 
 def fit(chunks: list[Chunk], max_chars: int) -> list[Chunk]:

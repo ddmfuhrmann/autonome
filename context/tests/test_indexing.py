@@ -37,3 +37,47 @@ def test_a_plan_longer_than_the_model_context_indexes_and_stays_searchable(run_d
 
     plan_id, hits = run_db(go)
     assert [h.document_id for h in hits] == [plan_id]
+
+
+class BrokenEmbedder(FakeEmbedder):
+    async def embed(self, texts, purpose):
+        raise RuntimeError("ollama is down")
+
+
+def test_a_failed_embedding_never_fails_the_write_and_reindex_picks_it_up(run_db, project, db_url, indexer, monkeypatch):
+    import psycopg_pool
+    from starlette.testclient import TestClient
+
+    from autonome_context import services
+    from autonome_context.server import build_app
+
+    async def setup(conn):
+        plan_id = await plans.draft(conn, indexer, project, "links", [], PlanBody(
+            title="Links", goal="g", tasks=[TaskSpec(title="t", spec="s")]))
+        await plans.approve(conn, indexer, plan_id)
+        return plan_id
+
+    plan_id = run_db(setup)
+    broken = Indexer(list(STRATEGIES.values()), BrokenEmbedder())
+
+    async def get():
+        pool = psycopg_pool.AsyncConnectionPool(db_url, open=False, min_size=1, max_size=2)
+        await pool.open()
+        return pool, broken
+
+    monkeypatch.setattr(services, "get", get)
+    with TestClient(build_app(), base_url="http://127.0.0.1:8765") as client:
+        r = client.post(f"/api/plans/{plan_id}/rehearsal", json={"verdict": "ready", "notes": "ok"})
+
+    async def after(conn):
+        doc = await store.get_document(conn, plan_id)
+        indexed_before = await (await conn.execute(
+            "select count(*) from chunk c join document_version dv on dv.id = c.document_version_id"
+            " where dv.document_id = %s and dv.version = %s", (plan_id, doc["version"]))).fetchone()
+        reindexed = await store.reindex(conn, SectionV1(), indexer.embedder)
+        return doc, indexed_before[0], reindexed
+
+    doc, indexed_before, reindexed = run_db(after)
+    assert r.status_code == 200 and r.json() == {"plan_status": "approved"}
+    assert doc["body"]["rehearsal"]["notes"] == "ok" and indexed_before == 0
+    assert reindexed >= 1
