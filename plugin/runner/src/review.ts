@@ -2,7 +2,7 @@
 // project's conventions, before anything merges. Gates check that the code passes; this checks that
 // it is the code the plan asked for.
 import { consult } from "./agents.js";
-import type { ReviewResult, RoleModel, Task } from "./context.js";
+import type { Finding, ReviewResult, RoleModel, Task } from "./context.js";
 import { git } from "./git.js";
 
 const REVIEWER_PROMPT = `You review one task of the autonome process before it merges. You did not write it.
@@ -23,8 +23,10 @@ Tests: flag a test that only executes code without asserting behaviour (it exist
 that is shaped to pass rather than to check, as "missing" for the behaviour it should have checked.
 
 Severity: high blocks the merge. A "diverges" finding that is real and matters is high. A "missing"
-finding is high only when a convention or the task's acceptance requires it; otherwise medium or low,
-an advisory note the process learns from. Be concrete: file, line or function, what is wrong and why.
+finding is high when a convention or the task's acceptance requires it, however unlikely the case
+(a raw 500 that "almost never happens" still breaks a "no raw 500" convention); otherwise medium or
+low, an advisory note the process learns from. Always fill \`convention\` when one applies: a missing
+finding against a named convention blocks. Be concrete: file, line or function, what is wrong and why.
 No style nits a linter would catch, no praise. verdict "fail" only if there is at least one high finding.`;
 
 const SCHEMA = {
@@ -63,9 +65,29 @@ export async function review(task: Task, briefing: string, worktree: string, bas
       `## Diff against ${base.slice(0, 10)}\n\`\`\`diff\n${diff}\n\`\`\``,
     ].join("\n\n"),
   });
+  const findings = enforceConventions(answer.findings, conventionTitles(briefing));
   // The verdict follows the findings, whatever the agent wrote in it.
-  const verdict = answer.findings.some((f) => f.severity === "high") ? "fail" : "pass";
-  return { result: { verdict, findings: answer.findings } as ReviewResult, cost };
+  const verdict = findings.some((f) => f.severity === "high") ? "fail" : "pass";
+  return { result: { verdict, findings } as ReviewResult, cost };
+}
+
+/** The titles under the briefing's "Conventions for these layers" section. */
+export function conventionTitles(briefing: string): string[] {
+  const section = briefing.split(/^## /m).find((s) => s.startsWith("Conventions for these layers")) ?? "";
+  return [...section.matchAll(/^### (.+)$/gm)].map((m) => m[1].trim());
+}
+
+/** A convention is a rule, not a suggestion: code that ignores an active one does not merge, whatever
+ * severity the reviewer gave it. A cheap reviewer finds these but tends to rate them low (shortlink v2:
+ * the raw 500 an active convention forbids was rated low and merged). */
+export function enforceConventions(findings: Finding[], titles: string[]): Finding[] {
+  return findings.map((f) => {
+    const named = f.convention || titles.find((t) => f.issue.toLowerCase().includes(t.toLowerCase()));
+    if (f.kind === "missing" && named && f.severity !== "high") {
+      return { ...f, convention: named, severity: "high", issue: `${f.issue} (blocking: required by the convention "${named}")` };
+    }
+    return f;
+  });
 }
 
 export function findingsForEncore(r: ReviewResult): string {

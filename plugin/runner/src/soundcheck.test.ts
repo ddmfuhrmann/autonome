@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import type { Plan } from "./context.js";
-import { findingsForEncore } from "./review.js";
+import { conventionTitles, enforceConventions, findingsForEncore } from "./review.js";
 import { soundcheck } from "./soundcheck.js";
 
 const plan: Plan = { id: 7, project: "p", status: "approved", feature: "links", body: { title: "Links", tasks: [] } };
@@ -40,4 +40,18 @@ test("only high findings go back to the musician", () => {
     { severity: "low", issue: "name could be clearer" },
   ] });
   assert.equal(text, "- a.py: redirects to any scheme, including javascript:");
+});
+
+test("a missing finding against an active convention blocks, whatever severity the reviewer gave it", () => {
+  const briefing = "# task\n## What to do\nx\n## Conventions for these layers\n### Response models and string errors\nno raw 500\n### Tests assert behaviour\ny\n## Gates\nz";
+  const titles = conventionTitles(briefing);
+  assert.deepEqual(titles, ["Response models and string errors", "Tests assert behaviour"]);
+  const out = enforceConventions([
+    { kind: "missing", severity: "low", issue: "five collisions raise RuntimeError: a raw 500, which the Response models and string errors convention forbids" },
+    { kind: "missing", severity: "medium", issue: "an edge nobody asked for" },
+    { kind: "diverges", severity: "low", convention: "Tests assert behaviour", issue: "style of a test" },
+  ], titles);
+  assert.deepEqual(out.map((f) => [f.severity, f.convention]), [
+    ["high", "Response models and string errors"], ["medium", undefined], ["low", "Tests assert behaviour"]]);
+  assert.match(out[0].issue, /blocking: required by the convention "Response models and string errors"/);
 });
