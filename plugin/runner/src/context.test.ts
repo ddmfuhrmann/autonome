@@ -41,13 +41,15 @@ test("an infrastructure error hands the task back to pending and stops the condu
   git(repo, "add", ".");
   git(repo, "commit", "-qm", "init");
   const transitions: string[] = [];
+  let gateConfigCalls = 0; // the first read is the doctor's; the conductor's read then fails
   const task = { id: 25, project: "p", status: "playing", feature: "links", layers: [],
     body: { title: "Links", spec: "s", acceptance: [], plan_id: 16, seq: 1, fermata: false } };
   globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     if (url.endsWith("/health")) return json({ status: "ok" });
+    if (url.endsWith("/api/tags")) return json({ models: [{ name: "nomic-embed-text:latest" }] });
     if (url.endsWith("/tasks/claim")) return json({ task, rehearse: null, soundcheck: null });
-    if (url.endsWith("/gate-config")) return html500();
+    if (url.endsWith("/gate-config")) return ++gateConfigCalls === 1 ? json({ config: { gates: [{ name: "t", run: "true" }] } }) : html500();
     if (url.includes("/transition")) { transitions.push(JSON.parse(String(init?.body)).to); return json({ ok: true }); }
     return json({});
   };

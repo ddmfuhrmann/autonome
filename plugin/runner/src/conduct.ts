@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { consult } from "./agents.js";
 import { ContextError, context, waitForContext, type GateConfig, type Plan, type Rehearsal, type Run, type Task } from "./context.js";
+import { doctor, report } from "./doctor.js";
 import { findingsForEncore, review } from "./review.js";
 import { soundcheck } from "./soundcheck.js";
 import { commitMessage, fastForwardMain, git, mainCheckout, stageWork, strayFiles, tryGit } from "./git.js";
@@ -383,6 +384,8 @@ export async function conduct(opts: ConductOptions): Promise<number> {
   if (git(opts.repo, "rev-parse", "--show-toplevel") !== resolve(opts.repo)) {
     throw new Error(`${opts.repo} is not the root of a git repository`);
   }
+  const failing = (await doctor(opts.project, opts.repo)).filter((c) => !c.ok);
+  if (failing.length) throw new Error(`autonome doctor found problems; not starting:\n${report(failing)}`);
   await replayJournal(opts);
   let played = 0;
   let sinceOverview = 0;

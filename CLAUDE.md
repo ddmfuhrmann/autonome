@@ -61,6 +61,7 @@ uv run --project context pytest plugin/tests    # plugin (stdlib code, tested wi
 pnpm --dir plugin/runner test                   # the runner (TypeScript, Agent SDK)
 plugin/bin/autonome conduct --project <slug>    # play approved tasks of the repo in the cwd (--watch: keep waiting)
 plugin/bin/autonome cues --project <slug>       # scheduled checks; queue maintenance tasks
+plugin/bin/autonome doctor --project <slug>     # what conduct needs; conduct runs it first
 plugin/bin/autonome-docs --feature <slug>       # rewrite a feature's living doc (or --overview)
 claude plugin eval plugin --trust-plugin --model sonnet   # skill evals, with vs without the plugin
 ```

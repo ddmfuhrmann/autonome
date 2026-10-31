@@ -10,8 +10,8 @@ this session: each task gets its own fresh session, so start it in the backgroun
 
 1. Check that there is something to play: `plan_list` with status `approved`. If nothing is
    approved, say so and point the user to the Approvals page; do not approve anything yourself.
-2. Make sure the main checkout is clean (`git status`). The maestro never touches uncommitted work
-   and will hold tasks it cannot merge.
+2. Run `autonome doctor --project <slug>`: context, Ollama and its model, the gates' commands, a clean
+   main checkout. Fix what it flags first; the maestro refuses to start while a check fails.
 3. Start it in the background from the repo root:
 
    ```bash
