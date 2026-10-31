@@ -1,4 +1,9 @@
 import asyncio
+import os
+
+# The tests embed with a word-hash fake, whose similarities say nothing; the real cutoff is measured
+# for nomic-embed-text (store.MIN_SIMILARITY). Set before autonome_context is imported.
+os.environ.setdefault("AUTONOME_SEARCH_MIN_SIMILARITY", "0")
 import hashlib
 import uuid
 

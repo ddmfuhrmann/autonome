@@ -9,6 +9,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import { consult } from "./agents.js";
 import { ContextError, context, roleModel, waitForContext, type Effort, type GateConfig, type Plan, type Rehearsal, type ReviewResult, type Run, type Task } from "./context.js";
 import { doctor, report } from "./doctor.js";
+import { scopedFileCommands } from "./fsguard.js";
 import { findingsForEncore, review } from "./review.js";
 import { soundcheck } from "./soundcheck.js";
 import { isUsageLimit, UsageLimitError, untilReset } from "./limits.js";
@@ -212,6 +213,7 @@ async function play(task: Task, worktree: string, base: string, opts: ConductOpt
         abortController: abort,
         permissionMode: "dontAsk",
         allowedTools: musicianTools(gateConfig),
+        hooks: { PreToolUse: [scopedFileCommands(worktree)] },
         settingSources: ["project"],
         plugins: [{ type: "local", path: PLUGIN_ROOT }],
         systemPrompt: { type: "preset", preset: "claude_code", append: MUSICIAN_PROMPT },

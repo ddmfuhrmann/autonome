@@ -5,7 +5,7 @@ from psycopg import AsyncConnection
 from . import store
 from .gates import GateConfig
 
-_MAX_CHARS = 14_000
+MAX_CHARS = 14_000
 
 
 def _list(items) -> str:
@@ -55,7 +55,7 @@ async def build(conn: AsyncConnection, project: str, task_id: int | None = None)
             + f". While working, run the fast ones ({', '.join(fast) or 'none'}) with `autonome-gates --fast`."
             " Never weaken, skip or edit a gate or its rules to make it pass."
         )
-    return "\n\n".join(parts)[:_MAX_CHARS]
+    return "\n\n".join(parts)[:MAX_CHARS]
 
 
 async def _interactive(conn: AsyncConnection, project: str) -> str:

@@ -1,6 +1,6 @@
-// The quality loop: when a wave finishes, the tune skill reads what it left behind (reviewer advisory
-// findings, fix tasks, repeated gate failures, friction) and proposes conventions for the next
-// compose to start from. It only proposes; the human approves on the Approvals page.
+// The quality loop: when a wave finishes, the tune skill runs a retrospective on what it left behind
+// and proposes four kinds of change: conventions and gates for the project, a plan for the debt still
+// open, process config, and notes about autonome itself. It only proposes; the human decides.
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { context, roleModel, type Effort, type Plan } from "./context.js";
 import { mainCheckout } from "./git.js";
@@ -21,12 +21,12 @@ function tunePrompt(wave: Plan, project: string): string {
   const features = (wave.body.features as { plan_id: number }[]).map((f) => `#${f.plan_id}`).join(", ");
   return `Run the autonome tune skill for project ${project}, focused on wave #${wave.id} "${wave.body.title}" ` +
     `(plans ${features}), which just finished. Nobody will answer questions: do not ask, decide.\n\n` +
-    "Mine what this wave left behind: insights_get (review_findings, repeated failures, blocked tasks, " +
-    "friction), the handoffs of its features (search with type handoff), and fix tasks that came from a " +
-    "soundcheck. For each pattern that repeated, or that would have prevented a fix task or a blocking " +
-    "finding, propose a short, checkable convention with convention_propose, citing the ids in " +
-    "`evidence` and `why`. Never loosen an existing convention. At most one plan_draft for a gate change. " +
-    "End with a summary of at most 8 lines: what you proposed and why, with ids.";
+    "Run the retrospective the skill describes on what this wave left behind: insights_get (review_findings, " +
+    "loose_ends, encores, spent, heavy_conventions, repeated failures, blocked tasks, friction), the " +
+    "handoffs of its features (search with type handoff), gate_config_get, and fix tasks that came from a " +
+    "soundcheck. Make the four kinds of proposal the skill lists, each only when the evidence supports it. " +
+    "Never loosen an existing convention or gate. End with the report in the skill's format: the four " +
+    "headings, at most 25 lines in all, ids for every claim.";
 }
 
 /** Tunes every finished wave not tuned yet. `run` is the session, injectable for tests. */

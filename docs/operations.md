@@ -59,6 +59,9 @@ play: abandon or re-plan them too).
 
 - **Playback**: merged work of the features you review forward. "Sounds right" or "Needs a fix…"
   (your reason becomes a fix task in the maintenance plan).
+- **Loose ends** (shown as playback): any merged task the reviewer passed with medium findings, or
+  whose handoff reports a plan item partial or skipped ("not verified"). They used to vanish; now
+  they wait here, and tune turns the ones still open at the end of a wave into a debt plan.
 - **Decisions** that departed from a plan or a convention: accept (it becomes a rule later plans
   respect) or reject (a task to undo it is queued).
 - **Conventions** proposed by plans or by tune.

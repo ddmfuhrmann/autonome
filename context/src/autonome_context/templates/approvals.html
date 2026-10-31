@@ -10,7 +10,7 @@
       {% elif item.kind == 'held' %}{{ ui.st('held', text='Held by rehearsal') }}
       {% elif item.kind == 'soundcheck' %}{{ ui.st('blocked', text='Soundcheck failed') }}
       {% elif item.kind == 'blocked' %}{{ ui.st('blocked') }}
-      {% elif item.kind == 'playback' %}{{ ui.st('done', text='Playback · merged') }}
+      {% elif item.kind == 'playback' %}{{ ui.st('done', text='Playback · loose ends' if (d.body.playback_review or {}).loose_ends else 'Playback · merged') }}
       {% else %}{{ ui.st(d.status, text=(d.type|label ~ ' ' ~ d.status) if d.type in ('wave', 'plan') else d.type|label ~ ' · ' ~ d.status) }}{% endif %}
       <span class="id">{{ d|ref }}</span>{{ ui.tags(d) }}
       {% if d.type == 'wave' %}<span class="muted">{{ item.plans|length }} plans · {{ item.plans|map(attribute='body')|map(attribute='tasks')|map('length')|sum }} tasks</span>{% endif %}
@@ -61,6 +61,8 @@
       <p class="muted">{{ d.body.goal|truncate(300) }}</p>
       <p class="muted" style="font-size: 12px">{{ item.tasks_count if item.tasks_count is defined else d.body.tasks|length }} tasks{% if d.body.gates %} · adds gates {{ d.body.gates|map(attribute='name')|join(', ') }}{% endif %}{% if d.body.conventions %} · adds conventions {{ d.body.conventions|map(attribute='title')|join(', ') }}{% endif %}</p>
     {% elif item.kind == 'playback' %}{% set run = (d.body.runs or [none])[-1] %}
+      {% set ends = (d.body.playback_review or {}).loose_ends or [] %}
+      {% if ends %}<div class="callout callout--hold"><div><strong>Left open at merge</strong><ul>{% for e in ends %}<li>{{ e }}</li>{% endfor %}</ul></div></div>{% endif %}
       <p class="muted" style="font-size: 13px">Merged{% if run and run.merged_sha %} as <span class="mono">{{ run.merged_sha[:7] }}</span>{% endif %}; review when you like. Nothing waits on it.
         {% if run and run.review %}Reviewer: {{ run.review.verdict }}{% if run.review.findings %} · {{ run.review.findings|length }} note{{ 's' if run.review.findings|length > 1 }}{% endif %}.{% endif %}
         Gates: {{ item.gate_failures }} failure{{ 's' if item.gate_failures != 1 }} before green.</p>

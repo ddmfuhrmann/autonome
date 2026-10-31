@@ -20,10 +20,10 @@ All take `project` (the project slug) unless noted. Ids are document ids.
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `search` | `query`, `project`, `feature?`, `layer?`, `type?` (plan, task, handoff, decision, convention, backlog…), `mode?` (`vector` default, `fts` for exact names, `hybrid`), `k?` = 8 | the best chunk of each matching document: id, type, feature, section, text, score |
+| `search` | `query`, `project`, `feature?`, `layer?`, `type?` (plan, task, handoff, decision, convention, backlog…), `mode?` (`vector` default, `fts` for exact names, `hybrid`), `k?` = 8 | the best chunk of each matching document: id, type, feature, section, text, score; vector hits below the similarity cutoff are left out, so an empty list means nothing relevant |
 | `history_get` | `project`, `subject`, `feature?` | what went off plan before on the subject and its related features: `plan_changes`, `deviations`, `deviation_decisions`, `rehearsal_revisions`, `review_blocks`, `fixes`, `blocked`, `soundcheck_failures`, `friction`, and `empty` |
 | `conventions_get` | `project`, `layers?` | active conventions for those layers (all when omitted): id, title, layers, rule |
-| `insights_get` | `project` | how the process is going: adherence, plan items changed or skipped, gate failure rates, repeated failures, encores, blocked tasks, reviewer findings, friction clusters |
+| `insights_get` | `project` | how the process is going: adherence, plan items changed or skipped, gate failure rates, repeated failures, encores (failed gates and review rounds after the first), blocked tasks, reviewer findings, loose ends still open, tokens and cost with the costliest tasks, conventions heavier than a quarter of the briefing, friction clusters |
 | `gate_config_get` | `project` | `{version, config, pending}`: the gate config (null version when none is saved) and the gates approved plans will add |
 
 ### Planning

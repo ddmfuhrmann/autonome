@@ -246,3 +246,57 @@ def test_the_state_snapshot_lists_tasks_plans_and_what_waits(client, project, bl
     assert [(t["id"], t["status"]) for t in s["tasks"]] == [(blocked_task, "blocked")]
     assert [w["kind"] for w in s["waiting"]] == ["blocked"] and s["waiting"][0]["blocks"] is True
     assert s["plans"][0]["status"] == "approved" and s["waves"] == []
+
+
+def test_what_a_merge_left_open_waits_for_review_instead_of_vanishing(client, project, run_db, indexer):
+    async def go(conn):
+        plan_id = await plans.draft(conn, indexer, project, "links", [], PlanBody(
+            title="Links", goal="g", tasks=[TaskSpec(title="Probe", spec="s"), TaskSpec(title="Clean", spec="s")]))
+        tasks = await plans.approve(conn, indexer, plan_id)
+        await conn.commit()
+        return tasks
+    probe, clean = run_db(go)
+    finding = {"kind": "diverges", "severity": "medium", "issue": "The probe is   scanned in every context."}
+    for t, findings in ((probe, [finding, {"kind": "missing", "severity": "low", "issue": "nit"}]), (clean, [])):
+        client.post(f"/api/tasks/{t}/transition", json={"to": "playing"})
+        client.post(f"/api/tasks/{t}/transition", json={"to": "done", "run": {
+            "outcome": "merged", "merged_sha": "a3f9c1e0", "review": {"verdict": "pass", "findings": findings}}})
+    handoff = {"project": project, "session_id": "s-9", "summary": "done",
+               "plan_adherence": [{"item": "trace in Grafana", "status": "partial", "note": "stack not run"},
+                                  {"item": "test passes", "status": "done"}]}
+    assert client.post("/api/handoffs", json={"handoff": handoff, "task_id": clean}).status_code == 201
+
+    async def bodies(conn):
+        return {t: (await store.get_document(conn, t))["body"].get("playback_review") for t in (probe, clean)}
+    reviews = run_db(bodies)
+    assert reviews[probe] == {"status": "pending", "loose_ends": [
+        "review, medium diverges: The probe is scanned in every context."]}
+    assert reviews[clean]["loose_ends"] == ["handoff, partial: trace in Grafana (stack not run)"]
+    review = client.get(f"/ui/p/{project}/approvals").text.split('id="review-h"', 1)[1]
+    assert "Left open at merge" in review and "trace in Grafana" in review and "nit" not in review
+
+
+def test_insights_count_review_rounds_as_encores_and_show_the_debt(client, project, run_db, indexer):
+    async def go(conn):
+        plan_id = await plans.draft(conn, indexer, project, "links", [], PlanBody(
+            title="Links", goal="g", tasks=[TaskSpec(title="Probe", spec="s")]))
+        [task] = await plans.approve(conn, indexer, plan_id)
+        async with conn.transaction():
+            await store.create_document(conn, indexer, project=project, type="convention",
+                                        body={"title": "Huge", "rule": "x " * 2500}, status="active")
+        await conn.commit()
+        return task
+    task = run_db(go)
+    client.post(f"/api/tasks/{task}/transition", json={"to": "playing"})
+    client.post(f"/api/tasks/{task}/transition", json={"to": "done", "run": {
+        "outcome": "merged", "review_rounds": 3, "tokens": 1000, "cost_usd": 0.5,
+        "review": {"verdict": "pass", "findings": [{"kind": "missing", "severity": "medium", "issue": "weak test"}]}}})
+
+    async def go2(conn):
+        from autonome_context import insights
+        return await insights.build(conn, project, indexer)
+    data = run_db(go2)
+    assert data["encores_per_task"]["max"] == 2
+    assert data["spent"]["cost_usd"] == 0.5 and data["spent"]["costliest"][0]["review_rounds"] == 3
+    assert data["loose_ends"][0]["loose_ends"] == ["review, medium missing: weak test"]
+    assert data["heavy_conventions"][0]["title"] == "Huge"

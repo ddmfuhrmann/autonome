@@ -60,6 +60,17 @@ def test_put_and_search_roundtrip(run_db, project, indexer):
     assert b"123.456.789-09" not in gzip.decompress(raw[0])
 
 
+def test_vector_hits_below_the_similarity_cutoff_are_dropped(run_db, project, indexer, monkeypatch):
+    async def go(conn):
+        await store.put_handoff(conn, indexer, make_handoff(project), None)
+        monkeypatch.setattr(store, "MIN_SIMILARITY", 0.9999)
+        vector = await store.search(conn, "something else entirely", project, SectionV1(), indexer.embedder)
+        fts = await store.search(conn, "rounding", project, SectionV1(), indexer.embedder, mode="fts")
+        return vector, fts
+    vector, fts = run_db(go)
+    assert vector == [] and fts  # an empty answer means nothing relevant; exact words still match
+
+
 def test_every_strategy_indexes_and_new_versions_replace_old_in_search(run_db, project, indexer):
     async def go(conn):
         doc_id = await store.create_document(conn, indexer, project=project, type="convention",

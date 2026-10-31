@@ -198,7 +198,9 @@ async def _detail(conn, kind: str, doc: dict) -> str:
             return plans.wave_summary(doc, [await store.get_document(conn, f["plan_id"]) for f in b["features"]])
         return plans.plan_summary(doc)
     if kind == "playback":
-        return f"Merged as {str(last.get('merged_sha', ''))[:10]}. Spec: {_cut(b.get('spec'), 800)}"
+        ends = (b.get("playback_review") or {}).get("loose_ends") or []
+        return (f"Merged as {str(last.get('merged_sha', ''))[:10]}. Spec: {_cut(b.get('spec'), 800)}"
+                + ("\nLeft open at merge:\n" + "\n".join(f"- {_cut(e, 400)}" for e in ends) if ends else ""))
     if kind == "decision":
         return "\n".join(filter(None, [f"Decision: {_cut(b.get('decision'))}", f"Context: {_cut(b.get('context'), 600)}",
                                          f"Consequences: {_cut(b.get('consequences'), 600)}"]))
@@ -447,6 +449,7 @@ async def post_handoff(request: Request) -> JSONResponse:
         pool, _ = await services.get()
         async with pool.connection() as conn:
             await store.link(conn, doc_id, int(body["task_id"]), "reports")
+            await plans.note_handoff(conn, None, int(body["task_id"]), [i.model_dump() for i in h.plan_adherence])
     return JSONResponse({"document_id": doc_id}, status_code=201)
 
 

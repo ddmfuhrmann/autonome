@@ -1,4 +1,5 @@
 import fnmatch
+import os
 import gzip
 import json
 import logging
@@ -356,6 +357,9 @@ class Hit:
 
 
 _RRF_K = 60  # standard reciprocal-rank-fusion constant
+# Below this cosine similarity a vector hit is noise: on confere-v2, questions unrelated to the project
+# (kubernetes, a cake recipe) top out at 0.585 and related ones start at 0.64 (nomic-embed-text).
+MIN_SIMILARITY = float(os.getenv("AUTONOME_SEARCH_MIN_SIMILARITY", "0.6"))
 _CANDIDATES = 50
 
 
@@ -374,7 +378,8 @@ async def search(
     k: int = 8,
 ) -> list[Hit]:
     """Vector similarity and/or full-text over the latest version of each document, fused by
-    reciprocal rank. With per_document, only the best chunk of each document is returned
+    reciprocal rank. Vector hits below MIN_SIMILARITY are dropped, so an empty answer means the memory
+    has nothing on it. With per_document, only the best chunk of each document is returned
     (search small, return the parent)."""
     qvec = (await embedder.embed([query], "query"))[0] if mode != "fts" else None
     # Questions rarely contain every word of the answer: match any word and let ts_rank order them.
@@ -382,7 +387,7 @@ async def search(
     params = {
         "q": " or ".join(words) or query, "qvec": str(qvec) if qvec else None, "project": project, "strategy": strategy.name,
         "feature": feature, "layer": layer, "type": doc_type, "n": _CANDIDATES, "rrf": _RRF_K,
-        "limit": k * 5 if per_document else k,
+        "limit": k * 5 if per_document else k, "min_sim": MIN_SIMILARITY,
     }
     scope = """
         from chunk c
@@ -400,7 +405,7 @@ async def search(
     """
     vec = f"""
         select c.id, 'vector' as source, row_number() over (order by c.embedding <=> %(qvec)s::vector) as r
-        {scope}
+        {scope} and 1 - (c.embedding <=> %(qvec)s::vector) >= %(min_sim)s
         order by c.embedding <=> %(qvec)s::vector limit %(n)s
     """
     fts = f"""

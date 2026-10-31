@@ -10,7 +10,7 @@ from collections import Counter, defaultdict
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 
-from . import store
+from . import briefing, store
 from .embed import Embedder
 
 _SIMILAR = 0.82  # cosine similarity above which two friction items count as the same problem
@@ -72,18 +72,37 @@ async def build(conn: AsyncConnection, project: str, embedder: Embedder, limit: 
                order by count(*) desc limit 10""", (project,))
         repeated_failures = await cur.fetchall()
         await cur.execute(
-            """select g.task_id, count(*) filter (where not g.passed) as encores
+            """select g.task_id, count(*) filter (where not g.passed) as failures
                from gate_run g join project p on p.id = g.project_id and p.slug = %s
                where g.task_id is not null group by g.task_id""", (project,))
-        encores = [r["encores"] for r in await cur.fetchall()]
+        gate_failures = {r["task_id"]: r["failures"] for r in await cur.fetchall()}
 
     tasks = await store.list_documents(conn, project, type="task", limit=500)
+    # An encore is any trip back to the implementer: a failed gate, or a review round after the first.
+    runs_of = lambda t: t["body"].get("runs") or []
+    review_encores = {t["id"]: sum(max((r.get("review_rounds") or 1) - 1, 0) for r in runs_of(t)) for t in tasks}
+    played = [t["id"] for t in tasks if runs_of(t)]
+    encores = [gate_failures.get(i, 0) + review_encores.get(i, 0) for i in played]
     outcomes = Counter(t["status"] for t in tasks)
     # What the reviewer noticed but did not block on: the raw material for new conventions.
     findings = [{"task_id": t["id"], "feature": t["feature"], "kind": f.get("kind"), "severity": f["severity"],
                  "convention": f.get("convention"), "issue": f["issue"][:400]}
                 for t in tasks for r in (t["body"].get("runs") or [])[-1:]
                 for f in (r.get("review") or {}).get("findings", []) if f.get("severity") != "high"]
+    loose_ends = [{"task_id": t["id"], "title": t["body"]["title"], "feature": t["feature"],
+                   "loose_ends": t["body"]["playback_review"]["loose_ends"]}
+                  for t in tasks if (t["body"].get("playback_review") or {}).get("status") == "pending"
+                  and t["body"]["playback_review"].get("loose_ends")]
+    spent = sorted(({"task_id": t["id"], "title": t["body"]["title"],
+                     "tokens": sum(r.get("tokens") or 0 for r in runs_of(t)),
+                     "cost_usd": round(sum(r.get("cost_usd") or 0 for r in runs_of(t)), 2),
+                     "review_rounds": sum(r.get("review_rounds") or 0 for r in runs_of(t))} for t in tasks if runs_of(t)),
+                   key=lambda s: -s["cost_usd"])
+    # A convention that eats a big share of the briefing crowds out the task, the plan and the rest.
+    conventions = await store.list_documents(conn, project, type="convention", status="active", limit=200)
+    heavy = [{"convention_id": c["id"], "title": c["body"].get("title"), "chars": len(c["body"].get("rule", "")),
+              "briefing_share": round(len(c["body"].get("rule", "")) / briefing.MAX_CHARS, 2)}
+             for c in conventions if len(c["body"].get("rule", "")) > briefing.MAX_CHARS // 4]
     blocked = [{"task_id": t["id"], "title": t["body"]["title"], "feature": t["feature"],
                 "reason": (t["body"].get("runs") or [{}])[-1].get("reason", "")[:300]}
                for t in tasks if t["status"] == "blocked"]
@@ -98,6 +117,10 @@ async def build(conn: AsyncConnection, project: str, embedder: Embedder, limit: 
         "repeated_failures": repeated_failures,
         "encores_per_task": {"tasks": len(encores), "avg": sum(encores) / len(encores) if encores else 0,
                              "max": max(encores, default=0)},
+        "spent": {"tokens": sum(s["tokens"] for s in spent), "cost_usd": round(sum(s["cost_usd"] for s in spent), 2),
+                  "costliest": spent[:5]},
+        "loose_ends": loose_ends,
+        "heavy_conventions": heavy,
         "task_outcomes": dict(outcomes),
         "blocked": blocked,
         "review_findings": findings[:60],

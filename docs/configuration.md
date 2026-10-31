@@ -66,7 +66,8 @@ gates:
 
 interactive: false        # also run the gates at the end of your own sessions, not only in conduct
 allowed_commands: []      # commands (first word) a conduct session may run besides the gates' own,
-                          # e.g. [./gradlew, docker, pnpm]
+                          # e.g. [./gradlew, docker, pnpm]. rm, mkdir, mv, cp, chmod and touch need
+                          # no entry: they run when every path is inside the task's worktree
 
 encore: {max: 3, stop_on_repeat: true}   # gate failures sent back to the implementer before a task
                                          # blocks; the same failure twice blocks at once
@@ -144,6 +145,7 @@ stops. A merge it could not record is recorded by the next run.
 | `AUTONOME_<ROLE>_MODEL`, `AUTONOME_<ROLE>_EFFORT` | gate config | override a scribe's model (`HANDOFF`, `DOCS`) |
 | `AUTONOME_MIN_USER_TURNS` | `3` | shorter interactive sessions get no handoff |
 | `AUTONOME_HOME` | `~/.autonome` | local state and logs of the plugin |
+| `AUTONOME_SEARCH_MIN_SIMILARITY` | `0.6` | vector hits below this cosine similarity are dropped, so an empty answer means nothing relevant (measured for nomic-embed-text) |
 | `AUTONOME_DATABASE_URL` | `postgresql://autonome:autonome@localhost:5433/autonome` | the context's database |
 | `OLLAMA_URL`, `AUTONOME_EMBED_MODEL` | `http://localhost:11434`, `nomic-embed-text` | embeddings |
 | `AUTONOME_HOST`, `AUTONOME_PORT`, `AUTONOME_PUBLIC_URL` | `127.0.0.1`, `8765` | where the context serves and how links to it are written |

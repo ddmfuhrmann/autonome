@@ -415,6 +415,39 @@ async def reject_decision(conn: AsyncConnection, indexer: store.Indexer, decisio
                                         feature=d["feature"], layers=d["layers"], source=f"decision:{decision_id}")
 
 
+def loose_ends(run: dict | None) -> list[str]:
+    """What a merged run left open: reviewer findings of medium severity (high ones never merge).
+    They do not block; they wait for the human's review instead of vanishing."""
+    review = (run or {}).get("review") or {}
+    return [f"review, {f['severity']} {f.get('kind', '')}: " + " ".join(str(f.get("issue", "")).split())
+            for f in review.get("findings", []) if f.get("severity") in ("medium", "high")]
+
+
+def unverified(items: list[dict]) -> list[str]:
+    """Plan items a handoff reports as not fully done: partial or skipped."""
+    return [f"handoff, {i['status']}: {i['item']}" + (f" ({i['note']})" if i.get("note") else "")
+            for i in items if i.get("status") in ("partial", "skipped")]
+
+
+def with_loose_ends(body: dict, ends: list[str]) -> dict:
+    """The task body with these loose ends added to its playback review, opened when needed."""
+    if not ends:
+        return body
+    review = dict(body.get("playback_review") or {})
+    if review.get("status") != "pending":
+        review = {"status": "pending"}
+    seen = review.get("loose_ends", [])
+    return {**body, "playback_review": {**review, "loose_ends": seen + [e for e in ends if e not in seen]}}
+
+
+async def note_handoff(conn: AsyncConnection, indexer: store.Indexer | None, task_id: int, items: list[dict]) -> None:
+    """A handoff arrives after the merge: its unverified items join the task's playback review."""
+    task = await store.get_document(conn, task_id)
+    ends = unverified(items)
+    if task and task["type"] == "task" and task["status"] == "done" and ends:
+        await store.add_version(conn, indexer, task_id, with_loose_ends(task["body"], ends))
+
+
 async def playback_heard(conn: AsyncConnection, indexer: store.Indexer, task_id: int) -> dict:
     """Human-only. The merged work of a playback feature was reviewed and is fine."""
     async with conn.transaction():

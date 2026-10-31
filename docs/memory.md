@@ -87,7 +87,9 @@ flowchart TB
 ```
 
 Vector search is the default because it measured best (paraphrases, and Portuguese questions over
-English text: [retrieval benchmark](benchmarks/retrieval.md)). Besides `search`, agents get the
+English text: [retrieval benchmark](benchmarks/retrieval.md)). Vector hits below a cosine similarity
+of 0.6 are dropped: on confere-v2, questions unrelated to the project topped out at 0.585 and related
+ones started at 0.64, so an empty answer means the memory has nothing on it. Besides `search`, agents get the
 memory already shaped for their job:
 
 | Tool or call | Gives | Used by |
