@@ -79,6 +79,11 @@ async def build(conn: AsyncConnection, project: str, embedder: Embedder, limit: 
 
     tasks = await store.list_documents(conn, project, type="task", limit=500)
     outcomes = Counter(t["status"] for t in tasks)
+    # What the reviewer noticed but did not block on: the raw material for new conventions.
+    findings = [{"task_id": t["id"], "feature": t["feature"], "kind": f.get("kind"), "severity": f["severity"],
+                 "convention": f.get("convention"), "issue": f["issue"][:400]}
+                for t in tasks for r in (t["body"].get("runs") or [])[-1:]
+                for f in (r.get("review") or {}).get("findings", []) if f.get("severity") != "high"]
     blocked = [{"task_id": t["id"], "title": t["body"]["title"], "feature": t["feature"],
                 "reason": (t["body"].get("runs") or [{}])[-1].get("reason", "")[:300]}
                for t in tasks if t["status"] == "blocked"]
@@ -95,5 +100,6 @@ async def build(conn: AsyncConnection, project: str, embedder: Embedder, limit: 
                              "max": max(encores, default=0)},
         "task_outcomes": dict(outcomes),
         "blocked": blocked,
+        "review_findings": findings[:60],
         "friction_clusters": await _friction_clusters(friction, embedder),
     }

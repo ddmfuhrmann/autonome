@@ -132,3 +132,19 @@ def test_cues_queue_into_one_maintenance_plan_that_a_human_approves_once(run_db,
     assert a["plan_status"] == "draft" and dup["duplicate"] and dup["task_id"] == a["task_id"]
     assert claim_before is None and task["id"] == a["task_id"]
     assert not finished  # the maintenance plan stays open for the next cue
+
+
+def test_insights_keep_the_reviewers_advisory_findings_for_the_tune_loop(run_db, project, indexer):
+    from autonome_context import insights
+
+    async def go(conn):
+        async with conn.transaction():
+            await store.create_document(conn, indexer, project=project, type="task", status="done", feature="links",
+                                        body={"title": "t", "spec": "s", "runs": [{"review": {"verdict": "pass", "findings": [
+                                            {"kind": "missing", "severity": "medium", "issue": "control characters accepted"},
+                                            {"kind": "diverges", "severity": "high", "issue": "blocked one"}]}}]})
+        return await insights.build(conn, project, indexer.embedder)
+
+    i = run_db(go)
+    assert [(f["feature"], f["kind"], f["issue"]) for f in i["review_findings"]] == [
+        ("links", "missing", "control characters accepted")]

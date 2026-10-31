@@ -89,7 +89,9 @@ export interface SoundcheckResult {
 }
 
 export interface Finding {
+  kind?: "diverges" | "missing";
   severity: "high" | "medium" | "low";
+  convention?: string;
   file?: string;
   issue: string;
 }

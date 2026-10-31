@@ -74,7 +74,7 @@
 
 {% macro findings(review) %}
 <ul class="findings">
-  {% for f in review.findings %}<li class="finding"><span class="sev sev--{{ f.severity|sev }}">{{ f.severity }}</span><div class="prose">{{ f.issue|md }}</div>{% if f.file %}<span class="finding__loc">{{ f.file }}</span>{% endif %}</li>{% endfor %}
+  {% for f in review.findings %}<li class="finding"><span class="sev sev--{{ f.severity|sev }}">{{ f.severity }}</span>{% if f.kind %}<span class="tag">{{ f.kind }}</span>{% endif %}{% if f.convention %}<span class="tag tag--feature">{{ f.convention }}</span>{% endif %}<div class="prose">{{ f.issue|md }}</div>{% if f.file %}<span class="finding__loc">{{ f.file }}</span>{% endif %}</li>{% endfor %}
 </ul>
 {% endmacro %}
 
