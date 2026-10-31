@@ -20,14 +20,18 @@ Before asking the user anything:
   Look for earlier decisions, handoffs of related work, and their **friction** and **deviations**.
 - `plan_list` for plans on the same feature (an approved one may already cover it).
 - `conventions_get` for the layers this will touch.
-- Read the code the change will touch.
+- Read the code the change will touch. If it is not in the working directory, say so in one line
+  and go on from the memory; where the code lives is not a question to ask now.
 
 Tell the user, briefly, what you found that matters (a decision that constrains the idea, friction
 that happened last time). Do not dump search results.
 
 ## 2. Grill, one question at a time
 
-Ask only what changes the plan, one question per message, each with your recommendation. Cover:
+Ask only what changes the plan, each with your recommendation. **One question per message, and only
+one**: the message ends with that single question. Do not add a second one ("also, …?", "and where
+is …?"), not even a short practical one; keep it for a later message. Write the question once,
+as the last line; do not also put it in a heading and repeat it ("Which one do you want?"). Cover:
 the goal and who it is for, what is explicitly out of scope, the acceptance criteria, risky edges
 (money, personal data, concurrency, migrations), and how the change is verified. Stop asking when the
 answers stop changing the plan. Never ask what you can read in the code or the memory.
