@@ -11,6 +11,7 @@ import { ContextError, context, roleModel, waitForContext, type Effort, type Gat
 import { doctor, report } from "./doctor.js";
 import { findingsForEncore, review } from "./review.js";
 import { soundcheck } from "./soundcheck.js";
+import { isUsageLimit, UsageLimitError, untilReset } from "./limits.js";
 import { tuneFinishedWaves } from "./tune.js";
 import { commitMessage, fastForwardMain, git, mainCheckout, stageWork, strayFiles, tryGit } from "./git.js";
 
@@ -331,6 +332,7 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<Run | unde
     let cleanups = 0;
     for (let round = 0; ; ) {
       const state = result.sessionId ? metronomeState(result.sessionId) : {};
+      if (result.stop && isUsageLimit(result.stop)) throw new UsageLimitError(result.stop);
       if (result.stop) return result.stop;
       if (state.status === "blocked") return `metronome: ${state.reason}`;
       stageWork(worktree);
@@ -362,7 +364,18 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<Run | unde
       await encore(`An independent reviewer read your diff and found blocking issues. Fix them, then end your turn:\n${high}`);
     }
   };
-  const failure = await judge();
+  let failure: string | null;
+  try {
+    failure = await judge();
+  } catch (e) {
+    // Out of usage (in the musician or a reviewer): the work so far is dropped, the task plays again later.
+    if (e instanceof UsageLimitError || isUsageLimit(String(e))) {
+      tryGit(repo, "worktree", "remove", "--force", worktree);
+      tryGit(repo, "branch", "-D", branch);
+      throw e instanceof UsageLimitError ? e : new UsageLimitError(String(e));
+    }
+    throw e;
+  }
   if (result.sessionId) writeHandoff(result.sessionId, worktree, task.id, opts.project, log);
   if (failure) return block(failure);
   execFileSync("git", ["commit", "-q", "-F", "-"], { cwd: worktree, input: commitMessage(task) });
@@ -472,6 +485,18 @@ export async function conduct(opts: ConductOptions): Promise<number> {
           review_rounds: run.review_rounds ?? 0, duration_s: run.duration_s ?? 0, tokens: run.tokens ?? 0 });
       } catch (e) {
         if (e instanceof MergedUnrecorded) throw e;
+        if (e instanceof UsageLimitError || isUsageLimit(String(e))) {
+          await context.transition(task.id, "pending").catch(() => undefined);
+          const message = e instanceof Error ? e.message : String(e);
+          if (!opts.watch) {
+            opts.log(`usage limit: ${message}\n  #${task.id} goes back to pending; run conduct again after the reset`);
+            throw e instanceof UsageLimitError ? e : new UsageLimitError(message);
+          }
+          const wait = untilReset(message);
+          opts.log(`usage limit: ${message}\n  #${task.id} goes back to pending; waiting ${Math.round(wait / 60_000)} min for the reset`);
+          await new Promise((r) => setTimeout(r, wait));
+          continue;
+        }
         if (e instanceof ContextError) {
           // Not the task's fault: hand it back and stop, rather than block it or spin on a broken context.
           opts.log(`${e.message}\n  #${task.id} goes back to pending; stopping the conductor`);

@@ -3,6 +3,7 @@
 // the live app. A failure comes back as fix tasks for the same plan.
 import { spawnSync } from "node:child_process";
 import { consult } from "./agents.js";
+import { isUsageLimit } from "./limits.js";
 import type { Plan, RoleModel, Soundcheck, SoundcheckResult } from "./context.js";
 
 const LISTENER_PROMPT = `You are the listener of the autonome process. A feature was just merged, and the app
@@ -85,6 +86,7 @@ export async function soundcheck(
     });
     return { ...answer, passed: answer.passed && allChecks, checks };
   } catch (e) {
+    if (isUsageLimit(String(e))) throw e; // not the feature's fault: the plan stays due
     return blocked(`the soundcheck itself failed: ${String(e)}`);
   } finally {
     const down = sh(cfg.down, cwd, env);

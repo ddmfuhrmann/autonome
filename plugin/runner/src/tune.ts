@@ -4,6 +4,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { context, roleModel, type Effort, type Plan } from "./context.js";
 import { mainCheckout } from "./git.js";
+import { isUsageLimit } from "./limits.js";
 
 export interface TuneOptions {
   project: string;
@@ -35,7 +36,16 @@ export async function tuneFinishedWaves(opts: TuneOptions, run = runTune): Promi
   const waves = await context.untunedWaves(opts.project);
   for (const wave of waves) {
     opts.log(`wave #${wave.id} ${wave.body.title} finished: tuning the process from its evidence`);
-    const summary = await run(wave, opts).catch((e) => `the tune session failed: ${String(e)}`);
+    let summary: string;
+    try {
+      summary = await run(wave, opts);
+    } catch (e) {
+      if (isUsageLimit(String(e))) {
+        opts.log(`  usage limit; wave #${wave.id} will be tuned on a later run`);
+        continue;
+      }
+      summary = `the tune session failed: ${String(e)}`;
+    }
     await context.waveTuned(wave.id, summary);
     opts.log(`  ${summary.split("\n")[0]}`);
   }

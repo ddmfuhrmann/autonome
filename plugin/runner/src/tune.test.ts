@@ -30,6 +30,13 @@ test("a finished wave is tuned once and marked with what the tune proposed", asy
   assert.deepEqual(marked, [{ summary: "proposed C-91 input validation (evidence T-25, T-27)" }]);
 });
 
+test("a wave is not marked tuned when the account ran out of usage", async () => {
+  const marked: unknown[] = [];
+  context(undefined, marked);
+  await tuneFinishedWaves({ project: "p", repo: ".", log: () => {} }, async () => { throw new Error("You've hit your session limit · resets 3:40pm"); });
+  assert.deepEqual(marked, []);
+});
+
 test("a failed tune session still marks the wave, and the gate config can turn tuning off", async () => {
   const marked: { summary: string }[] = [];
   context(undefined, marked);
