@@ -78,6 +78,8 @@ export function allowedTools(cfg: Pick<GateConfig["config"], "gates" | "allowed_
   return [
     "Read", "Glob", "Grep", "Edit", "Write", "TodoWrite",
     "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)",
+    // git refuses paths outside the repository, so these stay inside the worktree on their own.
+    "Bash(git rm:*)", "Bash(git mv:*)", "Bash(git update-index --chmod:*)",
     // Read-only helpers sessions reach for; writing goes through Edit/Write, never the shell.
     "Bash(sed -n:*)", "Bash(echo:*)", "Bash(head:*)", "Bash(tail:*)", "Bash(wc:*)",
     ...[...commands].map((c) => `Bash(${c}:*)`),

@@ -497,7 +497,7 @@ a.card:hover { border-color: var(--line-strong); text-decoration: none; }
 .board__list { display: flex; flex-direction: column; gap: var(--s-2); list-style: none; padding: 0; margin: 0; }
 .board__more { font-size: var(--fs-sm); color: var(--muted); padding: 4px; }
 
-.tcard { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-3); color: var(--fg); box-shadow: var(--sh-1); min-width: 0; }
+.tcard { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-3); color: var(--fg); box-shadow: var(--sh-1); min-width: 0; overflow-wrap: anywhere; }
 a.tcard:hover { border-color: var(--line-strong); text-decoration: none; box-shadow: var(--sh-2); }
 .tcard__top { display: flex; align-items: center; gap: 6px; }
 .tcard__top .id { margin-right: auto; }
