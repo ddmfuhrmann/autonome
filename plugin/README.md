@@ -59,7 +59,7 @@ When every task of a plan has merged, the maestro can try the feature in a runni
 agent exercises the plan's acceptance criteria with curl, and `down` always runs. Use fakes and
 synthetic data, never real external services. It is configured in the gate config (UI → Config).
 
-A FastAPI service, with [shortlink](https://github.com/ddmfuhrmann/shortlink)'s API as the example:
+A FastAPI service, with the API of shortlink (a test bed project) as the example:
 a throwaway SQLite file, a port of its own, and one scripted check per behaviour that matters.
 
 ```yaml
