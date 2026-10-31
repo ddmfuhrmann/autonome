@@ -21,8 +21,14 @@ this session: each task gets its own fresh session, so start it in the backgroun
    Add `--push` only if the user asked for main to be pushed, and `--model <name>` if they chose one.
    Add `--watch` when the user wants it to keep going as new plans or waves are approved; it then
    checks for work every minute (`--every <seconds>`) until stopped.
-4. Tell the user where to follow it: the Setlist page of the context UI, and the Approvals page for
-   tasks held at a fermata or blocked.
+4. Tell the user where to follow it: the Setlist page of the context UI, or this session with
+   `/autonome:watch` (a line per change, notifications for what needs them).
+5. **When it stops**, successful or not, close the loop in the session: run
+   `autonome watch --project <slug> --once` for the state, say what merged, and walk the user through
+   each `needs-you` item with `approvals_list`: what stopped and why, your recommendation, then
+   `approval_resolve` once they agree (they confirm in a dialog). Mention the `review` items (playback,
+   decisions, conventions) and ask whether to go through them now or later. If something was resolved
+   and approved work remains, offer to run conduct again.
 
 Plans of a wave play in their order. Before a feature that depends on others starts, the maestro
 rehearses its plan against main: it either adds notes for the implementers or holds the plan with a
@@ -38,8 +44,8 @@ tasks in the same plan; after `max_fixes` rounds the plan is blocked on the Appr
 user retries, accepts it as is, or abandons it. Features that depend on it wait until it is done.
 
 Each task ends merged into main, held at the fermata (critical features), or blocked with the reason
-and a handoff that explains what went wrong. Blocked tasks need a human decision in the UI: retry
-or abandon.
+and a handoff that explains what went wrong. Blocked tasks need a human decision, in the UI or
+here through `approval_resolve`: retry or abandon.
 
 ## Cues
 

@@ -4,6 +4,11 @@ What to look at and what to do when a run does not go as planned. Most of it sho
 **Approvals** page (what waits on you) and the **Setlist** (every task by status); the terminal
 running `conduct` prints one line per step and a summary when it stops.
 
+From a Claude session, `/autonome:watch` follows the run (a line per change, a notification for
+what needs you) and brings each waiting item into the chat; you discuss it there and confirm the
+decision in a dialog (`approval_resolve`). `autonome watch --project <slug> --once` prints the state
+and what waits, in the terminal.
+
 ## Before a run
 
 ```bash

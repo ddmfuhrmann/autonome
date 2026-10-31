@@ -12,7 +12,7 @@ import uvicorn
 from mcp import ClientSession, types
 from mcp.client.streamable_http import streamable_http_client
 
-from autonome_context import plans, services, store
+from autonome_context import plans, rules, services, store
 from autonome_context.plans import PlanBody, ProposedGate, TaskSpec
 from autonome_context.server import build_app
 
@@ -101,3 +101,39 @@ def test_a_plan_in_a_wave_is_approved_with_its_wave(server, project, draft, run_
     result, asked = call(server, "wave_approve", {"project": project, "wave_id": wave}, "accept")
     assert result["status"] == "approved" and "1. Links: 2 tasks; adds gates imports" in asked[0]
     assert status(run_db, wave) == "approved" and status(run_db, draft) == "approved"
+
+
+@pytest.fixture
+def blocked(run_db, project, indexer):
+    async def go(conn):
+        plan_id = await plans.draft(conn, indexer, project, "links", [], PlanBody(
+            title="Links", goal="g", tasks=[TaskSpec(title="Routes", spec="add the routes")]))
+        [task] = await plans.approve(conn, indexer, plan_id)
+        await rules.transition(conn, task, "playing", "runner")
+        doc = await store.get_document(conn, task)
+        await store.add_version(conn, indexer, task, {**doc["body"], "runs": [
+            {"branch": "autonome/task-1", "outcome": "blocked", "reason": "metronome: build: the same failure repeated"}]})
+        await rules.transition(conn, task, "blocked", "runner")
+        await conn.commit()
+        return task
+    return run_db(go)
+
+
+def test_waiting_items_come_with_what_to_decide_and_their_actions(server, project, blocked):
+    items, _ = call(server, "approvals_list", {"project": project}, None)
+    items = items if isinstance(items, list) else [items]
+    [item] = [i for i in items if i["id"] == blocked]
+    assert item["kind"] == "blocked" and item["blocks"]
+    assert "metronome: build" in item["detail"] and "autonome/task-1" in item["detail"]
+    assert {a["action"] for a in item["actions"]} == {"pending", "abandoned"}
+
+
+def test_an_item_is_resolved_only_with_the_humans_yes(server, project, blocked, run_db):
+    args = {"project": project, "doc_id": blocked, "action": "pending", "note": "the build failure was flaky"}
+    result, _ = call(server, "approval_resolve", args, "decline")
+    assert result["human"] == "declined" and status(run_db, blocked) == "blocked"
+    result, asked = call(server, "approval_resolve", args, "accept")
+    assert result["status"] == "pending" and status(run_db, blocked) == "pending"
+    assert "Try again" in asked[0] and "The agent's reasoning: the build failure was flaky" in asked[0]
+    again, _ = call(server, "approval_resolve", args, "accept")
+    assert "waits on nobody" in again["error"]

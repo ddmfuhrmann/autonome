@@ -15,6 +15,7 @@ in one step, the plan; everything after approval runs without you.
 | **playback** | Approvals → "To review when you like" | Review forward, for the features you list: they merge as usual and wait for you in the background. "Sounds right", or "Needs a fix…" with a reason, which becomes a fix task. Never blocks. |
 | **fermata** | the context UI | The opposite choice, for projects that want it: a critical task stops before merge until you release it. |
 | **tune** | automatic after each wave, or `/autonome:tune` | Reads reviewer findings, fixes, gate failures and friction, and proposes conventions (and gate changes) with their evidence, for you to approve. |
+| **watch** | `/autonome:watch` or `autonome watch --project <slug> [--once]` | Follows a run from a Claude session: a line per change, no model in the loop, a push notification for what needs you. Each waiting item comes into the chat with what stopped and a recommendation; you discuss it and confirm the decision in a dialog. `conduct` closes the same way when it stops. |
 | **cues** | `autonome cues --project <slug>` | Scheduled checks that enqueue maintenance tasks. Run it from cron. |
 
 Every session, interactive or not, ends in a **handoff** written by a separate agent: plan vs.
@@ -31,7 +32,7 @@ the start of a session, no handoff at the end.
 
 | Path | What |
 |---|---|
-| `skills/` | `compose`, `conduct`, `tune`, and `handoff` (the scribe) |
+| `skills/` | `compose`, `conduct`, `watch`, `tune`, and `handoff` (the scribe) |
 | `hooks/` | `SessionStart` injects the task and conventions; `Stop` is the metronome; `SessionEnd` writes the handoff |
 | `lib/autonome/` | Shared hook code. Python standard library only, so there is nothing to install. |
 | `runner/` | The maestro (TypeScript, Claude Agent SDK). `bin/autonome` builds it on first use. |

@@ -239,3 +239,10 @@ def test_a_playing_task_shows_what_its_session_is_doing(client, project, run_db,
     assert "now__doing" in setlist and "1 failed" in setlist
     page = client.get(f"/ui/p/{project}/documents/{task}").text
     assert 'id="live"' in page and 'data-refresh="3"' in page and "Bash: uv run pytest -q" in page
+
+
+def test_the_state_snapshot_lists_tasks_plans_and_what_waits(client, project, blocked_task):
+    s = client.get(f"/api/projects/{project}/state").json()
+    assert [(t["id"], t["status"]) for t in s["tasks"]] == [(blocked_task, "blocked")]
+    assert [w["kind"] for w in s["waiting"]] == ["blocked"] and s["waiting"][0]["blocks"] is True
+    assert s["plans"][0]["status"] == "approved" and s["waves"] == []

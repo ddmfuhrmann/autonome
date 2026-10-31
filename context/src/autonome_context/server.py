@@ -171,6 +171,115 @@ async def wave_approve(project: str, wave_id: int, ctx: Context) -> dict:
     return await _approve(ctx, project, wave_id, "wave")
 
 
+def _cut(text, n: int = 1500) -> str:
+    text = str(text or "")
+    return text if len(text) <= n else text[:n] + "…"
+
+
+async def _detail(conn, kind: str, doc: dict) -> str:
+    """What the human needs to decide an item, read from the stored document."""
+    b = doc["body"]
+    last = (b.get("runs") or [{}])[-1]
+    if kind in ("blocked", "fermata"):
+        return "\n".join(filter(None, [f"Plan #{b.get('plan_id')}" if b.get("plan_id") else "",
+                                         f"Spec: {_cut(b.get('spec'), 600)}", f"Branch: {last.get('branch', '')}",
+                                         f"Why it stopped: {_cut(last.get('reason'))}" if last.get("reason") else ""]))
+    if kind == "held":
+        r = b.get("rehearsal") or {}
+        revised = r.get("plan") or {}
+        return (f"Rehearsal notes: {_cut(r.get('notes'))}\n"
+                + ("Revision proposed, tasks: " + "; ".join(t.get("title", "") for t in revised.get("tasks", []))
+                   if revised else "No revision proposed."))
+    if kind == "soundcheck":
+        runs = [r for r in b.get("soundchecks", []) if r.get("report")]
+        return f"Last soundcheck: {_cut(runs[-1]['report'])}" if runs else "No soundcheck report."
+    if kind == "plans":
+        if doc["type"] == "wave":
+            return plans.wave_summary(doc, [await store.get_document(conn, f["plan_id"]) for f in b["features"]])
+        return plans.plan_summary(doc)
+    if kind == "playback":
+        return f"Merged as {str(last.get('merged_sha', ''))[:10]}. Spec: {_cut(b.get('spec'), 800)}"
+    if kind == "decision":
+        return "\n".join(filter(None, [f"Decision: {_cut(b.get('decision'))}", f"Context: {_cut(b.get('context'), 600)}",
+                                         f"Consequences: {_cut(b.get('consequences'), 600)}"]))
+    return f"Rule: {_cut(b.get('rule'))}\nWhy: {_cut(b.get('why'), 600)}\nLayers: {', '.join(doc['layers'] or []) or 'all'}"
+
+
+async def _choices(conn, kind: str, doc: dict) -> list[dict]:
+    if kind == "playback":
+        return [{"action": "heard", "label": "Sounds right", "effect": "The review is closed."},
+                {"action": "fix", "label": "Needs a fix", "effect": "Your reason becomes a fix task in the maintenance plan."}]
+    in_wave = await plans.wave_of(conn, doc) if doc["type"] == "plan" else None
+    return [{"action": a["to"], "label": a["label"], "effect": a["effect"]} for a in web.actions(doc, in_wave)]
+
+
+@mcp.tool()
+async def approvals_list(project: str) -> list[dict]:
+    """What waits on the human, most blocking first, with what each needs to be decided and the actions
+    available. `blocks` is true for what holds up the setlist; the rest is reviewed when they like.
+    Bring each item to the person, discuss it, and resolve it with approval_resolve."""
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        out = []
+        for i in await web._queue(conn, project):
+            d = i["doc"]
+            out.append({"id": d["id"], "kind": i["kind"], "type": d["type"], "status": d["status"],
+                        "title": d["body"].get("title") or _cut(d["body"].get("summary"), 80),
+                        "feature": d["feature"], "blocks": i["kind"] in web.BLOCKING,
+                        "detail": await _detail(conn, i["kind"], d), "actions": await _choices(conn, i["kind"], d),
+                        "url": f"{services.settings.public_url}/ui/p/{project}/documents/{d['id']}"})
+    return out
+
+
+@mcp.tool()
+async def approval_resolve(
+    project: str,
+    doc_id: int,
+    action: Annotated[str, Field(description="one of the item's actions from approvals_list")],
+    ctx: Context,
+    reason: Annotated[str, Field(description="for a playback fix: what to fix; it becomes the fix task's spec")] = "",
+    note: Annotated[str, Field(description="why you recommend it, shown to the human as your words")] = "",
+) -> dict:
+    """Resolve one waiting item, only with the human's yes: the item and the chosen action go to the
+    person through their client (MCP elicitation), and the agent cannot answer it. Discuss it with
+    them first; declined or unavailable leaves it waiting for the UI."""
+    pool, indexer = await services.get()
+    link = f"{services.settings.public_url}/ui/p/{project}/documents/{doc_id}"
+    async with pool.connection() as conn:
+        doc = await store.get_document(conn, doc_id)
+        if not doc or doc["project"] != project:
+            return {"error": f"#{doc_id} does not exist in {project}"}
+        item = next((i for i in await web._queue(conn, project) if i["doc"]["id"] == doc_id), None)
+        if not item:
+            return {"error": f"#{doc_id} is {doc['status']} and waits on nobody"}
+        choice = next((c for c in await _choices(conn, item["kind"], doc) if c["action"] == action), None)
+        if not choice:
+            return {"error": f"{action!r} is not an action for #{doc_id}; use one from approvals_list"}
+        if action == "fix" and not reason.strip():
+            return {"error": "a fix needs a reason: it becomes the fix task's instruction"}
+        title = doc["body"].get("title") or doc["type"]
+        question = (f"{web.QUESTIONS.get((doc['type'], doc['status']), 'Resolve this?')}\n\n"
+                    f"#{doc_id} {title} ({doc['type']}, {doc['status']})\n\n"
+                    f"Action: {choice['label']}. {choice['effect']}"
+                    + (f"\n\nFix to queue: {reason}" if reason else "")
+                    + (f"\n\nThe agent's reasoning: {note}" if note else ""))
+    answer = await _ask_human(ctx, question, link)
+    if answer != "approved":
+        return {"status": doc["status"], "human": answer, "url": link,
+                "note": "Nothing changed. The item waits; the human can decide it in the UI."}
+    async with pool.connection() as conn:
+        try:
+            if action == "heard":
+                await plans.playback_heard(conn, indexer, doc_id)
+                return {"status": "heard", "human": "approved", "url": link}
+            if action == "fix":
+                fix = await plans.playback_fix(conn, indexer, doc_id, reason)
+                return {"status": "fix queued", "fix_task_id": fix["task_id"], "human": "approved", "url": link}
+            return {"status": await web.decide(conn, indexer, doc, action), "human": "approved", "url": link}
+        except rules.Forbidden as e:
+            return {"error": str(e)}
+
+
 @mcp.tool()
 async def history_get(
     project: str,

@@ -8,8 +8,9 @@ autonome-context serves three things on one port (default `127.0.0.1:8765`, loca
 - **`/ui/...`**: the web UI for the human.
 
 Human-only moves (approving, releasing, judging a playback, accepting or rejecting a decision,
-editing conventions and the gate config) are not in the MCP tools or the HTTP API, with one
-exception: `plan_approve` and `wave_approve`, which ask the human through MCP elicitation.
+editing conventions and the gate config) are not in the HTTP API. In MCP they exist only behind
+elicitation: `plan_approve`, `wave_approve` and `approval_resolve` ask the person in their client,
+and the agent cannot answer for them. Editing conventions and the gate config stays in the UI.
 
 ## MCP tools
 
@@ -38,6 +39,13 @@ All take `project` (the project slug) unless noted. Ids are document ids.
 A task in `plan.tasks`: `title`, `spec`, `layers`, `acceptance`, `depends_on` (1-based positions).
 A gate in `plan.gates`: a gate (`name`, `run`, `mode`, `fast`, `when`, `timeout_s`) plus `with_task`.
 A convention in `plan.conventions`: `title`, `rule`, `why`, `layers`.
+
+### Approvals
+
+| Tool | Arguments | Returns |
+|---|---|---|
+| `approvals_list` | `project` | what waits on the human, most blocking first: id, kind (`blocked`, `held`, `soundcheck`, `fermata`, `plans`, `playback`, `decision`, `convention`), `blocks`, `detail` (what to decide it on), `actions` (action, label, effect), url |
+| `approval_resolve` | `project`, `doc_id`, `action` (one of the item's), `reason?` (a playback fix), `note?` (the agent's reasoning, shown as such) | asks the human in a dialog; `{status, human: approved}` or `{human: declined\|unavailable}` with nothing changed |
 
 ### Backlog
 
@@ -85,6 +93,7 @@ connection errors.
 | `POST /api/plans/{id}/soundcheck` | `{passed, report, checks, fixes}` → `{outcome: done\|fixing\|blocked}` |
 | `POST /api/events` | what running sessions are doing: `{project, events: [{task_id?, plan_id?, role, kind, text, at?}]}`; redacted, the newest 2,000 kept per task or plan |
 | `GET /api/tasks/{id}/events?after=` | a task's live events, oldest first |
+| `GET /api/projects/{project}/state` | a snapshot for watchers: tasks (status, last reason, playback), plans, waves, and what waits (`blocks` true or false) |
 | `GET /api/projects/{project}/waves/untuned` | finished waves tune has not looked at |
 | `POST /api/waves/{id}/tuned` | `{summary}` |
 | `POST /api/projects/{project}/tasks` | queue a task in the maintenance plan (cues): `{title, spec, source, feature?, layers?}` |

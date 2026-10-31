@@ -82,6 +82,7 @@ pnpm --dir plugin/runner test                   # the runner (TypeScript, Agent 
 plugin/bin/autonome conduct --project <slug>    # play approved tasks of the repo in the cwd (--watch: keep waiting)
 plugin/bin/autonome cues --project <slug>       # scheduled checks; queue maintenance tasks
 plugin/bin/autonome doctor --project <slug>     # what conduct needs; conduct runs it first
+plugin/bin/autonome watch --project <slug>      # a line per change, no model (--once: state and exit)
 plugin/bin/autonome bench                        # model/effort per role on known cases (costs tokens)
 cd context && uv run autonome-context import-adrs|import-backlog|import-conventions --project <slug> ...
 plugin/bin/autonome-docs --feature <slug>       # rewrite a feature's living doc (or --overview)

@@ -279,6 +279,27 @@ def actions(doc: dict, in_wave: dict | None = None) -> list[dict]:
     return out
 
 
+async def decide(conn, indexer, doc: dict, to: str) -> str:
+    """Applies a human's decision, from the UI or confirmed in a session (approval_resolve). Returns
+    the new status."""
+    doc_id = doc["id"]
+    if doc["type"] == "plan" and doc["status"] == "held" and to in ("revised", "approved"):
+        await plans.resolve_rehearsal(conn, indexer, doc_id, accept=to == "revised")
+    elif doc["type"] == "plan" and doc["status"] == "blocked" and to == "approved":
+        await plans.retry_soundcheck(conn, indexer, doc_id)
+    elif doc["type"] == "plan" and doc["status"] == "blocked" and to == "done":
+        await plans.accept_as_is(conn, doc_id)
+    elif doc["type"] == "plan" and to == "approved":
+        await plans.approve(conn, indexer, doc_id)
+    elif doc["type"] == "wave" and to == "approved":
+        await plans.approve_wave(conn, indexer, doc_id)
+    elif doc["type"] == "decision" and doc["status"] == "proposed" and to == "rejected":
+        await plans.reject_decision(conn, indexer, doc_id)
+    else:
+        await rules.transition(conn, doc_id, to, "human")
+    return (await store.get_document(conn, doc_id))["status"]
+
+
 templates.env.globals["question"] = lambda doc: QUESTIONS.get((doc["type"], doc["status"] or ""))
 
 
@@ -667,21 +688,7 @@ async def transition(request: Request) -> Response:
             doc = await store.get_document(conn, doc_id)
             if not doc or doc["project"] != project:
                 return failed("not found", 404)
-            if doc["type"] == "plan" and doc["status"] == "held" and to in ("revised", "approved"):
-                await plans.resolve_rehearsal(conn, indexer, doc_id, accept=to == "revised")
-            elif doc["type"] == "plan" and doc["status"] == "blocked" and to == "approved":
-                await plans.retry_soundcheck(conn, indexer, doc_id)
-            elif doc["type"] == "plan" and doc["status"] == "blocked" and to == "done":
-                await plans.accept_as_is(conn, doc_id)
-            elif doc["type"] == "plan" and to == "approved":
-                await plans.approve(conn, indexer, doc_id)
-            elif doc["type"] == "wave" and to == "approved":
-                await plans.approve_wave(conn, indexer, doc_id)
-            elif doc["type"] == "decision" and doc["status"] == "proposed" and to == "rejected":
-                await plans.reject_decision(conn, indexer, doc_id)
-            else:
-                await rules.transition(conn, doc_id, to, "human")
-            now = (await store.get_document(conn, doc_id))["status"]
+            now = await decide(conn, indexer, doc, to)
     except rules.Forbidden as e:
         return failed(str(e), 409)
     except Exception as e:  # the database or the context restarting: say so, never pretend it worked

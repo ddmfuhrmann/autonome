@@ -233,9 +233,35 @@ async def get_events(request: Request) -> JSONResponse:
         return _json(await store.events(conn, task_id=int(request.path_params["doc_id"]), after=int(p.get("after", 0))))
 
 
+async def project_state(request: Request) -> JSONResponse:
+    """A compact snapshot for watchers (`autonome watch`): every task and plan with its status, the
+    waves, and what waits on the human, split into what blocks and what can wait."""
+    from .web import BLOCKING, _queue  # the same queue the Approvals page shows
+
+    project = request.path_params["project"]
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        tasks = await store.list_documents(conn, project, type="task", limit=1000)
+        plans_ = await store.list_documents(conn, project, type="plan", limit=300)
+        waves = await store.list_documents(conn, project, type="wave", limit=50)
+        queue = await _queue(conn, project)
+    last = lambda t: (t["body"].get("runs") or [{}])[-1]
+    return _json({
+        "tasks": [{"id": t["id"], "title": t["body"]["title"], "status": t["status"], "feature": t["feature"],
+                   "plan_id": t["body"].get("plan_id"), "reason": (last(t).get("reason") or "")[:300],
+                   "playback": (t["body"].get("playback_review") or {}).get("status")} for t in tasks],
+        "plans": [{"id": p["id"], "title": p["body"].get("title"), "status": p["status"], "feature": p["feature"]}
+                  for p in plans_],
+        "waves": [{"id": w["id"], "title": w["body"].get("title"), "status": w["status"]} for w in waves],
+        "waiting": [{"kind": i["kind"], "id": i["doc"]["id"], "title": i["doc"]["body"].get("title")
+                     or i["doc"]["body"].get("summary", "")[:80], "blocks": i["kind"] in BLOCKING} for i in queue],
+    })
+
+
 def routes() -> list:
     return [
         Route("/api/projects/{project}/insights", get_insights),
+        Route("/api/projects/{project}/state", project_state),
         Route("/api/projects/{project}/tasks", post_task, methods=["POST"]),
         Route("/api/projects/{project}/features", get_features),
         Route("/api/projects/{project}/features/{feature}/dossier", feature_dossier),
