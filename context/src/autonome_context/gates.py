@@ -72,12 +72,12 @@ class RoleModel(BaseModel):
     effort: Effort
 
 
-# Who does what, on which model and with how much thinking. Cheap where the job is to summarise,
-# rigorous where it is to find what is missing. Measured with `autonome bench` (plugin/runner).
+# Who does what, on which model and with how much thinking. Reviewer and rehearsal are measured with
+# `autonome bench` (docs/benchmarks/models.md); the other roles are still a guess.
 DEFAULT_MODELS: dict[str, RoleModel] = {
     "musician": RoleModel(model="sonnet", effort="medium"),
-    "reviewer": RoleModel(model="sonnet", effort="high"),
-    "rehearsal": RoleModel(model="sonnet", effort="medium"),
+    "reviewer": RoleModel(model="haiku", effort="low"),
+    "rehearsal": RoleModel(model="haiku", effort="low"),
     "listener": RoleModel(model="sonnet", effort="medium"),
     "tune": RoleModel(model="sonnet", effort="medium"),
     "handoff": RoleModel(model="sonnet", effort="low"),
