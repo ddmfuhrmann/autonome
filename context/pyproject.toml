@@ -1,0 +1,30 @@
+[project]
+name = "autonome-context"
+version = "0.1.0"
+description = "Project memory for AI-built software: handoffs, chunking and hybrid vector search."
+authors = [
+    { name = "Daniel Fuhrmann", email = "danilord@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "httpx>=0.28.1",
+    "mcp[cli]>=2.3.0",
+    "pgvector>=0.5.1",
+    "psycopg[binary,pool]>=3.3.6",
+    "pydantic>=2.14.2",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.19,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
+
+[project.scripts]
+autonome-context = "autonome_context.server:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

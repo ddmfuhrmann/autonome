@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "autonome": {
+      "type": "http",
+      "url": "${AUTONOME_CONTEXT_URL:-http://127.0.0.1:8765}/mcp"
+    }
+  }
+}
