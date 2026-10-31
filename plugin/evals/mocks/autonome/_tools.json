@@ -317,7 +317,7 @@
     },
     {
       "name": "plan_draft",
-      "description": "Save a draft plan for the human to approve in the UI. Agents cannot approve plans.",
+      "description": "Save a draft plan for the human to approve in the UI. Agents cannot approve plans. Put the gates\nthe plan needs and the gate config lacks in `plan.gates`: approving the plan adds them.",
       "inputSchema": {
         "properties": {
           "project": {
@@ -422,6 +422,15 @@
                 "title": "Tasks",
                 "type": "array"
               },
+              "gates": {
+                "default": [],
+                "description": "gates this plan needs that the project's gate config lacks; approving the plan adds them",
+                "items": {
+                  "$ref": "#/$defs/ProposedGate"
+                },
+                "title": "Gates",
+                "type": "array"
+              },
               "discussion": {
                 "default": [],
                 "description": "the questions and answers that shaped the plan",
@@ -438,6 +447,67 @@
               "tasks"
             ],
             "title": "PlanBody",
+            "type": "object"
+          },
+          "ProposedGate": {
+            "properties": {
+              "name": {
+                "title": "Name",
+                "type": "string"
+              },
+              "run": {
+                "description": "shell command, run from the repo root",
+                "title": "Run",
+                "type": "string"
+              },
+              "mode": {
+                "default": "block",
+                "enum": [
+                  "fix",
+                  "block"
+                ],
+                "title": "Mode",
+                "type": "string"
+              },
+              "fast": {
+                "default": false,
+                "description": "part of the inner loop the implementer runs while working",
+                "title": "Fast",
+                "type": "boolean"
+              },
+              "when": {
+                "default": [],
+                "description": "path globs; the gate runs only if a changed file matches",
+                "items": {
+                  "type": "string"
+                },
+                "title": "When",
+                "type": "array"
+              },
+              "timeout_s": {
+                "default": 900,
+                "title": "Timeout S",
+                "type": "integer"
+              },
+              "with_task": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "1-based position of the task that sets this gate up; the gate joins the gate config when that task is merged. Omit if the tooling already exists.",
+                "title": "With Task"
+              }
+            },
+            "required": [
+              "name",
+              "run"
+            ],
+            "title": "ProposedGate",
             "type": "object"
           },
           "TaskSpec": {
@@ -505,6 +575,127 @@
           }
         },
         "title": "plan_draftArguments"
+      }
+    },
+    {
+      "name": "wave_draft",
+      "description": "Group draft plans of several features into a wave the human approves at once in the UI. Each\nfeature's plan is drafted first with plan_draft. Approved waves play in order; a feature that\ndepends on others is checked against the code (rehearsed) before it plays.",
+      "inputSchema": {
+        "properties": {
+          "project": {
+            "title": "Project",
+            "type": "string"
+          },
+          "wave": {
+            "$ref": "#/$defs/WaveBody"
+          },
+          "wave_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "revise this draft instead of creating a new one",
+            "title": "Wave Id"
+          }
+        },
+        "required": [
+          "project",
+          "wave"
+        ],
+        "type": "object",
+        "$defs": {
+          "Turn": {
+            "properties": {
+              "role": {
+                "title": "Role",
+                "type": "string"
+              },
+              "text": {
+                "title": "Text",
+                "type": "string"
+              }
+            },
+            "required": [
+              "role",
+              "text"
+            ],
+            "title": "Turn",
+            "type": "object"
+          },
+          "WaveBody": {
+            "properties": {
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "goal": {
+                "title": "Goal",
+                "type": "string"
+              },
+              "out_of_scope": {
+                "default": [],
+                "items": {
+                  "type": "string"
+                },
+                "title": "Out Of Scope",
+                "type": "array"
+              },
+              "features": {
+                "description": "in the order they should be played",
+                "items": {
+                  "$ref": "#/$defs/WaveFeature"
+                },
+                "title": "Features",
+                "type": "array"
+              },
+              "discussion": {
+                "default": [],
+                "description": "the questions and answers that shaped the wave",
+                "items": {
+                  "$ref": "#/$defs/Turn"
+                },
+                "title": "Discussion",
+                "type": "array"
+              }
+            },
+            "required": [
+              "title",
+              "goal",
+              "features"
+            ],
+            "title": "WaveBody",
+            "type": "object"
+          },
+          "WaveFeature": {
+            "properties": {
+              "plan_id": {
+                "description": "a draft plan of this project",
+                "title": "Plan Id",
+                "type": "integer"
+              },
+              "depends_on": {
+                "default": [],
+                "description": "1-based positions of earlier features in this wave",
+                "items": {
+                  "type": "integer"
+                },
+                "title": "Depends On",
+                "type": "array"
+              }
+            },
+            "required": [
+              "plan_id"
+            ],
+            "title": "WaveFeature",
+            "type": "object"
+          }
+        },
+        "title": "wave_draftArguments"
       }
     },
     {

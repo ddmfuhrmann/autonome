@@ -30,6 +30,8 @@ async def build(conn: AsyncConnection, project: str, task_id: int | None = None)
     if p:
         parts.append(f"## The plan it belongs to: {p.get('title')}\nGoal: {p.get('goal')}\n"
                      f"Out of scope (do not do):\n{_list(p.get('out_of_scope'))}")
+    if notes := p.get("rehearsal", {}).get("notes"):
+        parts.append(f"## Rehearsal notes (the plan checked against the code before this feature began)\n{notes}")
     conventions = await store.conventions_for(conn, project, task["layers"])
     if conventions:
         parts.append("## Conventions for these layers\n" + "\n\n".join(

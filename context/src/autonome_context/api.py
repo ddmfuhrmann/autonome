@@ -2,11 +2,12 @@
 
 import json
 
+from pydantic import ValidationError
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from . import briefing, insights, rules, services, store
+from . import briefing, insights, plans, rules, services, store
 from .gates import GateConfig
 
 
@@ -70,7 +71,24 @@ async def claim_task(request: Request) -> JSONResponse:
             task = await store.next_task(conn, request.path_params["project"])
             if task and task["status"] == "pending":
                 task = await rules.transition(conn, task["id"], "playing", "runner")
-    return _json({"task": task})
+            plan = await store.get_document(conn, task["body"]["plan_id"]) if task else None
+    # A wave plan whose turn has come is rehearsed against the code before its first task plays.
+    rehearse = plan if task and task["status"] == "playing" and plans.needs_rehearsal(task, plan) else None
+    return _json({"task": task, "rehearse": rehearse})
+
+
+async def post_rehearsal(request: Request) -> JSONResponse:
+    try:
+        r = plans.Rehearsal.model_validate(await request.json())
+    except ValidationError as e:
+        return _json({"error": "invalid_rehearsal", "detail": e.errors()}, 422)
+    pool, indexer = await services.get()
+    async with pool.connection() as conn:
+        try:
+            outcome = await plans.rehearse(conn, indexer, int(request.path_params["doc_id"]), r)
+        except rules.Forbidden as e:
+            return _json({"error": str(e)}, 409)
+    return _json({"plan_status": "held" if outcome == "held" else "approved"})
 
 
 async def task_transition(request: Request) -> JSONResponse:
@@ -88,7 +106,10 @@ async def task_transition(request: Request) -> JSONResponse:
                 runs = task["body"].get("runs", []) + [body["run"]]
                 await store.add_version(conn, None, doc_id, {**task["body"], "runs": runs})
             if body["to"] == "done":
-                await store.finish_plan_if_complete(conn, task["body"]["plan_id"])
+                # Gates a plan proposed (approved by the human with it) start once their tooling is merged.
+                await plans.apply_gates(conn, indexer, task["project"], task["body"].get("adds_gates", []))
+                if await store.finish_plan_if_complete(conn, task["body"]["plan_id"]):
+                    await plans.finish_wave_if_complete(conn, task["body"]["plan_id"])
     return _json({"status": body["to"]})
 
 
@@ -165,6 +186,7 @@ def routes() -> list:
         Route("/api/projects/{project}/overview", get_overview),
         Route("/api/projects/{project}/tasks/claim", claim_task, methods=["POST"]),
         Route("/api/tasks/{doc_id:int}/transition", task_transition, methods=["POST"]),
+        Route("/api/plans/{doc_id:int}/rehearsal", post_rehearsal, methods=["POST"]),
         Route("/api/projects/{project}/briefing", get_briefing),
         Route("/api/projects/{project}/gate-config", get_gate_config),
         Route("/api/gate-runs", post_gate_runs, methods=["POST"]),

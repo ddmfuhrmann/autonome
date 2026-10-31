@@ -33,6 +33,10 @@ plugin/runner/  the maestro (TypeScript, Claude Agent SDK): one session + worktr
 - **Conduct sessions are sandboxed by permission**: `dontAsk` with an allowlist (read/edit files,
   the gates' own commands, `allowed_commands`, read-only git). Never `bypassPermissions`. Only the
   runner commits, and main only moves by fast-forward, never over uncommitted work.
+- **Waves**: several features planned in one compose, each with a full plan, approved together; a plan
+  waits for the plans it depends on, and the runner rehearses it against main before its first task
+  (ready with notes, or held with a revision the human accepts). Plans propose missing gates, added to
+  the gate config on approval or when the task that sets their tooling up is merged.
 - **Loops**: compose (human + agent, the only conversation) → conduct (one session per task) →
   tune (reads `insights`, only proposes conventions and at most one plan) ← cues (scheduled checks
   that only queue tasks into a maintenance plan a human approved once). Only conduct writes code.
@@ -50,7 +54,7 @@ claude plugin marketplace add . && claude plugin install autonome@autonome   # u
 cd context && uv run pytest                     # the gate; DB tests skip if postgres is down
 uv run --project context pytest plugin/tests    # plugin (stdlib code, tested with the context's pytest)
 pnpm --dir plugin/runner test                   # the runner (TypeScript, Agent SDK)
-plugin/bin/autonome conduct --project <slug>    # play approved tasks of the repo in the cwd
+plugin/bin/autonome conduct --project <slug>    # play approved tasks of the repo in the cwd (--watch: keep waiting)
 plugin/bin/autonome cues --project <slug>       # scheduled checks; queue maintenance tasks
 plugin/bin/autonome-docs --feature <slug>       # rewrite a feature's living doc (or --overview)
 claude plugin eval plugin --trust-plugin --model sonnet   # skill evals, with vs without the plugin

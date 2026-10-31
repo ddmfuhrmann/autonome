@@ -437,7 +437,8 @@ async def conventions_for(conn: AsyncConnection, project: str, layers: list[str]
 
 async def next_task(conn: AsyncConnection, project: str) -> dict | None:
     """Released tasks first (they only need merging), then the oldest pending task of an approved
-    plan whose dependencies are done. Locks the row so two runners never take the same task."""
+    plan whose dependencies (tasks, and in a wave the plans it waits for) are done. Locks the row so
+    two runners never take the same task."""
     row = await (await conn.execute(
         """select d.id from document d
            join project p on p.id = d.project_id and p.slug = %(project)s
@@ -448,6 +449,9 @@ async def next_task(conn: AsyncConnection, project: str) -> dict | None:
              and not exists (
                  select 1 from jsonb_array_elements_text(coalesce(dv.body->'depends_on', '[]')) dep
                  join document dd on dd.id = dep::bigint where dd.status <> 'done')
+             and not exists (
+                 select 1 from jsonb_array_elements_text(coalesce(dv.body->'after_plans', '[]')) ap
+                 join document pd on pd.id = ap::bigint where pd.status <> 'done')
            order by (d.status = 'released') desc, plan.id, (dv.body->>'seq')::int
            limit 1 for update of d skip locked""",
         {"project": project},

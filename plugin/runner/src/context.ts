@@ -15,8 +15,24 @@ export interface Task {
     plan_id: number;
     seq: number;
     fermata: boolean;
+    after_plans?: number[];
+    wave_id?: number;
     runs?: Run[];
   };
+}
+
+export interface Plan {
+  id: number;
+  project: string;
+  status: string;
+  feature: string | null;
+  body: Record<string, unknown> & { title: string; tasks: unknown[] };
+}
+
+export interface Rehearsal {
+  verdict: "ready" | "revise";
+  notes: string;
+  plan?: Record<string, unknown>;
 }
 
 export interface Run {
@@ -73,7 +89,9 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 export const context = {
   health: () => call<{ status: string }>("/health"),
   claim: (project: string) =>
-    call<{ task: Task | null }>(`/api/projects/${project}/tasks/claim`, { method: "POST", body: "{}" }),
+    call<{ task: Task | null; rehearse: Plan | null }>(`/api/projects/${project}/tasks/claim`, { method: "POST", body: "{}" }),
+  rehearsal: (planId: number, r: Rehearsal) =>
+    call<{ plan_status: string }>(`/api/plans/${planId}/rehearsal`, { method: "POST", body: JSON.stringify(r) }),
   transition: (taskId: number, to: string, run?: Run) =>
     call<{ status: string }>(`/api/tasks/${taskId}/transition`, {
       method: "POST",

@@ -19,8 +19,14 @@ this session: each task gets its own fresh session, so start it in the backgroun
    ```
 
    Add `--push` only if the user asked for main to be pushed, and `--model <name>` if they chose one.
+   Add `--watch` when the user wants it to keep going as new plans or waves are approved; it then
+   checks for work every minute (`--every <seconds>`) until stopped.
 4. Tell the user where to follow it: the Setlist page of the context UI, and the Approvals page for
    tasks held at a fermata or blocked.
+
+Plans of a wave play in their order. Before a feature that depends on others starts, the maestro
+rehearses its plan against main: it either adds notes for the implementers or holds the plan with a
+proposed revision on the Approvals page.
 
 Each task ends merged into main, held at the fermata (critical features), or blocked with the reason
 and a handoff that explains what went wrong. Blocked tasks need a human decision in the UI: retry

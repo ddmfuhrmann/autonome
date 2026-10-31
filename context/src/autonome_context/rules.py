@@ -15,6 +15,13 @@ TRANSITIONS: dict[tuple[str, str, str], set[str]] = {
     ("plan", "draft", "abandoned"): {"human", "agent"},
     ("plan", "approved", "abandoned"): {"human"},
     ("plan", "approved", "done"): {"runner"},
+    ("plan", "approved", "held"): {"runner"},  # the rehearsal found the plan out of date
+    ("plan", "held", "approved"): {"human"},  # accept the revision or keep the original
+    ("plan", "held", "abandoned"): {"human"},
+    ("wave", "draft", "approved"): {"human"},
+    ("wave", "draft", "abandoned"): {"human", "agent"},
+    ("wave", "approved", "abandoned"): {"human"},
+    ("wave", "approved", "done"): {"runner"},
     ("task", "pending", "playing"): {"runner"},
     ("task", "playing", "done"): {"runner"},
     ("task", "playing", "blocked"): {"runner"},

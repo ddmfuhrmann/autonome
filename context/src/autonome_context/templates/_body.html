@@ -1,5 +1,5 @@
 {# Renders a document body as readable sections; raw JSON stays one click away. #}
-{% for key, value in body.items() if value not in (None, '', [], {}) and key != 'title' %}
+{% for key, value in body.items() if value not in (None, '', [], {}) and key not in ('title', 'rehearsal', 'features') %}
 <section class="card">
   <h2>{{ key|replace('_', ' ')|capitalize }}</h2>
   {% if value is string %}<pre class="body">{{ value }}</pre>

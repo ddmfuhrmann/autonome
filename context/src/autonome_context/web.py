@@ -23,7 +23,7 @@ templates.env.filters["pretty"] = lambda v: json.dumps(v, indent=2, ensure_ascii
 templates.env.filters["md"] = lambda v: Markup(md.markdown(
     str(v or "").replace("<", "&lt;"), extensions=["tables", "fenced_code", "sane_lists"]))
 
-DOC_TYPES = ["handoff", "plan", "task", "decision", "convention", "gate_config", "design", "feature_doc"]
+DOC_TYPES = ["handoff", "plan", "task", "decision", "convention", "gate_config", "design", "feature_doc", "wave"]
 MODES = ["hybrid", "vector", "fts"]
 
 
@@ -120,9 +120,18 @@ async def document_page(request: Request) -> Response:
         if not doc or doc["project"] != request.path_params["project"]:
             return Response("not found", status_code=404)
         links = await store.links_of(conn, doc["id"])
+        wave_plans = {f["plan_id"]: await store.get_document(conn, f["plan_id"])
+                      for f in doc["body"]["features"]} if doc["type"] == "wave" else {}
+        in_wave = await plans.wave_of(conn, doc) if doc["type"] == "plan" else None
     actions = [to for (type_, frm, to), actors in rules.TRANSITIONS.items()
                if type_ == doc["type"] and frm == (doc["status"] or "") and "human" in actors]
-    return render(request, "document.html", doc=doc, links=links, actions=actions)
+    if in_wave and doc["status"] == "draft":
+        actions = []  # approved with its wave
+    if doc["type"] == "plan" and doc["status"] == "held":
+        actions = ["revised", "approved", "abandoned"]
+    return render(request, "document.html", doc=doc, links=links, actions=actions, wave_plans=wave_plans,
+                  in_wave=in_wave, labels={"revised": "Accept revision", "approved": "Approve"}
+                  if doc["status"] != "held" else {"revised": "Accept revision", "approved": "Keep original"})
 
 
 async def config_page(request: Request) -> Response:
@@ -151,7 +160,10 @@ async def approvals_page(request: Request) -> Response:
     pool, _ = await services.get()
     async with pool.connection() as conn:
         groups = {
-            "Plans to approve": await store.list_documents(conn, project, type="plan", status="draft"),
+            "Waves to approve": await store.list_documents(conn, project, type="wave", status="draft"),
+            "Plans to approve": [p for p in await store.list_documents(conn, project, type="plan", status="draft")
+                                 if not await plans.wave_of(conn, p)],
+            "Plans held after rehearsal": await store.list_documents(conn, project, type="plan", status="held"),
             "Held at the fermata": await store.list_documents(conn, project, type="task", status="on_hold"),
             "Blocked tasks": await store.list_documents(conn, project, type="task", status="blocked"),
             "Proposed decisions": await store.list_documents(conn, project, type="decision", status="proposed"),
@@ -170,8 +182,12 @@ async def transition(request: Request) -> Response:
         if not doc or doc["project"] != project:
             return Response("not found", status_code=404)
         try:
-            if doc["type"] == "plan" and to == "approved":
+            if doc["type"] == "plan" and doc["status"] == "held" and to in ("revised", "approved"):
+                await plans.resolve_rehearsal(conn, indexer, doc_id, accept=to == "revised")
+            elif doc["type"] == "plan" and to == "approved":
                 await plans.approve(conn, indexer, doc_id)
+            elif doc["type"] == "wave" and to == "approved":
+                await plans.approve_wave(conn, indexer, doc_id)
             else:
                 await rules.transition(conn, doc_id, to, "human")
         except rules.Forbidden as e:

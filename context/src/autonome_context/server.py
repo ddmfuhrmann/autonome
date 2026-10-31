@@ -79,7 +79,8 @@ async def plan_draft(
     layers: list[str] = [],
     plan_id: Annotated[int | None, Field(description="revise this draft instead of creating a new one")] = None,
 ) -> dict:
-    """Save a draft plan for the human to approve in the UI. Agents cannot approve plans."""
+    """Save a draft plan for the human to approve in the UI. Agents cannot approve plans. Put the gates
+    the plan needs and the gate config lacks in `plan.gates`: approving the plan adds them."""
     pool, indexer = await services.get()
     async with pool.connection() as conn:
         try:
@@ -87,6 +88,25 @@ async def plan_draft(
         except rules.Forbidden as e:
             return {"error": str(e)}
     return {"plan_id": doc_id, "status": "draft",
+            "approve_at": f"{services.settings.public_url}/ui/p/{project}/documents/{doc_id}"}
+
+
+@mcp.tool()
+async def wave_draft(
+    project: str,
+    wave: plans.WaveBody,
+    wave_id: Annotated[int | None, Field(description="revise this draft instead of creating a new one")] = None,
+) -> dict:
+    """Group draft plans of several features into a wave the human approves at once in the UI. Each
+    feature's plan is drafted first with plan_draft. Approved waves play in order; a feature that
+    depends on others is checked against the code (rehearsed) before it plays."""
+    pool, indexer = await services.get()
+    async with pool.connection() as conn:
+        try:
+            doc_id = await plans.draft_wave(conn, indexer, project, wave, wave_id)
+        except rules.Forbidden as e:
+            return {"error": str(e)}
+    return {"wave_id": doc_id, "status": "draft",
             "approve_at": f"{services.settings.public_url}/ui/p/{project}/documents/{doc_id}"}
 
 

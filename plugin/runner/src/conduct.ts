@@ -6,7 +6,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import { context, type GateConfig, type Run, type Task } from "./context.js";
+import { CONTEXT_URL, context, type GateConfig, type Plan, type Rehearsal, type Run, type Task } from "./context.js";
 import { commitMessage, fastForwardMain, git, mainCheckout, tryGit } from "./git.js";
 
 export const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -18,6 +18,8 @@ export interface ConductOptions {
   model?: string;
   maxTasks: number;
   push: boolean;
+  /** Keep waiting for newly approved work instead of stopping when the queue is empty (seconds between checks). */
+  watch?: number;
   log: (line: string) => void;
 }
 
@@ -51,6 +53,61 @@ export function allowedTools(cfg: GateConfig["config"]): string[] {
     ...[...commands].map((c) => `Bash(${c}:*)`),
     "mcp__autonome__search", "mcp__autonome__conventions_get", "mcp__autonome__plan_get",
   ];
+}
+
+const REHEARSAL_PROMPT = `You rehearse a plan of the autonome process before it plays. It was written and
+approved together with other features of a wave; those are merged now, so the code may differ from what the
+plan assumed. Nobody will answer questions.
+
+Read the plan below, then the code it touches and what changed since it was written (git log, and the
+project memory via the autonome MCP: handoffs and decisions of the features merged before it).
+
+- verdict "ready": the plan still fits. Put in \`notes\` what the implementers should know about the code as
+  it is now (real file, class and function names, things the plan names differently). Small mismatches
+  belong here, not in a revision.
+- verdict "revise": only when a task would do the wrong thing or something it needs is missing (a task is
+  already done, an assumption is false, the order no longer works). Return the whole revised plan in
+  \`plan\`, same shape as the original, same goal and out of scope; change only what must change. The
+  human approves it before anything plays.`;
+
+const PLAN_SCHEMA = {
+  type: "object",
+  properties: {
+    verdict: { type: "string", enum: ["ready", "revise"] },
+    notes: { type: "string" },
+    plan: { type: "object", description: "the full revised plan, only when the verdict is revise" },
+  },
+  required: ["verdict", "notes"],
+} as const;
+
+/** The rehearsal: a read-only session checks a wave plan against main before its first task plays. */
+export async function rehearse(plan: Plan, opts: ConductOptions): Promise<Rehearsal> {
+  const { title, ...rest } = plan.body;
+  delete rest.rehearsal;
+  let out: Rehearsal | undefined;
+  for await (const msg of query({
+    prompt: `Rehearse plan #${plan.id} (feature ${plan.feature ?? "-"}, project ${opts.project}):\n\n` +
+      JSON.stringify({ title, ...rest }, null, 2),
+    options: {
+      cwd: mainCheckout(opts.repo) ?? opts.repo,
+      model: opts.model,
+      permissionMode: "dontAsk",
+      allowedTools: [
+        "Read", "Glob", "Grep",
+        "Bash(git log:*)", "Bash(git diff:*)", "Bash(git show:*)", "Bash(git status:*)",
+        "mcp__autonome__search", "mcp__autonome__plan_get", "mcp__autonome__conventions_get",
+      ],
+      mcpServers: { autonome: { type: "http", url: `${CONTEXT_URL}/mcp` } },
+      settingSources: ["project"],
+      systemPrompt: { type: "preset", preset: "claude_code", append: REHEARSAL_PROMPT },
+      outputFormat: { type: "json_schema", schema: PLAN_SCHEMA },
+      maxTurns: 40,
+    },
+  })) {
+    if (msg.type === "result" && msg.subtype === "success") out = msg.structured_output as Rehearsal;
+  }
+  if (!out) throw new Error(`the rehearsal of plan #${plan.id} returned nothing`);
+  return out;
 }
 
 function now(): string {
@@ -239,10 +296,28 @@ export async function conduct(opts: ConductOptions): Promise<number> {
     throw new Error(`${opts.repo} is not the root of a git repository`);
   }
   let played = 0;
+  let sinceOverview = 0;
   while (played < opts.maxTasks) {
-    const { task } = await context.claim(opts.project);
-    if (!task) break;
+    const { task, rehearse: plan } = await context.claim(opts.project);
+    if (!task) {
+      if (!opts.watch) break;
+      if (sinceOverview) updateDocs(opts.repo, opts.project, ["--overview"], opts.log);
+      sinceOverview = 0;
+      await new Promise((r) => setTimeout(r, opts.watch! * 1000));
+      continue;
+    }
     try {
+      if (plan) {
+        opts.log(`plan #${plan.id} ${plan.body.title}: rehearsing against main`);
+        const r = await rehearse(plan, opts);
+        const { plan_status } = await context.rehearsal(plan.id, r);
+        if (plan_status === "held") {
+          opts.log(`  the plan needs revising; held for your approval`);
+          await context.transition(task.id, "pending");
+          continue;
+        }
+        opts.log(`  ready`);
+      }
       await conductTask(task, opts);
     } catch (e) {
       opts.log(`#${task.id} failed unexpectedly: ${String(e)}`);
@@ -251,8 +326,9 @@ export async function conduct(opts: ConductOptions): Promise<number> {
       }).catch(() => undefined);
     }
     played++;
+    sinceOverview++;
   }
-  if (played) updateDocs(opts.repo, opts.project, ["--overview"], opts.log);
+  if (sinceOverview) updateDocs(opts.repo, opts.project, ["--overview"], opts.log);
   opts.log(played ? `played ${played} task(s)` : "nothing to play");
   return played;
 }

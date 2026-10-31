@@ -12,8 +12,27 @@
 {% if actions %}
 <form class="inline card" method="post" action="/ui/p/{{ project }}/documents/{{ doc.id }}/transition">
   <span class="muted">Your call:</span>
-  {% for to in actions %}<button name="to" value="{{ to }}" class="{{ 'accent' if to in ('approved','accepted','released') else ('danger' if to in ('abandoned','rejected') else 'secondary') }}">{{ to|capitalize }}</button>{% endfor %}
+  {% for to in actions %}<button name="to" value="{{ to }}" class="{{ 'accent' if to in ('approved','accepted','released','revised') else ('danger' if to in ('abandoned','rejected') else 'secondary') }}">{{ labels.get(to) or to|capitalize }}</button>{% endfor %}
 </form>
+{% endif %}
+{% if in_wave %}<p class="muted">Part of <a href="/ui/p/{{ project }}/documents/{{ in_wave.id }}">wave #{{ in_wave.id }} {{ in_wave.body.title }}</a>{% if doc.status == 'draft' %}: approve it with the wave{% endif %}.</p>{% endif %}
+{% if doc.type == 'wave' %}
+<div class="card"><h2>Features, in order</h2>
+  {% for f in doc.body.features %}{% set p = wave_plans[f.plan_id] %}
+  <div class="meta"><span>{{ loop.index }}.</span><a href="/ui/p/{{ project }}/documents/{{ f.plan_id }}">#{{ f.plan_id }} {{ p.body.title if p else '?' }}</a>
+    {% if p and p.feature %}<span class="pill accent">{{ p.feature }}</span>{% endif %}<span class="pill">{{ p.status if p else 'missing' }}</span>
+    {% if p and p.body.tasks %}<span>{{ p.body.tasks|length }} tasks</span>{% endif %}
+    {% if p and p.body.gates %}<span>adds gates {{ p.body.gates|map(attribute='name')|join(', ') }}</span>{% endif %}
+    {% if f.depends_on %}<span>after {{ f.depends_on|join(', ') }}</span>{% endif %}</div>
+  {% endfor %}
+</div>
+{% endif %}
+{% if doc.type == 'plan' and doc.body.rehearsal %}{% set r = doc.body.rehearsal %}
+<div class="card"><h2>Rehearsal</h2>
+  <div class="meta"><span class="pill {{ 'ok' if r.verdict in ('ready','kept','revised') else 'warn' }}">{{ r.verdict }}</span><span>{{ r.at }}</span></div>
+  {% if r.notes %}<pre class="body">{{ r.notes }}</pre>{% endif %}
+</div>
+{% if r.plan %}<h2>Proposed revision</h2>{% with body = r.plan %}{% include "_body.html" %}{% endwith %}<h2>Current plan</h2>{% endif %}
 {% endif %}
 {% if links %}
 <div class="card"><h2>Links</h2>
