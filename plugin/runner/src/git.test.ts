@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { allowedTools } from "./conduct.js";
-import { commitMessage, fastForwardMain, git, stageWork } from "./git.js";
+import { commitMessage, fastForwardMain, git, stageWork, strayFiles } from "./git.js";
 
 function repo(): string {
   const dir = mkdtempSync(join(tmpdir(), "autonome-runner-"));
@@ -85,4 +85,24 @@ test("a generated file staged in one round drops out once it is ignored (task #2
   writeFileSync(join(dir, ".coverage"), "rewritten by the next test run");
   stageWork(dir);
   assert.deepEqual(git(dir, "diff", "--cached", "--name-only").split("\n"), [".gitignore", "app.py"]);
+});
+
+test("stray files: ignored-but-tracked and unasked-for binaries are flagged, asked-for ones are not", () => {
+  const dir = repo();
+  const base = git(dir, "rev-parse", "HEAD");
+  writeFileSync(join(dir, ".coverage"), Buffer.from([0, 1, 2, 0, 255]));
+  writeFileSync(join(dir, "logo.png"), Buffer.from([137, 80, 78, 71, 0, 0]));
+  writeFileSync(join(dir, "app.py"), "print(1)\n");
+  stageWork(dir);
+  assert.deepEqual(strayFiles(dir, base, "Add the logo.png to the header"),
+    [".coverage: a new binary file the task does not mention"]);
+  git(dir, "add", "-f", ".coverage");
+  writeFileSync(join(dir, ".gitignore"), ".coverage\n");
+  git(dir, "add", ".gitignore");
+  assert.deepEqual(strayFiles(dir, base, "Add the logo.png to the header"), [
+    ".coverage: tracked although .gitignore excludes it",
+    ".coverage: a new binary file the task does not mention",
+  ]);
+  stageWork(dir);
+  assert.deepEqual(strayFiles(dir, base, "Add the logo.png to the header"), []);
 });

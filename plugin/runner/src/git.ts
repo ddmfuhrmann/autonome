@@ -56,3 +56,18 @@ export function stageWork(worktree: string): void {
   git(worktree, "reset", "-q");
   git(worktree, "add", "-A");
 }
+
+/**
+ * Staged files that do not belong in a task's change: ones .gitignore excludes but are tracked
+ * anyway, and new binary files the task (its title and spec) does not mention.
+ */
+export function strayFiles(worktree: string, base: string, taskText: string): string[] {
+  const changed = new Set(git(worktree, "diff", "--cached", "--name-only", base).split("\n").filter(Boolean));
+  const ignored = git(worktree, "ls-files", "-ci", "--exclude-standard").split("\n")
+    .filter((f) => changed.has(f)).map((f) => `${f}: tracked although .gitignore excludes it`);
+  const binaries = git(worktree, "diff", "--cached", "--numstat", "--diff-filter=A", base).split("\n")
+    .filter((l) => l.startsWith("-\t-\t")).map((l) => l.slice(4))
+    .filter((f) => !taskText.includes(f) && !taskText.includes(f.split("/").at(-1)!))
+    .map((f) => `${f}: a new binary file the task does not mention`);
+  return [...ignored, ...binaries];
+}

@@ -10,7 +10,7 @@ import { consult } from "./agents.js";
 import { context, type GateConfig, type Plan, type Rehearsal, type Run, type Task } from "./context.js";
 import { findingsForEncore, review } from "./review.js";
 import { soundcheck } from "./soundcheck.js";
-import { commitMessage, fastForwardMain, git, mainCheckout, stageWork, tryGit } from "./git.js";
+import { commitMessage, fastForwardMain, git, mainCheckout, stageWork, strayFiles, tryGit } from "./git.js";
 
 export const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 export const AUTONOME_HOME = process.env.AUTONOME_HOME ?? join(homedir(), ".autonome");
@@ -258,13 +258,30 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<void> {
   };
 
   // Gates, then the reviewer; blocking findings send the musician back to the same session.
+  const encore = async (prompt: string) => {
+    result = await play(task, worktree, base, opts, { sessionId: result.sessionId, prompt });
+    run.tokens = (run.tokens ?? 0) + result.tokens;
+    run.cost_usd = (run.cost_usd ?? 0) + result.cost;
+  };
   const judge = async (): Promise<string | null> => {
-    for (let round = 0; ; round++) {
+    let cleanups = 0;
+    for (let round = 0; ; ) {
       const state = result.sessionId ? metronomeState(result.sessionId) : {};
       if (result.stop) return result.stop;
       if (state.status === "blocked") return `metronome: ${state.reason}`;
       stageWork(worktree);
       if (!git(worktree, "status", "--porcelain")) return "the session changed nothing";
+      // Built in, whatever the project's gates: nothing ignored or unasked-for binary gets committed.
+      const stray = strayFiles(worktree, base, `${task.body.title}\n${task.body.spec}`);
+      if (stray.length) {
+        const list = stray.map((p) => `- ${p}`).join("\n");
+        if (cleanups >= cfg.encore.max) return `stray files still in the change:\n${list}`;
+        cleanups++;
+        log(`  stray files in the change; encore ${cleanups}`);
+        await encore(`These files would be committed but do not belong in the change. Add them (or their ` +
+          `pattern) to .gitignore; the runner restages from scratch, so ignoring them is enough:\n${list}`);
+        continue;
+      }
       const check = gates(worktree, base);
       if (!check.passed) return check.summary;
       if (!cfg.review.enabled) return null;
@@ -276,13 +293,9 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<void> {
       if (rv.result.verdict === "pass") return null;
       const high = findingsForEncore(rv.result);
       if (round >= cfg.review.max_rounds) return `review: still blocking after ${round} encore(s):\n${high}`;
-      log(`  review: blocking findings; encore ${round + 1}`);
-      result = await play(task, worktree, base, opts, {
-        sessionId: result.sessionId,
-        prompt: `An independent reviewer read your diff and found blocking issues. Fix them, then end your turn:\n${high}`,
-      });
-      run.tokens = (run.tokens ?? 0) + result.tokens;
-      run.cost_usd = (run.cost_usd ?? 0) + result.cost;
+      round++;
+      log(`  review: blocking findings; encore ${round}`);
+      await encore(`An independent reviewer read your diff and found blocking issues. Fix them, then end your turn:\n${high}`);
     }
   };
   const failure = await judge();
