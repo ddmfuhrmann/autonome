@@ -10,6 +10,8 @@
 <form class="stack" method="post">
   <label class="sr-only" for="yaml">Gate config (YAML)</label>
   <textarea class="textarea" name="yaml" id="yaml" spellcheck="false" style="min-height: 420px">{{ text }}</textarea>
+  {% if not doc and not error %}<div class="callout callout--block"><div class="wrap"><strong>Not saved yet.</strong> The text below is an example for a Maven project, not this project's config. Replace it with this project's gates and save: until then autonome is not active here (no briefing, no handoffs, no conduct).</div></div>
+  {% endif %}
   {% if error %}<div class="callout callout--block"><div class="wrap">{{ error }}</div></div>
   {% elif summary %}<div class="callout callout--ok"><div>Valid · {{ summary }}.</div></div>{% endif %}
   <div class="row"><button class="btn btn--primary" type="submit">Save new version</button><a class="btn btn--ghost" href="/ui/p/{{ project }}/config">Revert</a>
