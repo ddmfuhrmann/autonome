@@ -1,0 +1,461 @@
+{
+ "wave": {
+  "id": 190,
+  "status": "done",
+  "title": "Shortlink MVP: links + click stats",
+  "discussion": [
+   {
+    "role": "assistant",
+    "text": "Stack? Recommended Python 3.12 + FastAPI + SQLite with ruff, mypy strict, pytest, import-linter."
+   },
+   {
+    "role": "user",
+    "text": "Yes; add gates for style, linter and import limits, the idea is to validate autonome's ability to implement within limits."
+   },
+   {
+    "role": "assistant",
+    "text": "Wave out of scope: auth, custom alias, expiration, edit/delete, rate limiting, frontend. API only."
+   },
+   {
+    "role": "user",
+    "text": "Yes."
+   },
+   {
+    "role": "assistant",
+    "text": "Order: links first (sets up tooling and gates), then click-stats which depends on it."
+   }
+  ],
+  "out_of_scope": [
+   "authentication or users",
+   "custom aliases",
+   "link expiration",
+   "editing or deleting links",
+   "rate limiting",
+   "any frontend",
+   "DNS resolution of target hosts",
+   "migrations tool",
+   "per-visitor data (IP, user-agent)"
+  ],
+  "tuned": "Propus 5 convenções (230–234), todas aguardando aprovação. Não fiz plan_draft, porque nada pedia mudança de gate.\n\n- **#230 (process):** rodar cada gate como comando simples, sem encadear nem usar pipe. O Bash foi negado em 7 dos 8 handoffs (210, 213, 215, 216, 219, 222, 223), então código foi entregue sem rodar. `allowed_commands` está vazio no gate config, e vale um humano revisar isso.\n- **#231 (process):** ler as convenções antes de editar. Se o briefing conflitar com uma convenção, a convenção vence e o conflito vai no handoff. Evidência: 215, 216, 219, 223 (o conflito do 216 só apareceu depois do review).\n- **#232 (application, test):** ao mudar um port, atualizar todos os fakes na mesma task. Evidência: 223 (FailingRepository esquecido custou um encore do mypy), 219 e 227 (o caminho de LinkStorageError ficou pela metade).\n- **#233 (api, persistence, docs):** mensagem de erro exata por operação, casando só a constraint nomeada, e doc só do que tem teste. Evidência: tasks 205 e 209, handoff 227.\n- **#234 (domain, test):** normalizar o host antes dos checks de segurança, com um teste por forma de bypass. Evidência: task 203 e handoff 213.\n\nNão afrouxei nenhuma convenção existente."
+ },
+ "features": [
+  {
+   "plan_id": 185,
+   "feature": "links",
+   "title": "Links: shorten a URL and redirect",
+   "status": "done",
+   "tasks_planned": 6,
+   "rehearsal": null,
+   "soundchecks": [],
+   "gates_proposed": [
+    "ruff-format",
+    "ruff-lint",
+    "mypy",
+    "import-contracts",
+    "pytest"
+   ],
+   "conventions_proposed": [
+    "Pure domain",
+    "Services depend on ports and injected time",
+    "API errors are explicit",
+    "Real constraints, no leaking ORM",
+    "Behavioural tests"
+   ],
+   "out_of_scope": [
+    "authentication or users",
+    "custom aliases",
+    "link expiration",
+    "editing or deleting links",
+    "rate limiting",
+    "any frontend",
+    "deduplicating the same URL (every POST creates a new code)",
+    "DNS resolution of target hosts (only literal hosts/IPs are checked)",
+    "database migrations tool (tables come from metadata.create_all)",
+    "click counting (feature click-stats)"
+   ],
+   "tasks": [
+    {
+     "id": 202,
+     "title": "Project tooling and quality gates",
+     "status": "done",
+     "source": null,
+     "sessions": 1,
+     "tokens": 75099,
+     "cost_usd": 0.204,
+     "duration_s": 77,
+     "review_rounds": 1,
+     "gate_runs": 0,
+     "gate_failures": 0,
+     "outcomes": [
+      "merged"
+     ],
+     "reasons": [],
+     "review_findings": []
+    },
+    {
+     "id": 203,
+     "title": "Domain: Link entity, URL validation, code generation",
+     "status": "done",
+     "source": null,
+     "sessions": 1,
+     "tokens": 59476,
+     "cost_usd": 0.407,
+     "duration_s": 125,
+     "review_rounds": 2,
+     "gate_runs": 10,
+     "gate_failures": 0,
+     "outcomes": [
+      "merged"
+     ],
+     "reasons": [],
+     "review_findings": [
+      {
+       "severity": "medium",
+       "kind": "missing",
+       "convention": null,
+       "issue": "_check_host compares the raw hostname against 'localhost' without Unicode normalization. A fullwidth host such as http://ｌｏｃａｌｈｏｓｔ/ passes validation, but browsers and IDNA normalize it to 'localhost', so the internal-host rule (rule 8) can be bypassed. The briefing says IDN hosts are accepted as given, so this may be an accepted trade-off, but it is worth a deliberate decision and a test either way."
+      }
+     ]
+    },
+    {
+     "id": 204,
+     "title": "Application: LinkService and repository port",
+     "status": "done",
+     "source": null,
+     "sessions": 1,
+     "tokens": 57699,
+     "cost_usd": 0.311,
+     "duration_s": 90,
+     "review_rounds": 2,
+     "gate_runs": 10,
+     "gate_failures": 0,
+     "outcomes": [
+      "merged"
+     ],
+     "reasons": [],
+     "review_findings": [
+      {
+       "severity": "low",
+       "kind": "missing",
+       "convention": null,
+       "issue": "test_invalid_url_raises_and_stores_nothing parametrizes only empty, non-http scheme and localhost. It does not cover whitespace/control characters or over-length URLs that validate_target_url also rejects. Those are not named in this task's acceptance, and the domain layer tests probably cover them, so this is advisory only."
+      }
+     ]
+    },
+    {
+     "id": 205,
+     "title": "Persistence: SQLite link repository",
+     "status": "done",
+     "source": null,
+     "sessions": 1,
+     "tokens": 98722,
+     "cost_usd": 0.706,
+     "duration_s": 174,
+     "review_rounds": 3,
+     "gate_runs": 15,
+     "gate_failures": 0,
+     "outcomes": [
+      "merged"
+     ],
+     "reasons": [],
+     "review_findings": [
+      {
+       "severity": "medium",
+       "kind": "diverges",
+       "convention": null,
+       "issue": "_CODE_CONFLICT_MARKERS uses the substring 'links.code', so any IntegrityError on links.code is mapped to CodeConflictError, including SQLite's 'NOT NULL constraint failed: links.code'. The briefing says only uq_links_code maps to a conflict and other IntegrityErrors are re-raised. A NULL code would be reported as a code conflict. The domain always sets code, so this is hard to reach, but the match is looser than the spec. Fix: match on 'UNIQUE constraint failed: links.code' (and 'uq_links_code') instead, and add a test for a NULL code via the repository path."
+      }
+     ]
+    },
+    {
+     "id": 206,
+     "title": "API: POST /links and GET /{code}, app factory",
+     "status": "done",
+     "source": null,
+     "sessions": 1,
+     "tokens": 110875,
+     "cost_usd": 0.474,
+     "duration_s": 133,
+     "review_rounds": 2,
+     "gate_runs": 10,
+     "gate_failures": 0,
+     "outcomes": [
+      "merged"
+     ],
+     "reasons": [],
+     "review_findings": [
+      {
+       "severity": "low",
+       "kind": "missing",
+       "convention": null,
+       "issue": "stored_count() and the create_app() engines are never disposed, so each test leaves an engine open. Harmless for SQLite under tmp_path, but untidy. Advisory only."
+      }
+     ]
+    },
+    {
+     "id": 207,
+     "title": "README",
+     "status": "done",
+     "source": null,
+     "sessions": 1,
+     "tokens": 32651,
+     "cost_usd": 0.145,
+     "duration_s": 72,
+     "review_rounds": 1,
+     "gate_runs": 5,
+     "gate_failures": 0,
+     "outcomes": [
+      "merged"
+     ],
+     "reasons": [],
+     "review_findings": []
+    }
+   ]
+  },
+  {
+   "plan_id": 189,
+   "feature": "click-stats",
+   "title": "Click stats: count redirects per link",
+   "status": "done",
+   "tasks_planned": 2,
+   "rehearsal": "ready",
+   "soundchecks": [],
+   "gates_proposed": [],
+   "conventions_proposed": [],
+   "out_of_scope": [
+    "storing IP, user-agent, referrer or any per-visitor data",
+    "per-day or time-series stats",
+    "unique-visitor counting or bot filtering",
+    "migrations for existing databases",
+    "counting HEAD requests or failed redirects",
+    "authentication on the stats endpoint"
+   ],
+   "tasks": [
+    {
+     "id": 208,
+     "title": "Click counter in domain and persistence",
+     "status": "done",
+     "source": null,
+     "sessions": 1,
+     "tokens": 97952,
+     "cost_usd": 0.589,
+     "duration_s": 177,
+     "review_rounds": 2,
+     "gate_runs": 23,
+     "gate_failures": 5,
+     "outcomes": [
+      "merged"
+     ],
+     "reasons": [],
+     "review_findings": []
+    },
+    {
+     "id": 209,
+     "title": "Count on redirect and GET /links/{code}/stats",
+     "status": "done",
+     "source": null,
+     "sessions": 1,
+     "tokens": 140002,
+     "cost_usd": 0.768,
+     "duration_s": 160,
+     "review_rounds": 3,
+     "gate_runs": 10,
+     "gate_failures": 0,
+     "outcomes": [
+      "merged"
+     ],
+     "reasons": [],
+     "review_findings": [
+      {
+       "severity": "medium",
+       "kind": "diverges",
+       "convention": null,
+       "issue": "link_stats maps LinkStorageError to STORAGE_UNAVAILABLE, which reads \"could not store the link, try again\". This is a read failure, and the README's new stats section says 503 means \"the link could not be read; try again\". The test test_storage_failure_on_stats_is_503_with_string_detail asserts the same wrong \"could not store\" text, so it locks the mismatch in. Fix: give stats its own detail (e.g. \"could not read the link, try again\") or make the README match, and update the test."
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "decisions": [
+  {
+   "id": 229,
+   "status": "accepted",
+   "title": "Map SQLAlchemyError in get_by_code to LinkStorageError (503)",
+   "deviation": false
+  },
+  {
+   "id": 228,
+   "status": "proposed",
+   "title": "Keep ValueError for naive datetime in record_click instead of mapping it to an HTTP error",
+   "deviation": true
+  },
+  {
+   "id": 224,
+   "status": "accepted",
+   "title": "record_click translates SQLAlchemyError to LinkStorageError, get_by_code left as is",
+   "deviation": false
+  },
+  {
+   "id": 225,
+   "status": "accepted",
+   "title": "Reject naive last_clicked_at in add and naive `at` in record_click",
+   "deviation": false
+  },
+  {
+   "id": 220,
+   "status": "accepted",
+   "title": "Map LinkStorageError to 503 instead of 500",
+   "deviation": false
+  },
+  {
+   "id": 221,
+   "status": "accepted",
+   "title": "Use a substitute URL in the credentials test",
+   "deviation": false
+  },
+  {
+   "id": 218,
+   "status": "accepted",
+   "title": "Reject naive created_at on write and convert aware datetimes to UTC",
+   "deviation": false
+  },
+  {
+   "id": 217,
+   "status": "proposed",
+   "title": "Wrap non-conflict IntegrityError in LinkStorageError instead of re-raising",
+   "deviation": true
+  },
+  {
+   "id": 214,
+   "status": "accepted",
+   "title": "Map ValueError from urlsplit/hostname to existing error messages",
+   "deviation": false
+  }
+ ],
+ "conventions": [
+  {
+   "id": 234,
+   "status": "proposed",
+   "title": "Normalize hosts before security checks"
+  },
+  {
+   "id": 233,
+   "status": "proposed",
+   "title": "Error mapping is exact and documented only if tested"
+  },
+  {
+   "id": 232,
+   "status": "proposed",
+   "title": "Changing a port updates every implementer"
+  },
+  {
+   "id": 231,
+   "status": "proposed",
+   "title": "Read conventions first; conflicts go up front"
+  },
+  {
+   "id": 230,
+   "status": "proposed",
+   "title": "Run gates as plain separate commands"
+  },
+  {
+   "id": 200,
+   "status": "active",
+   "title": "Real constraints, no leaking ORM"
+  },
+  {
+   "id": 201,
+   "status": "active",
+   "title": "Behavioural tests"
+  },
+  {
+   "id": 199,
+   "status": "active",
+   "title": "API errors are explicit"
+  },
+  {
+   "id": 198,
+   "status": "active",
+   "title": "Services depend on ports and injected time"
+  },
+  {
+   "id": 197,
+   "status": "active",
+   "title": "Pure domain"
+  }
+ ],
+ "handoffs": [
+  {
+   "id": 227,
+   "friction": [
+    "The stats route and README documented 503 before the persistence layer could actually produce it. The reviewer had to catch the mismatch; the agent had not checked that `get_by_code` raised `LinkStorageError`.",
+    "The second review finding was internally contradictory (advisory text, blocking label). The agent declined to act on it and the transcript shows no resolution, so the disagreement is still open.",
+    "`resolve` returns the link as read before the click, so its `clicks` value is one behind. The agent noted it but did not change it."
+   ]
+  },
+  {
+   "id": 223,
+   "friction": [
+    "Bash was denied for the whole session, so the agent could not run `autonome-gates` or pytest. It shipped code it had not seen run, and the failures only appeared through stop-hook feedback, using up encores (ruff-lint reached the 3/3 limit in the hook's count).",
+    "The agent missed that adding a protocol method breaks every other fake that implements `LinkRepository`. It updated `FakeRepository` but not `FailingRepository` in the API tests, which cost a mypy encore.",
+    "The first version of the NOT NULL test was wrong: it did not account for the ORM default replacing None. It was also not written to match lint rules (RUF043, SIM117), so two more rounds were needed.",
+    "The reviewer pointed out a missing test for a NOT NULL constraint and missing error translation, both covered by project conventions. The agent had not applied them on its own."
+   ]
+  },
+  {
+   "id": 222,
+   "friction": [
+    "The first Bash call (a chained cat/find/autonome-gates) was denied in don't-ask mode, so the agent had to re-read each file with Read.",
+    "gate_config_get was denied and no gate config exists on disk, so the exact gate commands could not be confirmed. The README lists guessed commands (uv run ruff format --check, ruff check, mypy, lint-imports, pytest --cov), and the acceptance criterion asks for the exact commands.",
+    "The curl examples in the README were never run against a live server, so they are unverified."
+   ]
+  },
+  {
+   "id": 219,
+   "friction": [
+    "Bash denied pytest (both the combined call and `pytest tests/api`) in don't-ask mode, so the agent delivered tests it never ran, in both rounds.",
+    "The first version missed the convention that no path may return a raw 500. The reviewer caught the unhandled LinkStorageError.",
+    "The created_at test used a weak assertion (tzinfo is not None). The reviewer had to point out that the convention requires UTC.",
+    "The GET path still has a gap: a raw database error from get_by_code would become a 500, because persistence does not convert it to LinkStorageError.",
+    "The briefing had a redacted example URL, so the agent had to guess the intended test input."
+   ]
+  },
+  {
+   "id": 216,
+   "friction": [
+    "The agent did not apply the project conventions on the first pass. It did not cover NOT NULL on all columns, let SQLAlchemy exceptions leak, and did not normalise UTC. Two reviewer rounds were needed to catch these. No call to read the conventions is visible in the transcript.",
+    "The first Bash command chained ruff format, the gates and pytest. It was denied in don't-ask mode and had to be rerun as separate commands.",
+    "A careless Edit produced invalid syntax (two statements on one line) that was caught only by the format gate.",
+    "The agent added a type: ignore that mypy flagged as unused, which cost one extra gate cycle.",
+    "The briefing conflicted with the conventions (re-raise versus no leaking). The agent followed the briefing first and only resolved the conflict after the reviewer flagged it. It should have raised the conflict up front."
+   ]
+  },
+  {
+   "id": 215,
+   "friction": [
+    "Bash was denied in don't-ask mode, so the agent could not run autonome-gates or pytest. It ended its first turn with the work unverified and said so.",
+    "The agent's first version of the tests was too weak. The invalid-URL test checked only the exception type, and the resolve tests did not check LinkNotFoundError's message or the code it carries. The reviewer had to point this out even though domain/url.py gives each cause its own message.",
+    "The agent's final message said the gates had not run. The metronome later recorded passes for all five, so the agent's own report and the authoritative gate record differ."
+   ]
+  },
+  {
+   "id": 213,
+   "friction": [
+    "The first implementation had a real security gap, trailing-dot IPv4 literals bypassing the internal-address check, which only the independent reviewer caught. The agent's own tests did not cover host normalization edge cases.",
+    "Lint cleanup took three rounds. One edit accidentally removed a newline, and the fullwidth-character fix needed a second attempt because only the first character had been replaced.",
+    "The agent's first summary said it ran the 'fast' gates and pytest but did not run coverage. It did not show reading the briefing file in the visible transcript, so adherence to the briefing is unverified here.",
+    "The session's visible final commit state is not confirmed. The git status shows files staged but no commit was verified."
+   ]
+  },
+  {
+   "id": 210,
+   "friction": [
+    "One Bash call (lint-imports piped through tail with a pipestatus echo) was denied by don't-ask mode, so the agent re-ran it as a plain command.",
+    "The agent never ran autonome-gates, even though it checked that the binary exists at the start.",
+    "The briefing was not visible in the transcript, so adherence to its details can't be verified here."
+   ]
+  }
+ ],
+ "gate_config": "gates:\n- name: ruff-format\n  run: uv run ruff format --check .\n  fast: true\n  timeout_s: 120\n- name: ruff-lint\n  run: uv run ruff check .\n  fast: true\n  timeout_s: 120\n- name: mypy\n  run: uv run mypy\n  fast: true\n  timeout_s: 300\n- name: import-contracts\n  run: uv run lint-imports\n  fast: true\n  timeout_s: 120\n- name: pytest\n  run: uv run pytest --cov=shortlink --cov-fail-under=85\n  timeout_s: 600\n"
+}
