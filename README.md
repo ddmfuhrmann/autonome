@@ -64,7 +64,8 @@ The plugin registers the context's MCP server by itself. From any project, `/aut
 starts a plan; see [plugin/README.md](plugin/README.md) for the rest.
 
 **3. Set your project up**: save a gate config in the UI, and tune gates, review, models, fermata,
-playback and the soundcheck as described in the [configuration guide](docs/configuration.md).
+playback and the soundcheck as described in the [configuration guide](docs/configuration.md). How
+the memory stores, indexes and serves everything is in [docs/memory.md](docs/memory.md).
 Benchmarks of real runs are in [docs/benchmarks](docs/benchmarks).
 
 ## License

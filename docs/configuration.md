@@ -4,6 +4,26 @@ How to set a project up for autonome and tune how it plays. Almost everything is
 **gate config**, a YAML document kept in the context and edited only by a human, in the UI
 (`http://127.0.0.1:8765/ui/p/<project>/config`). The rest is a few environment variables.
 
+How the config is used, from the moment you save it:
+
+```mermaid
+flowchart TB
+  save["You save the gate config (UI)"] --> active["project active:<br/>hooks brief sessions and write handoffs"]
+  plan["An approved plan proposes gates (with_task)<br/>and conventions"] --> pending["pending gates"]
+  pending -- "setup task merges" --> cfg[("gate config")]
+  save --> cfg
+  plan -- "on approval" --> conv[("conventions")]
+  cfg --> doctor["doctor: context, Ollama, gate commands, clean main"]
+  doctor --> conduct["conduct"]
+  cfg -- "gates, encore, budget" --> metro["metronome and judge"]
+  cfg -- "review, models" --> agents["musician, reviewer, rehearsal,<br/>listener, tune, scribes"]
+  cfg -- "fermata / playback" --> human["your review: before or after merge"]
+  cfg -- "soundcheck" --> sc["feature tried in a running environment"]
+  conduct --> metro & agents
+```
+
+How the memory behind all this works is in [memory.md](memory.md).
+
 ## 1. Set a project up
 
 1. Start the context (`docker compose up -d --wait`) and install the plugin (see the README).
