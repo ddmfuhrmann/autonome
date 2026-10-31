@@ -211,6 +211,7 @@ async def delete_project(conn: AsyncConnection, slug: str) -> dict[str, int]:
     counts: dict[str, int] = {}
     docs = "select d.id from document d join project p on p.id = d.project_id where p.slug = %(s)s"
     statements = [
+        ("gate_run", "delete from gate_run where project_id = (select id from project where slug = %(s)s)"),
         ("chunk", f"delete from chunk where document_version_id in (select id from document_version where document_id in ({docs}))"),
         ("link", f"delete from link where from_id in ({docs}) or to_id in ({docs})"),
         ("raw_transcript", f"delete from raw_transcript where document_id in ({docs})"),
@@ -219,7 +220,6 @@ async def delete_project(conn: AsyncConnection, slug: str) -> dict[str, int]:
         ("document", "delete from document where project_id = (select id from project where slug = %(s)s)"),
         ("eval_run", "delete from eval_run where project_id = (select id from project where slug = %(s)s)"),
         ("eval_question", "delete from eval_question where project_id = (select id from project where slug = %(s)s)"),
-        ("gate_run", "delete from gate_run where project_id = (select id from project where slug = %(s)s)"),
         ("feature", "delete from feature where project_id = (select id from project where slug = %(s)s)"),
         ("layer", "delete from layer where project_id = (select id from project where slug = %(s)s)"),
         ("project", "delete from project where slug = %(s)s"),

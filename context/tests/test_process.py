@@ -154,7 +154,10 @@ def test_deleting_a_project_removes_everything_in_it_and_nothing_else(run_db, pr
     async def go(conn):
         await store.put_handoff(conn, indexer, make_handoff(project), "raw transcript")
         await store.put_handoff(conn, indexer, make_handoff(project + "-other"), None)
-        await store.record_gate_runs(conn, project, "s", [{"gate": "t", "passed": True, "duration_ms": 1}])
+        async with conn.transaction():
+            task = await store.create_document(conn, indexer, project=project, type="task", status="done",
+                                               body={"title": "t", "spec": "s"})
+        await store.record_gate_runs(conn, project, "s", [{"gate": "t", "passed": True, "duration_ms": 1}], task_id=task)
         counts = await store.delete_project(conn, project)
         gone = await store.list_documents(conn, project)
         kept = await store.list_documents(conn, project + "-other")
