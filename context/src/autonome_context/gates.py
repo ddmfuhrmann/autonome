@@ -39,6 +39,31 @@ class Cue(BaseModel):
     task: str | None = Field(default=None, description="title of the task to enqueue")
 
 
+class Check(BaseModel):
+    name: str
+    run: str = Field(description="shell command run against the live environment (AUTONOME_APP_URL is set)")
+    timeout_s: int = 900
+
+
+class Soundcheck(BaseModel):
+    """After the last task of a plan merges, the feature is tried in a running environment."""
+
+    up: str = Field(description="starts the environment and waits until it is ready, e.g. docker compose up -d --wait")
+    down: str = Field(description="stops it; always runs, even after a failure")
+    url: str = Field(description="where the app answers, e.g. http://127.0.0.1:8000")
+    seed: str | None = Field(default=None, description="loads synthetic data once the environment is up")
+    checks: list[Check] = Field(default=[], description="scripted e2e/smoke tests, run before the listener")
+    listener: bool = Field(default=True, description="an agent exercises the plan's acceptance criteria on the running app")
+    max_fixes: int = Field(default=2, description="fix rounds before the plan is blocked for a human")
+
+
+class Review(BaseModel):
+    """An independent agent reviews each task's diff against its plan and the conventions before merge."""
+
+    enabled: bool = True
+    max_rounds: int = Field(default=2, description="times the implementer is sent back with blocking findings")
+
+
 class GateConfig(BaseModel):
     """Gates run cheapest first; the first blocking failure stops the rest."""
 
@@ -50,6 +75,8 @@ class GateConfig(BaseModel):
     budget: Budget = Budget()
     fermata: Fermata = Fermata()
     cues: list[Cue] = []
+    review: Review = Review()
+    soundcheck: Soundcheck | None = None
 
     @classmethod
     def from_yaml(cls, text: str) -> "GateConfig":
@@ -72,4 +99,12 @@ encore: {max: 3, stop_on_repeat: true}
 budget: {task_tokens: 400000, task_minutes: 30, plan_tokens: 3000000}
 fermata: {features: []}
 cues: []
+review: {enabled: true, max_rounds: 2}
+# soundcheck:                # try each finished feature in a running environment (fakes, never real services)
+#   up: docker compose -f infra/compose.yml up -d --wait
+#   down: docker compose -f infra/compose.yml down
+#   url: http://127.0.0.1:8081
+#   checks: [{name: e2e, run: ./scripts/e2e.sh}]
+#   listener: true
+#   max_fixes: 2
 """

@@ -6,7 +6,10 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import { CONTEXT_URL, context, type GateConfig, type Plan, type Rehearsal, type Run, type Task } from "./context.js";
+import { consult } from "./agents.js";
+import { context, type GateConfig, type Plan, type Rehearsal, type Run, type Task } from "./context.js";
+import { findingsForEncore, review } from "./review.js";
+import { soundcheck } from "./soundcheck.js";
 import { commitMessage, fastForwardMain, git, mainCheckout, tryGit } from "./git.js";
 
 export const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -41,7 +44,7 @@ the start of this session has the task, its plan, the conventions for its layers
  * worktree, run the project's gate commands and the commands the gate config allows, and read git.
  * Everything else is denied.
  */
-export function allowedTools(cfg: GateConfig["config"]): string[] {
+export function allowedTools(cfg: Pick<GateConfig["config"], "gates" | "allowed_commands">): string[] {
   const commands = new Set<string>(["autonome-gates", ...(cfg.allowed_commands ?? [])]);
   for (const g of cfg.gates) {
     const first = g.run.trim().split(/\s+/)[0];
@@ -51,7 +54,8 @@ export function allowedTools(cfg: GateConfig["config"]): string[] {
     "Read", "Glob", "Grep", "Edit", "Write", "TodoWrite",
     "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)",
     ...[...commands].map((c) => `Bash(${c}:*)`),
-    "mcp__autonome__search", "mcp__autonome__conventions_get", "mcp__autonome__plan_get",
+    // The memory, under the plugin's server name (the musician loads the plugin) and the plain one.
+    ...["search", "conventions_get", "plan_get"].flatMap((t) => [`mcp__autonome__${t}`, `mcp__plugin_autonome_autonome__${t}`]),
   ];
 }
 
@@ -84,30 +88,15 @@ const PLAN_SCHEMA = {
 export async function rehearse(plan: Plan, opts: ConductOptions): Promise<Rehearsal> {
   const { title, ...rest } = plan.body;
   delete rest.rehearsal;
-  let out: Rehearsal | undefined;
-  for await (const msg of query({
+  const { answer } = await consult<Rehearsal>({
+    cwd: mainCheckout(opts.repo) ?? opts.repo,
+    model: opts.model,
+    role: REHEARSAL_PROMPT,
+    schema: PLAN_SCHEMA,
     prompt: `Rehearse plan #${plan.id} (feature ${plan.feature ?? "-"}, project ${opts.project}):\n\n` +
       JSON.stringify({ title, ...rest }, null, 2),
-    options: {
-      cwd: mainCheckout(opts.repo) ?? opts.repo,
-      model: opts.model,
-      permissionMode: "dontAsk",
-      allowedTools: [
-        "Read", "Glob", "Grep",
-        "Bash(git log:*)", "Bash(git diff:*)", "Bash(git show:*)", "Bash(git status:*)",
-        "mcp__autonome__search", "mcp__autonome__plan_get", "mcp__autonome__conventions_get",
-      ],
-      mcpServers: { autonome: { type: "http", url: `${CONTEXT_URL}/mcp` } },
-      settingSources: ["project"],
-      systemPrompt: { type: "preset", preset: "claude_code", append: REHEARSAL_PROMPT },
-      outputFormat: { type: "json_schema", schema: PLAN_SCHEMA },
-      maxTurns: 40,
-    },
-  })) {
-    if (msg.type === "result" && msg.subtype === "success") out = msg.structured_output as Rehearsal;
-  }
-  if (!out) throw new Error(`the rehearsal of plan #${plan.id} returned nothing`);
-  return out;
+  });
+  return answer;
 }
 
 function now(): string {
@@ -153,7 +142,9 @@ function writeHandoff(sessionId: string, cwd: string, taskId: number, log: Condu
   log(r.status === 0 ? `  handoff written` : `  handoff failed: ${r.stderr.slice(-500)}`);
 }
 
-async function play(task: Task, worktree: string, base: string, opts: ConductOptions) {
+/** One session of the musician; `encore` resumes it with what to fix. */
+async function play(task: Task, worktree: string, base: string, opts: ConductOptions,
+  encore?: { sessionId: string; prompt: string }) {
   const cfg = (await context.gateConfig(opts.project)).config;
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), cfg.budget.task_minutes * 60_000);
@@ -163,8 +154,9 @@ async function play(task: Task, worktree: string, base: string, opts: ConductOpt
   let stop = "";
   try {
     for await (const msg of query({
-      prompt: `Play task #${task.id}: ${task.body.title}. Read the briefing, then implement it.`,
+      prompt: encore?.prompt ?? `Play task #${task.id}: ${task.body.title}. Read the briefing, then implement it.`,
       options: {
+        resume: encore?.sessionId,
         cwd: worktree,
         model: opts.model,
         abortController: abort,
@@ -253,7 +245,8 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<void> {
   git(repo, "worktree", "add", "-q", "-b", branch, worktree, base);
   log(`#${task.id} ${task.body.title} — playing in ${worktree}`);
 
-  const result = await play(task, worktree, base, opts);
+  const cfg = (await context.gateConfig(opts.project)).config;
+  let result = await play(task, worktree, base, opts);
   const run: Run = { at: now(), session_id: result.sessionId, branch, worktree, base, outcome: "",
     tokens: result.tokens, cost_usd: result.cost };
   const block = async (reason: string) => {
@@ -262,15 +255,37 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<void> {
     tryGit(repo, "worktree", "remove", "--force", worktree); // the branch stays for inspection
   };
 
-  const state = result.sessionId ? metronomeState(result.sessionId) : {};
+  // Gates, then the reviewer; blocking findings send the musician back to the same session.
+  const judge = async (): Promise<string | null> => {
+    for (let round = 0; ; round++) {
+      const state = result.sessionId ? metronomeState(result.sessionId) : {};
+      if (result.stop) return result.stop;
+      if (state.status === "blocked") return `metronome: ${state.reason}`;
+      git(worktree, "add", "-A");
+      if (!git(worktree, "status", "--porcelain")) return "the session changed nothing";
+      const check = gates(worktree, base);
+      if (!check.passed) return check.summary;
+      if (!cfg.review.enabled) return null;
+      const briefing = (await context.briefing(opts.project, task.id)).text;
+      const rv = await review(task, briefing, worktree, base, opts.model);
+      run.review = rv.result;
+      run.review_rounds = round + 1;
+      run.cost_usd = (run.cost_usd ?? 0) + rv.cost;
+      if (rv.result.verdict === "pass") return null;
+      const high = findingsForEncore(rv.result);
+      if (round >= cfg.review.max_rounds) return `review: still blocking after ${round} encore(s):\n${high}`;
+      log(`  review: blocking findings; encore ${round + 1}`);
+      result = await play(task, worktree, base, opts, {
+        sessionId: result.sessionId,
+        prompt: `An independent reviewer read your diff and found blocking issues. Fix them, then end your turn:\n${high}`,
+      });
+      run.tokens = (run.tokens ?? 0) + result.tokens;
+      run.cost_usd = (run.cost_usd ?? 0) + result.cost;
+    }
+  };
+  const failure = await judge();
   if (result.sessionId) writeHandoff(result.sessionId, worktree, task.id, log);
-  if (result.stop) return block(result.stop);
-  if (state.status === "blocked") return block(`metronome: ${state.reason}`);
-
-  git(worktree, "add", "-A");
-  if (!git(worktree, "status", "--porcelain")) return block("the session changed nothing");
-  const check = gates(worktree, base);
-  if (!check.passed) return block(check.summary);
+  if (failure) return block(failure);
   execFileSync("git", ["commit", "-q", "-F", "-"], { cwd: worktree, input: commitMessage(task) });
 
   if (task.body.fermata) {
@@ -288,6 +303,17 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<void> {
   if (task.feature) updateDocs(repo, opts.project, ["--feature", task.feature], log);
 }
 
+async function soundcheckPlan(plan: Plan, opts: ConductOptions): Promise<void> {
+  const cfg = (await context.gateConfig(opts.project)).config.soundcheck;
+  if (!cfg) return;
+  opts.log(`plan #${plan.id} ${plan.body.title}: every task merged; soundcheck`);
+  const r = await soundcheck(plan, cfg, mainCheckout(opts.repo) ?? opts.repo, opts.model, opts.log);
+  const { outcome } = await context.soundcheck(plan.id, r);
+  opts.log(outcome === "done" ? `  passed; the feature is done`
+    : outcome === "fixing" ? `  failed; ${r.fixes.length} fix task(s) queued`
+    : `  failed; the plan is blocked for your decision`);
+}
+
 export async function conduct(opts: ConductOptions): Promise<number> {
   await context.health().catch(() => {
     throw new Error("autonome-context is unreachable; the conductor does not play without it");
@@ -298,7 +324,11 @@ export async function conduct(opts: ConductOptions): Promise<number> {
   let played = 0;
   let sinceOverview = 0;
   while (played < opts.maxTasks) {
-    const { task, rehearse: plan } = await context.claim(opts.project);
+    const { task, rehearse: plan, soundcheck: finished } = await context.claim(opts.project);
+    if (finished) {
+      await soundcheckPlan(finished, opts);
+      continue;
+    }
     if (!task) {
       if (!opts.watch) break;
       if (sinceOverview) updateDocs(opts.repo, opts.project, ["--overview"], opts.log);

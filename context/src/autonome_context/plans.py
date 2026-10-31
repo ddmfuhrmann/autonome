@@ -256,3 +256,91 @@ async def finish_wave_if_complete(conn: AsyncConnection, plan_id: int) -> None:
         statuses = [(await store.get_document(conn, i))["status"] for i in ids] if plan_id in ids else []
         if statuses and all(s in ("done", "abandoned") for s in statuses):
             await rules.transition(conn, w["id"], "done", "runner")
+
+
+class Fix(BaseModel):
+    title: str
+    spec: str = Field(description="what is wrong, how to reproduce it on the running app, and what to change")
+    acceptance: list[str] = Field(default=[], description="ideally: a test that reproduces the failure now passes")
+
+
+class CheckRun(BaseModel):
+    name: str
+    passed: bool
+    output: str = ""
+
+
+class SoundcheckResult(BaseModel):
+    """The runner's try of a finished feature in a running environment."""
+
+    passed: bool
+    report: str = Field(description="what was exercised and what happened")
+    checks: list[CheckRun] = []
+    fixes: list[Fix] = Field(default=[], description="tasks that would make it pass, when it did not")
+
+
+def _rounds(plan: dict) -> list[dict]:
+    """Soundchecks since the last human retry."""
+    runs = plan["body"].get("soundchecks", [])
+    since = max((i for i, r in enumerate(runs) if r.get("retry")), default=-1)
+    return [r for r in runs[since + 1:] if not r.get("retry")]
+
+
+async def soundcheck_due(conn: AsyncConnection, project: str) -> dict | None:
+    """The oldest approved plan whose tasks are all finished but whose feature has not passed a soundcheck."""
+    for plan in reversed(await store.list_documents(conn, project, type="plan", status="approved", limit=200)):
+        if plan["body"].get("kind") == "maintenance":
+            continue
+        tasks = [l for l in await store.links_of(conn, plan["id"]) if l["kind"] == "has_task" and l["direction"] == "out"]
+        if tasks and all(t["status"] in ("done", "abandoned") for t in tasks) \
+                and any(t["status"] == "done" for t in tasks) and await store.awaits_soundcheck(conn, plan):
+            return plan
+    return None
+
+
+async def record_soundcheck(conn: AsyncConnection, indexer: store.Indexer, plan_id: int, r: SoundcheckResult) -> str:
+    """Runner. A pass finishes the plan; a failure queues fix tasks in it, or blocks it once the fix rounds
+    are spent (or there is nothing concrete to fix)."""
+    async with conn.transaction():
+        plan = await store.get_document(conn, plan_id)
+        if not plan or plan["type"] != "plan" or plan["status"] != "approved":
+            raise rules.Forbidden(f"plan {plan_id} is not an approved plan")
+        runs = plan["body"].get("soundchecks", []) + [{"at": _now(), **r.model_dump(mode="json")}]
+        await store.add_version(conn, indexer, plan_id, {**plan["body"], "soundchecks": runs})
+        plan = await store.get_document(conn, plan_id)
+        if r.passed:
+            await store.finish_plan_if_complete(conn, plan_id)
+            await finish_wave_if_complete(conn, plan_id)
+            return "done"
+        doc = await store.latest_of_type(conn, plan["project"], "gate_config")
+        max_fixes = GateConfig.from_yaml(doc["body"]["yaml"]).soundcheck.max_fixes if doc else 0
+        if not r.fixes or len(_rounds(plan)) > max_fixes:
+            await rules.transition(conn, plan_id, "blocked", "runner")
+            return "blocked"
+        old = [await store.get_document(conn, l["id"]) for l in await store.links_of(conn, plan_id)
+               if l["kind"] == "has_task" and l["direction"] == "out"]
+        last = max(old, key=lambda t: t["body"]["seq"])
+        for i, fix in enumerate(r.fixes, start=1):
+            task_id = await store.create_document(
+                conn, indexer, project=plan["project"], type="task", status="pending", feature=plan["feature"],
+                layers=last["layers"],
+                body={"title": fix.title, "spec": fix.spec, "acceptance": fix.acceptance, "plan_id": plan_id,
+                      "seq": last["body"]["seq"] + i, "depends_on": [], "fermata": last["body"].get("fermata", False),
+                      "source": "soundcheck"} | ({"wave_id": last["body"]["wave_id"]} if last["body"].get("wave_id") else {}))
+            await store.link(conn, plan_id, task_id, "has_task")
+    return "fixing"
+
+
+async def retry_soundcheck(conn: AsyncConnection, indexer: store.Indexer, plan_id: int) -> None:
+    """Human-only. A blocked plan gets one more soundcheck with fresh fix rounds."""
+    async with conn.transaction():
+        plan = await rules.transition(conn, plan_id, "approved", "human")
+        runs = plan["body"].get("soundchecks", []) + [{"at": _now(), "retry": True}]
+        await store.add_version(conn, indexer, plan_id, {**plan["body"], "soundchecks": runs})
+
+
+async def accept_as_is(conn: AsyncConnection, plan_id: int) -> None:
+    """Human-only. A blocked plan is done as it is; the features after it may play."""
+    async with conn.transaction():
+        await rules.transition(conn, plan_id, "done", "human")
+        await finish_wave_if_complete(conn, plan_id)

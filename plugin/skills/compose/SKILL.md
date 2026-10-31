@@ -63,7 +63,8 @@ without a linter, migrations with no check, a frontend with no build. For each m
 - put the gate in the plan's `gates` (`name`, `run`, and `with_task` = that task's position, so the
   gate starts only once its tooling is merged; omit `with_task` if the tooling already exists).
 
-Approving the plan adds those gates to the config; the user sees them before approving. Never
+Approving the plan adds those gates to the config; the user sees them before approving. A gate's own
+command is allowed in conduct sessions automatically (`allowed_commands` is only for other commands). Never
 propose replacing or loosening an existing gate. If the gates already cover the plan, add none.
 
 Call `plan_draft` with `project`, `feature` (kebab-case slug), `layers` and the plan. To revise, call
@@ -72,7 +73,9 @@ it again with the same `plan_id`; only drafts can change.
 ## 4. Hand it over
 
 Give the user the `approve_at` link and a three-line summary (goal, number of tasks, what is out of
-scope, and the gates it adds, if any). You cannot approve the plan; only the user can, in the UI. If an architectural or product
+scope, and the gates it adds, if any). If the gate config has no `soundcheck` and the project runs as
+a service, say in one line that finished features will not be tried in a running environment, and
+offer the YAML for it (the user adds it in the UI). You cannot approve the plan; only the user can, in the UI. If an architectural or product
 decision came up, record it with `decision_propose` so the user accepts it there too.
 
 ## 5. Waves

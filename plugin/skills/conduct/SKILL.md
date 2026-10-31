@@ -28,6 +28,13 @@ Plans of a wave play in their order. Before a feature that depends on others sta
 rehearses its plan against main: it either adds notes for the implementers or holds the plan with a
 proposed revision on the Approvals page.
 
+Before a task merges, an independent reviewer reads its diff against the plan and the conventions;
+blocking findings send the implementer back (an encore) up to `review.max_rounds` times. When every
+task of a plan has merged and the gate config has a `soundcheck`, the maestro starts the environment,
+runs its checks and lets the listener try the feature on the running app. Failures come back as fix
+tasks in the same plan; after `max_fixes` rounds the plan is blocked on the Approvals page, where the
+user retries, accepts it as is, or abandons it. Features that depend on it wait until it is done.
+
 Each task ends merged into main, held at the fermata (critical features), or blocked with the reason
 and a handoff that explains what went wrong. Blocked tasks need a human decision in the UI: retry
 or abandon.

@@ -9,6 +9,7 @@ from psycopg.rows import dict_row
 
 from .chunking import Doc, Strategy
 from .embed import Embedder
+from .gates import GateConfig
 from .handoff import Handoff
 from .redact import redact
 
@@ -468,10 +469,19 @@ async def finish_plan_if_complete(conn: AsyncConnection, plan_id: int) -> bool:
            where l.from_id = %s and l.kind = 'has_task' and t.status not in ('done', 'abandoned')""",
         (plan_id,),
     )).fetchone()
-    if open_tasks[0] == 0:
+    if open_tasks[0] == 0 and not await awaits_soundcheck(conn, plan):
         await conn.execute("update document set status = 'done' where id = %s and status = 'approved'", (plan_id,))
         return True
     return False
+
+
+async def awaits_soundcheck(conn: AsyncConnection, plan: dict) -> bool:
+    """With a soundcheck configured, a plan is done only once its feature passed one."""
+    doc = await latest_of_type(conn, plan["project"], "gate_config")
+    if not doc or GateConfig.from_yaml(doc["body"]["yaml"]).soundcheck is None:
+        return False
+    runs = plan["body"].get("soundchecks", [])
+    return not (runs and runs[-1].get("passed"))
 
 
 # --- living docs ---------------------------------------------------------------------------------

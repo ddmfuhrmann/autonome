@@ -130,8 +130,13 @@ async def document_page(request: Request) -> Response:
     if doc["type"] == "plan" and doc["status"] == "held":
         actions = ["revised", "approved", "abandoned"]
     return render(request, "document.html", doc=doc, links=links, actions=actions, wave_plans=wave_plans,
-                  in_wave=in_wave, labels={"revised": "Accept revision", "approved": "Approve"}
-                  if doc["status"] != "held" else {"revised": "Accept revision", "approved": "Keep original"})
+                  in_wave=in_wave, labels=LABELS.get(doc["status"], {}))
+
+
+LABELS = {
+    "held": {"revised": "Accept revision", "approved": "Keep original"},
+    "blocked": {"approved": "Try again", "done": "Accept as is"},
+}
 
 
 async def config_page(request: Request) -> Response:
@@ -164,6 +169,7 @@ async def approvals_page(request: Request) -> Response:
             "Plans to approve": [p for p in await store.list_documents(conn, project, type="plan", status="draft")
                                  if not await plans.wave_of(conn, p)],
             "Plans held after rehearsal": await store.list_documents(conn, project, type="plan", status="held"),
+            "Plans blocked at the soundcheck": await store.list_documents(conn, project, type="plan", status="blocked"),
             "Held at the fermata": await store.list_documents(conn, project, type="task", status="on_hold"),
             "Blocked tasks": await store.list_documents(conn, project, type="task", status="blocked"),
             "Proposed decisions": await store.list_documents(conn, project, type="decision", status="proposed"),
@@ -184,6 +190,10 @@ async def transition(request: Request) -> Response:
         try:
             if doc["type"] == "plan" and doc["status"] == "held" and to in ("revised", "approved"):
                 await plans.resolve_rehearsal(conn, indexer, doc_id, accept=to == "revised")
+            elif doc["type"] == "plan" and doc["status"] == "blocked" and to == "approved":
+                await plans.retry_soundcheck(conn, indexer, doc_id)
+            elif doc["type"] == "plan" and doc["status"] == "blocked" and to == "done":
+                await plans.accept_as_is(conn, doc_id)
             elif doc["type"] == "plan" and to == "approved":
                 await plans.approve(conn, indexer, doc_id)
             elif doc["type"] == "wave" and to == "approved":

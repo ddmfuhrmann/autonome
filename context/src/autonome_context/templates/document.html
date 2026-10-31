@@ -34,6 +34,14 @@
 </div>
 {% if r.plan %}<h2>Proposed revision</h2>{% with body = r.plan %}{% include "_body.html" %}{% endwith %}<h2>Current plan</h2>{% endif %}
 {% endif %}
+{% if doc.type == 'plan' and doc.body.soundchecks %}{% set runs = doc.body.soundchecks|rejectattr('retry')|list %}{% if runs %}{% set sc = runs[-1] %}
+<div class="card"><h2>Soundcheck <span class="pill">{{ runs|length }} run{{ 's' if runs|length > 1 }}</span></h2>
+  <div class="meta"><span class="pill {{ 'ok' if sc.passed else 'stop' }}">{{ 'passed' if sc.passed else 'failed' }}</span><span>{{ sc.at }}</span></div>
+  <pre class="body">{{ sc.report }}</pre>
+  {% for c in sc.checks %}<details><summary><span class="pill {{ 'ok' if c.passed else 'stop' }}">{{ c.name }}</span></summary><pre class="body">{{ c.output }}</pre></details>{% endfor %}
+  {% if sc.fixes %}<h3>Fixes queued</h3><ul>{% for f in sc.fixes %}<li>{{ f.title }}</li>{% endfor %}</ul>{% endif %}
+</div>
+{% endif %}{% endif %}
 {% if links %}
 <div class="card"><h2>Links</h2>
   {% for l in links %}<div class="meta"><span>{{ l.direction }} · {{ l.kind }}</span>

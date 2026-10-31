@@ -18,6 +18,10 @@ TRANSITIONS: dict[tuple[str, str, str], set[str]] = {
     ("plan", "approved", "held"): {"runner"},  # the rehearsal found the plan out of date
     ("plan", "held", "approved"): {"human"},  # accept the revision or keep the original
     ("plan", "held", "abandoned"): {"human"},
+    ("plan", "approved", "blocked"): {"runner"},  # the soundcheck kept failing after its fix rounds
+    ("plan", "blocked", "approved"): {"human"},  # try again: one more soundcheck, fresh fix rounds
+    ("plan", "blocked", "done"): {"human"},  # accept the feature as it is
+    ("plan", "blocked", "abandoned"): {"human"},
     ("wave", "draft", "approved"): {"human"},
     ("wave", "draft", "abandoned"): {"human", "agent"},
     ("wave", "approved", "abandoned"): {"human"},

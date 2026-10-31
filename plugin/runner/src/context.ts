@@ -47,6 +47,8 @@ export interface Run {
   cost_usd?: number;
   diff_stat?: string;
   diff?: string;
+  review?: ReviewResult;
+  review_rounds?: number;
 }
 
 export interface GateConfig {
@@ -57,7 +59,43 @@ export interface GateConfig {
     encore: { max: number; stop_on_repeat: boolean };
     budget: { task_tokens: number; task_minutes: number; plan_tokens: number };
     cues?: Cue[];
+    review: { enabled: boolean; max_rounds: number };
+    soundcheck: Soundcheck | null;
   };
+}
+
+export interface Soundcheck {
+  up: string;
+  down: string;
+  url: string;
+  seed: string | null;
+  checks: { name: string; run: string; timeout_s: number }[];
+  listener: boolean;
+  max_fixes: number;
+}
+
+export interface Fix {
+  title: string;
+  spec: string;
+  acceptance: string[];
+}
+
+export interface SoundcheckResult {
+  passed: boolean;
+  report: string;
+  checks: { name: string; passed: boolean; output: string }[];
+  fixes: Fix[];
+}
+
+export interface Finding {
+  severity: "high" | "medium" | "low";
+  file?: string;
+  issue: string;
+}
+
+export interface ReviewResult {
+  verdict: "pass" | "fail";
+  findings: Finding[];
 }
 
 export interface Cue {
@@ -89,7 +127,11 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 export const context = {
   health: () => call<{ status: string }>("/health"),
   claim: (project: string) =>
-    call<{ task: Task | null; rehearse: Plan | null }>(`/api/projects/${project}/tasks/claim`, { method: "POST", body: "{}" }),
+    call<{ task: Task | null; rehearse: Plan | null; soundcheck: Plan | null }>(
+      `/api/projects/${project}/tasks/claim`, { method: "POST", body: "{}" }),
+  soundcheck: (planId: number, r: SoundcheckResult) =>
+    call<{ outcome: "done" | "fixing" | "blocked" }>(`/api/plans/${planId}/soundcheck`, {
+      method: "POST", body: JSON.stringify(r) }),
   rehearsal: (planId: number, r: Rehearsal) =>
     call<{ plan_status: string }>(`/api/plans/${planId}/rehearsal`, { method: "POST", body: JSON.stringify(r) }),
   transition: (taskId: number, to: string, run?: Run) =>
@@ -97,6 +139,8 @@ export const context = {
       method: "POST",
       body: JSON.stringify({ to, run }),
     }),
+  briefing: (project: string, taskId: number) =>
+    call<{ text: string }>(`/api/projects/${project}/briefing?task_id=${taskId}`),
   gateConfig: (project: string) => call<GateConfig>(`/api/projects/${project}/gate-config`),
   features: (project: string) => call<Feature[]>(`/api/projects/${project}/features`),
   enqueue: (project: string, task: { title: string; spec: string; source: string; feature?: string }) =>

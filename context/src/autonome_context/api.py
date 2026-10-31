@@ -67,6 +67,9 @@ async def claim_task(request: Request) -> JSONResponse:
     """The runner asks for work. A pending task is moved to playing; a released one is returned as is."""
     pool, _ = await services.get()
     async with pool.connection() as conn:
+        # A feature whose tasks are all merged is tried in a running environment before anything else.
+        if soundcheck := await plans.soundcheck_due(conn, request.path_params["project"]):
+            return _json({"task": None, "rehearse": None, "soundcheck": soundcheck})
         async with conn.transaction():
             task = await store.next_task(conn, request.path_params["project"])
             if task and task["status"] == "pending":
@@ -74,7 +77,7 @@ async def claim_task(request: Request) -> JSONResponse:
             plan = await store.get_document(conn, task["body"]["plan_id"]) if task else None
     # A wave plan whose turn has come is rehearsed against the code before its first task plays.
     rehearse = plan if task and task["status"] == "playing" and plans.needs_rehearsal(task, plan) else None
-    return _json({"task": task, "rehearse": rehearse})
+    return _json({"task": task, "rehearse": rehearse, "soundcheck": None})
 
 
 async def post_rehearsal(request: Request) -> JSONResponse:
@@ -175,6 +178,20 @@ async def post_task(request: Request) -> JSONResponse:
     return _json(result, 201)
 
 
+async def post_soundcheck(request: Request) -> JSONResponse:
+    try:
+        r = plans.SoundcheckResult.model_validate(await request.json())
+    except ValidationError as e:
+        return _json({"error": "invalid_soundcheck", "detail": e.errors()}, 422)
+    pool, indexer = await services.get()
+    async with pool.connection() as conn:
+        try:
+            outcome = await plans.record_soundcheck(conn, indexer, int(request.path_params["doc_id"]), r)
+        except rules.Forbidden as e:
+            return _json({"error": str(e)}, 409)
+    return _json({"outcome": outcome})
+
+
 def routes() -> list:
     return [
         Route("/api/projects/{project}/insights", get_insights),
@@ -187,6 +204,7 @@ def routes() -> list:
         Route("/api/projects/{project}/tasks/claim", claim_task, methods=["POST"]),
         Route("/api/tasks/{doc_id:int}/transition", task_transition, methods=["POST"]),
         Route("/api/plans/{doc_id:int}/rehearsal", post_rehearsal, methods=["POST"]),
+        Route("/api/plans/{doc_id:int}/soundcheck", post_soundcheck, methods=["POST"]),
         Route("/api/projects/{project}/briefing", get_briefing),
         Route("/api/projects/{project}/gate-config", get_gate_config),
         Route("/api/gate-runs", post_gate_runs, methods=["POST"]),

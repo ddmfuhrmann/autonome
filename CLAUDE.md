@@ -37,6 +37,11 @@ plugin/runner/  the maestro (TypeScript, Claude Agent SDK): one session + worktr
   waits for the plans it depends on, and the runner rehearses it against main before its first task
   (ready with notes, or held with a revision the human accepts). Plans propose missing gates, added to
   the gate config on approval or when the task that sets their tooling up is merged.
+- **Verification beyond gates**: a reviewer agent reads each task's diff before merge (high findings
+  send the musician back to the same session); a soundcheck (`soundcheck` in the gate config) tries a
+  finished feature in a running environment (checks + a listener agent) and turns failures into fix
+  tasks in the same plan, blocking it for a human after `max_fixes` rounds. Environments use fakes,
+  never real external services.
 - **Loops**: compose (human + agent, the only conversation) → conduct (one session per task) →
   tune (reads `insights`, only proposes conventions and at most one plan) ← cues (scheduled checks
   that only queue tasks into a maintenance plan a human approved once). Only conduct writes code.

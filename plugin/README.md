@@ -10,6 +10,8 @@ in one step, the plan; everything after approval runs without you.
 | **compose** | `/autonome:compose` | You and the composer write the plan, grounded in the project's memory, or a **wave**: one plan per feature, grouped in play order. Gates the plan needs and the config lacks are proposed with it. It is saved as a draft. |
 | **approve** | the context UI | You, a plan or a whole wave at once (with any gates it adds). Agents have no way to approve. |
 | **conduct** | `/autonome:conduct` or `autonome conduct --project <slug> [--watch]` | The maestro plays each approved task in its own session and worktree, and merges to `main` only when the gates pass. Before a wave feature that waited for others, it **rehearses** the plan against `main`: notes for the implementers, or a revision held for you. `--watch` keeps it waiting for new approved work. |
+| **review** | automatic | Before each merge, an agent that did not write the code checks the diff against the plan and the conventions. Blocking findings send the implementer back. |
+| **soundcheck** | automatic, if configured | When a plan's last task merges, the feature is tried in a running environment: scripted checks, then a listener agent exercising the acceptance criteria. Failures become fix tasks; repeated failures block the plan for you. |
 | **fermata** | the context UI | You review the diff, only for tasks marked critical. |
 | **tune** | `/autonome:tune` | Reads adherence, gate failures and friction, and proposes improvements to the process for you to approve. |
 | **cues** | `autonome cues --project <slug>` | Scheduled checks that enqueue maintenance tasks. Run it from cron. |

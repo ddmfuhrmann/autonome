@@ -60,8 +60,6 @@ test("a musician may run the gates' commands and nothing else in the shell", () 
   const tools = allowedTools({
     gates: [{ name: "lint", run: "./mvnw -q checkstyle:check" }, { name: "neg", run: "! grep -q TODO x" }],
     allowed_commands: ["pnpm"],
-    encore: { max: 3, stop_on_repeat: true },
-    budget: { task_tokens: 1, task_minutes: 1, plan_tokens: 1 },
   });
   assert.ok(tools.includes("Bash(./mvnw:*)") && tools.includes("Bash(pnpm:*)") && tools.includes("Bash(autonome-gates:*)"));
   assert.ok(!tools.some((t) => t === "Bash" || t.startsWith("Bash(git commit") || t.startsWith("Bash(git push")));
