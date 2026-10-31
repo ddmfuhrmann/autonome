@@ -1,15 +1,109 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui %}
 {% block title %}Approvals{% endblock %}
 {% block main %}
-<h1>Approvals</h1>
-<p class="muted">The human side of the process. Nothing here can be decided by an agent.</p>
-{% for label, docs in groups.items() %}
-<div class="card">
-  <h2>{{ label }} <span class="pill">{{ docs|length }}</span></h2>
-  {% for d in docs %}
-  <div class="meta"><a href="/ui/p/{{ project }}/documents/{{ d.id }}">#{{ d.id }} {{ d.body.title or d.body.summary|truncate(80) }}</a>
-    {% if d.feature %}<span class="pill accent">{{ d.feature }}</span>{% endif %}<span>{{ d.created_at.strftime('%Y-%m-%d %H:%M') }}</span></div>
-  {% else %}<p class="empty">Nothing waiting.</p>{% endfor %}
+{% set here = request.url.path ~ ('?kind=' ~ kind if kind else '') %}
+<div class="page-head">
+  <div class="page-head__text">
+    <div class="page-head__title"><h1>Approvals</h1><span class="count-pill">{{ total }}</span></div>
+    <p class="page-head__meta">Only you can approve, release or reject. Nothing here moves until you decide.</p>
+  </div>
 </div>
+<nav class="filters" aria-label="Filter">
+  <a class="chip{{ ' is-active' if not kind }}" href="?"{% if not kind %} aria-current="true"{% endif %}>All <span class="count-pill">{{ total }}</span></a>
+  {% for k, text in kinds.items() if counts[k] %}
+  <a class="chip{{ ' is-active' if kind == k }}" href="?kind={{ k }}"{% if kind == k %} aria-current="true"{% endif %}>{{ text }} <span class="count-pill">{{ counts[k] }}</span></a>
+  {% endfor %}
+</nav>
+<div class="grid grid--main-aside">
+<div class="queue">
+{% for item in items %}{% set d = item.doc %}
+<article class="qitem{{ ' card--attn' if item.kind == 'fermata' }}{{ ' card--danger' if item.kind in ('soundcheck', 'blocked') }}" aria-labelledby="q{{ d.id }}">
+  <div class="qitem__main">
+    <div class="qitem__kind">
+      {% if item.kind == 'fermata' %}{{ ui.st('fermata') }}
+      {% elif item.kind == 'held' %}{{ ui.st('held', text='Held by rehearsal') }}
+      {% elif item.kind == 'soundcheck' %}{{ ui.st('blocked', text='Soundcheck failed') }}
+      {% elif item.kind == 'blocked' %}{{ ui.st('blocked') }}
+      {% else %}{{ ui.st(d.status, text=(d.type|label ~ ' ' ~ d.status) if d.type in ('wave', 'plan') else d.type|label ~ ' · ' ~ d.status) }}{% endif %}
+      <span class="id">{{ d|ref }}</span>{{ ui.tags(d) }}
+      {% if d.type == 'wave' %}<span class="muted">{{ item.plans|length }} plans · {{ item.plans|map(attribute='body')|map(attribute='tasks')|map('length')|sum }} tasks</span>{% endif %}
+    </div>
+    <h2 class="qitem__title" id="q{{ d.id }}"><a href="/ui/p/{{ project }}/documents/{{ d.id }}">{{ d.body.title or d.body.summary|truncate(120) }}</a></h2>
+
+    {% if item.kind == 'fermata' %}
+      <div class="callout callout--hold"><div><strong>Why it stopped:</strong> its feature is on the fermata list, so a green task waits for you before merging.
+        {% if item.last and item.last.review %}Reviewer: {{ item.last.review.verdict }}{% if item.last.review.findings %}, {{ item.last.review.findings|length }} finding{{ 's' if item.last.review.findings|length > 1 }}{% endif %}.{% endif %}</div></div>
+      {% if item.last and item.last.diff %}{{ ui.diff(item.last.diff, open_files=1) }}
+      {% elif item.last and item.last.diff_stat %}<pre class="code">{{ item.last.diff_stat }}</pre>{% endif %}
+    {% elif item.kind == 'blocked' %}
+      {% set run = (d.body.runs or [none])[-1] %}
+      {% if run and run.reason %}<div class="callout callout--block"><div class="prose">{{ run.reason|truncate(800)|md }}</div></div>{% endif %}
+      {% if item.failed_gate %}{% set g = item.failed_gate %}
+      <ul class="gates"><li>{{ ui.st('failed', sm=true) }}{{ g.gate }}<span class="dur">{{ g.created_at|ago }}</span>
+        <details style="width: 100%" open><summary class="muted" style="font-size: 12px; cursor: pointer">Last output</summary><pre class="log">{{ g.output }}</pre></details></li></ul>
+      {% endif %}
+    {% elif item.kind == 'held' %}{% set r = d.body.rehearsal %}
+      <p class="muted">The rehearsal checked the plan against <span class="mono">main</span> before its first task and {{ 'proposes a revision' if r.plan else 'held it' }}.</p>
+      {% if r.notes %}<div class="callout callout--hold"><div class="prose">{{ r.notes|md }}</div></div>{% endif %}
+      {% if r.plan %}
+      <div class="split">
+        <div class="split__col"><div class="split__head">Original · {{ d.body.tasks|length }} tasks</div>
+          <div class="split__body"><ol>{% for t in d.body.tasks %}<li>{{ t.title }}</li>{% endfor %}</ol></div></div>
+        <div class="split__col"><div class="split__head">Proposed revision · {{ r.plan.tasks|length }} tasks</div>
+          <div class="split__body"><ol>{% for t in r.plan.tasks %}{% set same = d.body.tasks|selectattr('title', 'equalto', t.title)|list %}<li>{% if same %}{{ t.title }}{% else %}<mark class="add">{{ t.title }}</mark>{% endif %}</li>{% endfor %}</ol></div></div>
+      </div>
+      {% endif %}
+    {% elif item.kind == 'soundcheck' %}{% set runs = (d.body.soundchecks or [])|rejectattr('retry')|list %}{% set sc = runs[-1] if runs else none %}
+      {% if sc %}
+      <ul class="gates">{% for c in sc.checks %}<li>{{ ui.st('passed' if c.passed else 'failed', sm=true) }}{{ c.name }}</li>{% endfor %}</ul>
+      <div class="callout callout--block"><div class="wrap"><strong>Report:</strong> {{ sc.report|truncate(600) }}</div></div>
+      {% endif %}
+    {% elif d.type == 'wave' %}
+      <div class="table-wrap"><table class="table">
+        <thead><tr><th>Order</th><th>Plan</th><th>Feature</th><th>Depends on</th><th class="num">Tasks</th><th>New gates</th></tr></thead>
+        <tbody>{% for f in d.body.features %}{% set p = item.plans[loop.index0] %}
+          <tr><td class="mono">{{ loop.index }}</td><td>{% if p %}{{ ui.doc_link(project, p) }}{% else %}missing #{{ f.plan_id }}{% endif %}</td>
+            <td>{% if p and p.feature %}<span class="tag tag--feature">{{ p.feature }}</span>{% endif %}</td>
+            <td class="mono">{% for dep in f.depends_on %}{{ d.body.features[dep - 1].plan_id|ref('plan') }}{{ ', ' if not loop.last }}{% else %}<span class="muted">—</span>{% endfor %}</td>
+            <td class="num">{{ p.body.tasks|length if p else '' }}</td>
+            <td>{% for g in (p.body.gates if p else []) %}<span class="tag tag--gate">{{ g.name }}</span>{% else %}<span class="muted">—</span>{% endfor %}</td></tr>
+        {% endfor %}</tbody>
+      </table></div>
+    {% elif d.type == 'plan' %}
+      <p class="muted">{{ d.body.goal|truncate(300) }}</p>
+      <p class="muted" style="font-size: 12px">{{ d.body.tasks|length }} tasks{% if d.body.gates %} · adds gates {{ d.body.gates|map(attribute='name')|join(', ') }}{% endif %}</p>
+    {% elif d.type == 'decision' %}
+      {% set why = d.body.decision or d.body.rationale or d.body.why %}{% if why %}<p class="muted">{{ why|truncate(400) }}</p>{% endif %}
+    {% elif d.type == 'convention' %}
+      <div class="prose">{{ d.body.rule|md }}</div>
+    {% endif %}
+
+    {% call ui.decision(project, d, item.actions, next=here) %}
+      {% if d.type == 'wave' %}<a class="note" href="/ui/p/{{ project }}/documents/{{ d.id }}">Review plans</a>
+      {% elif item.kind == 'fermata' %}<a class="note" href="/ui/p/{{ project }}/documents/{{ d.id }}#diff">Full diff</a>
+      {% elif item.kind == 'held' %}<a class="note" href="/ui/p/{{ project }}/documents/{{ d.id }}#rehearsal">Rehearsal</a>{% endif %}
+    {% endcall %}
+  </div>
+  <div class="qitem__aside"><span>{{ d.updated_at|ago }}</span>{% if item.plan %}<a href="/ui/p/{{ project }}/documents/{{ item.plan.id }}">{{ item.plan|ref }}</a>{% endif %}</div>
+</article>
+{% else %}
+<div class="card"><div class="card__body"><p class="empty">Nothing waiting on you.</p></div></div>
 {% endfor %}
+</div>
+<aside class="stack">
+  <div class="card">
+    <div class="card__head"><h2 class="card__title">What you’re holding up</h2></div>
+    <div class="card__body">
+      <dl class="kv">
+        <dt>Held tasks</dt><dd class="num">{{ counts['fermata'] }}</dd>
+        <dt>Blocked tasks</dt><dd class="num">{{ counts['blocked'] }}</dd>
+        <dt>Plans waiting</dt><dd class="num">{{ counts['plans'] + counts['held'] + counts['soundcheck'] }}</dd>
+        {% if oldest %}<dt>Oldest item</dt><dd>{{ oldest.doc.created_at|ago }} · {{ oldest.doc.type }}</dd>{% endif %}
+      </dl>
+      <p class="muted" style="font-size: 12px">Fermata, rehearsal and soundcheck items block the setlist; decisions and conventions don’t.</p>
+    </div>
+  </div>
+</aside>
+</div>
 {% endblock %}

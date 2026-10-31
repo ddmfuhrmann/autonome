@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% block title %}{{ doc|ref }}{% endblock %}
+{% block crumbs %}{% if in_wave %}<a href="/ui/p/{{ project }}/documents/{{ in_wave.id }}">{{ in_wave|ref }}</a><span class="sep">/</span>{% endif %}<span aria-current="page">{{ doc|ref }}</span>{% endblock %}
+{% block main %}
+{% set b = doc.body %}
+{% set playing = progress.counts.playing %}
+{% set sounds = (b.soundchecks or [])|rejectattr('retry')|list %}
+<div class="page-head">
+  <div class="page-head__text">
+    <div class="page-head__title"><span class="id">{{ doc|ref }}</span><h1>{{ b.title }}</h1>{{ ui.st('playing' if playing and doc.status == 'approved' else doc.status, live=true) }}</div>
+    <div class="page-head__meta">{% if doc.feature %}<span class="tag tag--feature">{{ doc.feature }}</span>{% endif %}
+      {% if after %}<span>after {% for a in after %}<a class="mono" href="/ui/p/{{ project }}/documents/{{ a }}">{{ a|ref('plan') }}</a>{{ ', ' if not loop.last }}{% endfor %}</span>{% endif %}
+      <span>composed {{ doc.created_at|when }}</span>
+      {% if tasks %}<span class="mono num">{{ progress.done }} / {{ progress.total }} tasks · {{ progress.cost|money }}</span>{% endif %}</div>
+  </div>
+  <div class="page-head__actions">{{ ui.head_danger(project, doc, actions) }}{% if doc.feature %}<a class="btn" href="/ui/p/{{ project }}/features/{{ doc.feature }}">Living doc</a>{% endif %}</div>
+</div>
+{% if in_wave and doc.status == 'draft' %}<div class="callout callout--live"><div>Part of <a href="/ui/p/{{ project }}/documents/{{ in_wave.id }}">{{ in_wave|ref }} · {{ in_wave.body.title }}</a>: approve it with the wave.</div></div>{% endif %}
+{{ ui.decision(project, doc, actions) }}
+
+<nav class="tabs" aria-label="Plan sections">
+  <a href="#objective" aria-current="page">Overview</a><a href="#tasks">Tasks <span class="count-pill">{{ tasks|length or b.tasks|length }}</span></a>
+  {% if b.rehearsal %}<a href="#rehearsal">Rehearsal</a>{% endif %}<a href="#soundchecks">Soundchecks <span class="count-pill">{{ sounds|length }}</span></a>
+</nav>
+
+<div class="grid grid--main-aside">
+<div class="stack stack--lg">
+  <section class="card" id="objective">
+    <div class="card__head"><h2 class="card__title">Objective</h2></div>
+    <div class="card__body prose">
+      {{ b.goal|md }}
+      {% if b.context %}<h3>Context</h3>{{ b.context|md }}{% endif %}
+      <div class="grid grid--2">
+        {% if b.scope %}<div class="stack stack--sm"><h3>Scope</h3><ul>{% for s in b.scope %}<li>{{ s }}</li>{% endfor %}</ul></div>{% endif %}
+        {% if b.out_of_scope %}<div class="stack stack--sm"><h3>Out of scope</h3><ul>{% for s in b.out_of_scope %}<li>{{ s }}</li>{% endfor %}</ul></div>{% endif %}
+        {% if b.acceptance %}<div class="stack stack--sm"><h3>Acceptance criteria</h3><ul class="checklist">{% for a in b.acceptance %}<li class="{{ 'is-met' if doc.status == 'done' }}">{{ a }}</li>{% endfor %}</ul></div>{% endif %}
+        {% if b.risks %}<div class="stack stack--sm"><h3>Risks</h3><ul>{% for r in b.risks %}<li>{{ r }}</li>{% endfor %}</ul></div>{% endif %}
+      </div>
+    </div>
+  </section>
+
+  <section class="stack" id="tasks" aria-labelledby="tasks-h">
+    <div class="section-head"><h2 id="tasks-h">Tasks</h2><span class="count">{{ tasks|length or b.tasks|length }}</span></div>
+    <div class="table-wrap"><table class="table">
+      {% if tasks %}
+      <thead><tr><th>Task</th><th>Status</th><th>Depends on</th><th>Layer</th><th class="num">Encores</th><th class="num">Tokens</th><th class="num">Cost</th></tr></thead>
+      <tbody>{% for t in tasks %}{% set runs = t.body.runs or [] %}
+        <tr><td>{{ ui.doc_link(project, t) }}</td><td>{{ ui.st(t.status, sm=true) }}</td>
+          <td class="mono">{% for d in t.body.depends_on %}{{ d|ref('task') }}{{ ', ' if not loop.last }}{% else %}<span class="muted">—</span>{% endfor %}</td>
+          <td>{% for l in t.layers %}<span class="tag">{{ l }}</span>{% endfor %}</td>
+          {% if runs %}{% set tok, usd = t|spent %}<td class="num">{{ encores[t.id] }}</td><td class="num mono">{{ tok|tokens }}</td><td class="num mono">{{ usd|money }}</td>
+          {% else %}<td class="num muted">—</td><td class="num muted">—</td><td class="num muted">—</td>{% endif %}</tr>
+      {% endfor %}</tbody>
+      {% else %}
+      <thead><tr><th>#</th><th>Task</th><th>Depends on</th><th>Layer</th><th>Acceptance</th></tr></thead>
+      <tbody>{% for t in b.tasks %}
+        <tr><td class="mono">{{ loop.index }}</td><td><strong>{{ t.title }}</strong><div class="muted wrap" style="font-size: 12px">{{ t.spec|truncate(240) }}</div></td>
+          <td class="mono">{{ t.depends_on|join(', ') or '—' }}</td><td>{% for l in t.layers %}<span class="tag">{{ l }}</span>{% endfor %}</td>
+          <td style="font-size: 12px">{{ t.acceptance|join('; ') }}</td></tr>
+      {% endfor %}</tbody>
+      {% endif %}
+    </table></div>
+  </section>
+
+  {% if b.rehearsal %}{% set r = b.rehearsal %}
+  <section class="card" id="rehearsal">
+    <div class="card__head"><h2 class="card__title">Rehearsal</h2>{{ ui.st(r.verdict, sm=true) }}<span class="push muted mono" style="font-size: 12px">{{ r.at|when }}</span></div>
+    <div class="card__body">
+      {% if r.notes %}<div class="prose">{{ r.notes|md }}</div>{% else %}<p class="muted">No notes.</p>{% endif %}
+      {% if r.plan %}
+      <div class="split">
+        <div class="split__col"><div class="split__head">Current · {{ b.tasks|length }} tasks</div>
+          <div class="split__body"><ol>{% for t in b.tasks %}<li>{{ t.title }}</li>{% endfor %}</ol></div></div>
+        <div class="split__col"><div class="split__head">Proposed revision · {{ r.plan.tasks|length }} tasks</div>
+          <div class="split__body"><ol>{% for t in r.plan.tasks %}{% set same = b.tasks|selectattr('title', 'equalto', t.title)|list %}<li>{% if same %}{{ t.title }}{% else %}<mark class="add">{{ t.title }}</mark>{% endif %}<div class="muted wrap" style="font-size: 12px">{{ t.spec|truncate(200) }}</div></li>{% endfor %}</ol></div></div>
+      </div>
+      {% endif %}
+      {% if r.original %}<details><summary class="muted" style="font-size: 13px; cursor: pointer">Original plan, before the revision</summary>
+        <ol style="font-size: 13px">{% for t in r.original.tasks %}<li>{{ t.title }}</li>{% endfor %}</ol></details>{% endif %}
+    </div>
+  </section>
+  {% endif %}
+
+  <section class="card" id="soundchecks">
+    <div class="card__head"><h2 class="card__title">Soundchecks</h2></div>
+    <div class="card__body">
+      {% for sc in sounds|reverse %}
+      <div class="stack stack--sm">
+        <div class="row">{{ ui.st('passed' if sc.passed else 'failed', sm=true) }}<span class="mono muted" style="font-size: 12px">{{ sc.at|when }}</span></div>
+        <p class="wrap" style="font-size: 13px">{{ sc.report }}</p>
+        {% if sc.checks %}<ul class="gates">{% for c in sc.checks %}<li>{{ ui.st('passed' if c.passed else 'failed', sm=true) }}{{ c.name }}
+          {% if c.output %}<details style="width: 100%"><summary class="muted" style="font-size: 12px; cursor: pointer">Output</summary><pre class="log">{{ c.output }}</pre></details>{% endif %}</li>{% endfor %}</ul>{% endif %}
+        {% if sc.fixes %}<p class="muted" style="font-size: 12px">Fix tasks queued: {{ sc.fixes|map(attribute='title')|join('; ') }}</p>{% endif %}
+      </div>
+      {% if not loop.last %}<hr>{% endif %}
+      {% else %}
+      <p class="empty">{% if cfg and cfg.soundcheck %}Runs after every task of this plan is on <span class="mono">main</span>{% if tasks %}. {{ progress.total - progress.done }} to go{% endif %}.{% else %}No soundcheck in the gate config.{% endif %}</p>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+
+<aside class="stack">
+  {% if tasks %}
+  <div class="card">
+    <div class="card__head"><h2 class="card__title">Progress</h2></div>
+    <div class="card__body">
+      {{ ui.progress(progress, height='8px') }}
+      <dl class="kv">{% for s in ['done', 'playing', 'on_hold', 'released', 'blocked', 'pending', 'abandoned'] if progress.counts[s] %}<dt>{{ ui.st(s, sm=true) }}</dt><dd class="num">{{ progress.counts[s] }}</dd>{% endfor %}</dl>
+      {% if cfg %}{{ ui.meter('plan budget', progress.tokens, cfg.budget.plan_tokens) }}{% endif %}
+    </div>
+  </div>
+  {% endif %}
+  <div class="card">
+    <div class="card__head"><h2 class="card__title">Gates</h2><a class="push muted" style="font-size: 12px" href="/ui/p/{{ project }}/config">gate config</a></div>
+    <div class="card__body">
+      <ul class="gates">
+        {% for g in (cfg.gates if cfg else []) %}<li><span class="tag tag--gate">{{ g.name }}</span><span class="cmd">{{ g.run }}</span></li>{% endfor %}
+        {% for g in b.gates or [] if not cfg or g.name not in cfg.gates|map(attribute='name')|list %}<li><span class="tag tag--gate">{{ g.name }}</span><span class="tag tag--feature">proposed by plan</span><span class="cmd">{{ g.run }}</span></li>{% endfor %}
+      </ul>
+      {% if cfg and cfg.fermata.features %}<p class="muted" style="font-size: 12px">Fermata features: {% for f in cfg.fermata.features %}<span class="mono">{{ f }}</span>{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
+    </div>
+  </div>
+  {% if graph %}
+  <div class="card">
+    <div class="card__head"><h2 class="card__title">Dependency graph</h2></div>
+    <div class="card__body"><pre class="mermaid">{{ graph }}</pre></div>
+  </div>
+  {% endif %}
+  {% if b.discussion %}
+  <details class="card"><summary class="card__head"><span class="card__title">How it was composed</span><span class="push muted" style="font-size: 12px">{{ b.discussion|length }} turns</span></summary>
+    <div class="card__body">{% for t in b.discussion %}<p style="font-size: 13px"><strong>{{ t.role }}:</strong> {{ t.text }}</p>{% endfor %}</div>
+  </details>
+  {% endif %}
+</aside>
+</div>
+{% endblock %}

@@ -1,22 +1,77 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui %}
 {% block title %}Setlist{% endblock %}
+{% block topbar %}<span class="live" aria-live="polite">Live</span>{% endblock %}
 {% block main %}
-<h1>Setlist</h1>
-<p class="muted">Tasks of approved plans, as the maestro plays them. Start it with <code>autonome conduct --project {{ project }}</code>.</p>
-<div class="kanban">
-{% for status, tasks in columns.items() %}
-  <div class="col">
-    <h2>{{ status|replace('_', ' ') }} <span class="pill">{{ tasks|length }}</span></h2>
-    {% for t in tasks %}
-    <a class="item" href="/ui/p/{{ project }}/documents/{{ t.id }}" style="text-decoration: none; color: inherit">
-      <strong>#{{ t.id }} {{ t.body.title }}</strong>
-      <span class="meta">{% if t.feature %}<span class="pill accent">{{ t.feature }}</span>{% endif %}
-        {% if t.body.fermata %}<span class="pill warn">fermata</span>{% endif %}
-        <span>{{ plans[t.body.plan_id].body.title if t.body.plan_id in plans else '' }}</span></span>
-      {% if t.body.runs and t.body.runs[-1].reason %}<span class="muted" style="font-size: 12px">{{ t.body.runs[-1].reason|truncate(140) }}</span>{% endif %}
-    </a>
-    {% else %}<p class="empty">—</p>{% endfor %}
+{% set done_ids = status_of|dictsort|selectattr(1, "equalto", "done")|map(attribute=0)|list %}
+<div class="stack stack--lg" data-refresh="5">
+<div class="page-head" id="setlist-head" data-live>
+  <div class="page-head__text">
+    <div class="page-head__title"><h1>Setlist</h1>{% if playing %}{{ ui.st('playing', live=true) }}{% endif %}</div>
+    <div class="page-head__meta">
+      {% if wave %}<a href="/ui/p/{{ project }}/documents/{{ wave.id }}">{{ wave|ref }} · {{ wave.body.title }}</a>{% endif %}
+      <span>{{ progress.done }} of {{ progress.total }} tasks done</span>
+      <span class="mono num">{{ progress.tokens|tokens }} tokens · {{ progress.cost|money }}</span>
+    </div>
   </div>
-{% endfor %}
+  <div class="page-head__actions">
+    {% if side.waiting %}<a class="btn" href="/ui/p/{{ project }}/approvals">{{ side.waiting }} waiting on you</a>{% endif %}
+  </div>
+</div>
+
+<section class="stack" aria-labelledby="now-h" id="now" data-live>
+  <div class="section-head">{% if playing %}{{ ui.eq() }}{% endif %}<h2 id="now-h">Now playing</h2><span class="count">{{ playing|length }}</span></div>
+  {% if playing %}
+  <div class="now">
+    {% for t in playing %}{% set run = (t.body.runs or [none])[-1] %}
+    <article class="now__card">
+      <div class="now__top"><span class="id">{{ t|ref }}</span>{{ ui.tags(t) }}{% if t.body.runs %}{{ ui.st('encore', sm=true, text='Attempt ' ~ (t.body.runs|length + 1)) }}{% endif %}</div>
+      <a class="now__title" href="/ui/p/{{ project }}/documents/{{ t.id }}">{{ t.body.title }}</a>
+      <p class="now__step">{% if t.body.plan_id in plans %}{{ plans[t.body.plan_id]|ref }} · {{ plans[t.body.plan_id].body.title }}{% endif %}</p>
+      <div class="now__metrics">
+        <div class="now__metric"><span class="label">Since</span><b>{{ t.updated_at|ago }}</b></div>
+        {% if t.body.fermata %}<div class="now__metric"><span class="label">Ends at</span><b>fermata</b></div>{% endif %}
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty">Nothing is playing. Start the maestro with <code>autonome conduct --project {{ project }}</code>.</p>
+  {% endif %}
+</section>
+
+<section class="stack" aria-labelledby="board-h" id="board" data-live>
+  <div class="section-head"><h2 id="board-h">Board</h2><span class="count">{{ progress.total }} tasks · {{ plans|length }} plans</span></div>
+  <div class="board">
+    {% for status, tasks in columns.items() %}
+    <section class="board__col" aria-label="{{ status|label }}">
+      <div class="board__head">{{ ui.st(status) }}<span class="count-pill">{{ totals[status] }}</span></div>
+      <ul class="board__list">
+        {% for t in tasks %}{% set run = (t.body.runs or [none])[-1] %}
+        <li><a class="tcard{{ ' tcard--live' if status == 'playing' }}{{ ' tcard--done' if status == 'done' }}" href="/ui/p/{{ project }}/documents/{{ t.id }}">
+          <div class="tcard__top"><span class="id">{{ t|ref }}</span>
+            {% if status == 'playing' %}{{ ui.eq() }}{% endif %}
+            {% if status == 'on_hold' %}{{ ui.st('fermata', sm=true) }}{% endif %}
+            {% if status == 'blocked' and run %}{{ ui.st('failed', sm=true, text=(run.reason or run.outcome or 'blocked').split(':')[0]|truncate(16, true, '')) }}{% endif %}
+          </div>
+          <span class="tcard__title">{{ t.body.title }}</span>
+          {% if status == 'blocked' and run and run.reason %}<p class="tcard__reason">{{ run.reason|truncate(140) }}</p>{% endif %}
+          {% if status == 'on_hold' %}<p class="tcard__reason tcard__reason--hold">Gates passed{{ ', review clean' if run and run.review and run.review.verdict == 'pass' }}. Needs your eyes on the diff.</p>{% endif %}
+          <div class="tcard__meta">
+            {% if status != 'playing' %}{% if t.feature %}<span class="tag tag--feature">{{ t.feature }}</span>{% endif %}{% endif %}
+            {% set deps = t.body.depends_on|reject('in', done_ids)|list if t.body.depends_on else [] %}{% if status == 'pending' and deps %}<span>after {% for d in deps %}{{ d|ref('task') }}{{ ', ' if not loop.last }}{% endfor %}</span>{% endif %}
+            {% set waits = t.body.after_plans|reject('in', done_ids)|list if t.body.after_plans else [] %}{% if status == 'pending' and waits %}<span>waits {% for p in waits %}{{ p|ref('plan') }}{{ ', ' if not loop.last }}{% endfor %}</span>{% endif %}
+            {% if status in ('on_hold', 'released') %}<span>{{ t.updated_at|ago }}</span>{% endif %}
+            {% if status == 'done' and run %}<span class="mono">{{ (run.tokens or 0)|tokens }}</span><span>· {{ run.cost_usd|money }}</span>{% endif %}
+            {% if status == 'blocked' and t.body.runs %}<span>{{ t.body.runs|length }} run{{ 's' if t.body.runs|length > 1 }}</span>{% endif %}
+          </div>
+        </a></li>
+        {% else %}<li class="empty">—</li>{% endfor %}
+      </ul>
+      {% if totals[status] > tasks|length %}<a class="board__more" href="/ui/p/{{ project }}/documents?type=task&status={{ status }}">+ {{ totals[status] - tasks|length }} more</a>{% endif %}
+    </section>
+    {% endfor %}
+  </div>
+</section>
 </div>
 {% endblock %}

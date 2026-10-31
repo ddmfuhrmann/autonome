@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% block title %}{{ doc|ref }}{% endblock %}
+{% block crumbs %}<a href="/ui/p/{{ project }}/waves">Waves</a><span class="sep">/</span><span aria-current="page">{{ doc|ref }}</span>{% endblock %}
+{% block main %}
+{% set live = features|selectattr('progress.counts.playing')|list %}
+<div class="page-head">
+  <div class="page-head__text">
+    <div class="page-head__title"><span class="id">{{ doc|ref }}</span><h1>{{ doc.body.title }}</h1>{{ ui.st('playing' if live and doc.status == 'approved' else doc.status, live=true) }}</div>
+    <div class="page-head__meta"><span>composed {{ doc.created_at|when }}</span><span>{{ features|length }} features · {{ progress.total }} tasks</span><span class="mono num">{{ progress.tokens|tokens }} tokens · {{ progress.cost|money }}</span></div>
+  </div>
+  <div class="page-head__actions">{{ ui.head_danger(project, doc, actions) }}<a class="btn" href="/ui/p/{{ project }}/setlist">Open setlist</a></div>
+</div>
+
+{{ ui.decision(project, doc, actions) }}
+
+<div class="grid grid--4">
+  <div class="stat"><span class="label">Tasks done</span><span class="stat__value">{{ progress.done }}<span class="muted" style="font-size: 16px"> / {{ progress.total }}</span></span>{{ ui.progress(progress) }}</div>
+  <div class="stat"><span class="label">Playing</span><span class="stat__value">{{ progress.counts.playing }}</span><span class="stat__delta">{{ progress.counts.on_hold }} on hold</span></div>
+  <div class="stat"><span class="label">Blocked</span><span class="stat__value">{{ progress.counts.blocked }}</span><span class="stat__delta">tasks</span></div>
+  <div class="stat"><span class="label">Tokens</span><span class="stat__value">{{ progress.tokens|tokens }}</span><span class="stat__delta">{{ progress.cost|money }}</span></div>
+</div>
+
+<section class="card" aria-labelledby="order-h">
+  <div class="card__head"><h2 class="card__title" id="order-h">Order of play</h2></div>
+  <div class="card__body">
+    <div class="lanes" role="img" aria-label="{% for f in features %}{{ f.plan.feature if f.plan else '?' }} ({{ f.plan.status if f.plan else 'missing' }}){{ ', then ' if not loop.last }}{% endfor %}">
+      {% for f in features %}{% set s = 'playing' if f.progress.counts.playing else (f.plan.status if f.plan else 'abandoned') %}
+      <span class="lanes__node{{ ' is-live' if s == 'playing' }}"><span class="st st--{{ s }} st--icon st--bare"><span class="sr-only">{{ s|label }}</span></span>{{ f.plan.feature or f.plan.body.title if f.plan else '?' }}</span>
+      {% if not loop.last %}<span class="lanes__link"></span>{% endif %}
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<div class="grid grid--main-aside">
+  <section class="stack" aria-labelledby="feat-h">
+    <div class="section-head"><h2 id="feat-h">Features</h2><span class="count">{{ features|length }}</span></div>
+    <ol class="track">
+      {% for f in features %}{% set p = f.plan %}{% set s = 'playing' if f.progress.counts.playing else (p.status if p else 'abandoned') %}
+      <li class="track__item{{ ' is-done' if s == 'done' }}">
+        <div class="track__rail"><span class="track__node">{{ ui.icon_st(s) }}</span></div>
+        <div class="track__body">
+          <div class="feat{{ ' feat--live' if s == 'playing' }}{{ ' feat--held' if s == 'held' }}">
+            <div class="stack stack--sm">
+              <div class="feat__name">{% if p %}{{ ui.doc_link(project, p) }}{% if p.feature %}<span class="tag tag--feature">{{ p.feature }}</span>{% endif %}{% else %}missing plan{% endif %}</div>
+              <div class="feat__deps">
+                {% if f.after %}<span>after</span><span class="mono">{% for a in f.after %}{{ a|ref('plan') }}{{ ', ' if not loop.last }}{% endfor %}</span>{% else %}<span>no dependencies</span>{% endif %}
+                {% if p %}<span>·</span>{{ ui.st(p.status, sm=true) }}{% endif %}
+                {% if p and p.body.rehearsal %}<span>·</span>{{ ui.st(p.body.rehearsal.verdict, sm=true, text='Rehearsal ' ~ p.body.rehearsal.verdict) }}{% endif %}
+                {% if p and p.status == 'held' %}<a href="/ui/p/{{ project }}/approvals">revision waiting on you</a>{% endif %}
+              </div>
+            </div>
+            <div class="feat__right">
+              <div class="row row--between"><span class="mono" style="font-size: 12px">{{ f.progress.done }} / {{ f.progress.total or (p.body.tasks|length if p else 0) }} tasks</span><span class="mono muted" style="font-size: 12px">{{ f.progress.cost|money }}</span></div>
+              {{ ui.progress(f.progress) }}
+            </div>
+          </div>
+        </div>
+      </li>
+      {% endfor %}
+    </ol>
+  </section>
+  <aside class="stack">
+    <div class="card">
+      <div class="card__head"><h2 class="card__title">Goal</h2></div>
+      <div class="card__body prose">{{ doc.body.goal|md }}
+        {% if doc.body.out_of_scope %}<h3>Out of scope</h3><ul>{% for o in doc.body.out_of_scope %}<li>{{ o }}</li>{% endfor %}</ul>{% endif %}
+      </div>
+    </div>
+    {% if doc.body.discussion %}
+    <details class="card"><summary class="card__head"><span class="card__title">How it was composed</span><span class="push muted" style="font-size: 12px">{{ doc.body.discussion|length }} turns</span></summary>
+      <div class="card__body">{% for t in doc.body.discussion %}<p style="font-size: 13px"><strong>{{ t.role }}:</strong> {{ t.text }}</p>{% endfor %}</div>
+    </details>
+    {% endif %}
+  </aside>
+</div>
+{% endblock %}

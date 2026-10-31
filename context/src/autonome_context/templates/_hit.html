@@ -1,11 +1,6 @@
-<div class="hit">
-  <div class="meta">
-    <a href="/ui/p/{{ project }}/documents/{{ h.document_id }}">#{{ h.document_id }}</a>
-    <span class="pill">{{ h.type }}</span>
-    {% if h.feature %}<span class="pill accent">{{ h.feature }}</span>{% endif %}
-    <span>{{ h.section }}</span>
-    <span>score {{ '%.4f'|format(h.score) }}</span>
-    {% for src, r in h.ranks.items() %}<span>{{ src }} #{{ r }}</span>{% endfor %}
-  </div>
-  <pre>{{ h.text }}</pre>
+<div class="stack stack--sm">
+  <div class="row"><span class="tag">{{ h.type }}</span><a href="/ui/p/{{ project }}/documents/{{ h.document_id }}"><span class="id">{{ h.document_id|ref(h.type) }}</span> {{ (h.title or h.section)|truncate(90) }}</a>
+    {% if h.status %}<span class="st st--{{ h.status }} st--sm">{{ h.status|label }}</span>{% endif %}{% if h.feature %}<span class="tag tag--feature">{{ h.feature }}</span>{% endif %}<span class="spacer"></span>
+    <span class="mono muted" style="font-size: 12px">{{ h.section }} · score {{ '%.4f'|format(h.score) }}{% for src, r in h.ranks.items() %} · {{ src }} #{{ r }}{% endfor %}</span></div>
+  <p class="wrap muted" style="font-size: 13px">{{ (h.snippet or h.text)|truncate(500) }}</p>
 </div>

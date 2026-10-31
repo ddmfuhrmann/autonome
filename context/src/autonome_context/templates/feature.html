@@ -1,16 +1,27 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui %}
 {% block title %}{{ feature }}{% endblock %}
+{% block crumbs %}<a href="/ui/p/{{ project }}/features">Features</a><span class="sep">/</span><span aria-current="page">{{ feature }}</span>{% endblock %}
 {% block main %}
-<h1>{{ feature }}</h1>
-{% if doc %}{% include "_doc.html" %}
-{% else %}<p class="empty card">No living doc for this feature yet. It is written after the next delivery.</p>{% endif %}
-<div class="card">
-  <h2>Timeline</h2>
-  {% for d in timeline %}
-  <div class="meta"><span>{{ d.created_at.strftime('%Y-%m-%d %H:%M') }}</span><span class="pill">{{ d.type }}</span>
-    {% if d.status %}<span class="pill {{ 'ok' if d.status in ('done','accepted','final') else ('stop' if d.status in ('blocked','rejected') else '') }}">{{ d.status }}</span>{% endif %}
-    <a href="/ui/p/{{ project }}/documents/{{ d.id }}">#{{ d.id }} {{ (d.body.title or d.body.summary or '')|truncate(100) }}</a>
-    {% if d.type == 'handoff' and d.body.adherence_score is not none %}<span>adherence {{ '%.2f'|format(d.body.adherence_score) }}</span>{% endif %}</div>
-  {% else %}<p class="empty">Nothing yet.</p>{% endfor %}
+<div class="page-head"><div class="page-head__text"><div class="page-head__title"><h1>{{ feature }}</h1></div></div></div>
+<div class="grid grid--main-aside">
+  <div class="stack">
+    {% if doc %}{% include "_doc.html" %}
+    {% else %}<p class="empty">No living doc for this feature yet. It is written after the next delivery.</p>{% endif %}
+  </div>
+  <aside class="card">
+    <div class="card__head"><h2 class="card__title">Timeline</h2></div>
+    <div class="card__body">
+      <ol class="timeline">
+        {% for d in timeline %}
+        <li class="tl"><span class="tl__node">{{ ui.icon_st(d.status or 'done') }}</span>
+          <div class="tl__body">
+            <div class="tl__head"><a href="/ui/p/{{ project }}/documents/{{ d.id }}"><strong>{{ d|ref }}</strong> {{ (d.body.title or d.body.summary or d.type)|truncate(80) }}</a></div>
+            <span class="tl__time">{{ d.type }} · {{ d.created_at|ago }}{% if d.type == 'handoff' and d.body.adherence_score is not none %} · adherence {{ '%.2f'|format(d.body.adherence_score) }}{% endif %}</span>
+          </div></li>
+        {% else %}<li class="empty">Nothing yet.</li>{% endfor %}
+      </ol>
+    </div>
+  </aside>
 </div>
 {% endblock %}

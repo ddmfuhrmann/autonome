@@ -1,15 +1,17 @@
 {# A living doc: prose sections in markdown, diagrams in mermaid. #}
 {% set b = doc.body %}
-<div class="meta"><span class="pill accent">version {{ doc.version }}</span><span>updated {{ doc.updated_at.strftime('%Y-%m-%d %H:%M') }}</span>
-  {% if doc.commit_sha %}<span>at commit {{ doc.commit_sha[:10] }}</span>{% endif %}</div>
+<div class="row muted" style="font-size: 12px"><span class="tag">version {{ doc.version }}</span><span>updated {{ doc.updated_at|ago }}</span>
+  {% if doc.commit_sha %}<span class="mono">at {{ doc.commit_sha[:10] }}</span>{% endif %}</div>
 {% for key, label in [('overview', 'Overview'), ('how_it_works', 'How it works')] if b.get(key) %}
-<section class="card markdown"><h2>{{ label }}</h2>{{ b[key]|md }}</section>
+<section class="card"><div class="card__head"><h2 class="card__title">{{ label }}</h2></div><div class="card__body prose">{{ b[key]|md }}</div></section>
 {% endfor %}
 {% if b.get('diagrams') %}
-<div class="cols">
-{% for d in b.diagrams %}<section class="card"><h2>{{ d.title }}</h2><pre class="mermaid">{{ d.mermaid }}</pre></section>{% endfor %}
+<div class="stack">
+{% for d in b.diagrams %}<section class="card"><div class="card__head"><h2 class="card__title">{{ d.title }}</h2></div><div class="card__body"><pre class="mermaid">{{ d.mermaid }}</pre></div></section>{% endfor %}
 </div>
 {% endif %}
+<div class="grid grid--2">
 {% for key, label in [('entities', 'Entities'), ('interfaces', 'Interfaces'), ('decisions_in_effect', 'Decisions in effect'), ('known_issues', 'Known issues')] if b.get(key) %}
-<section class="card"><h2>{{ label }}</h2><ul>{% for i in b[key] %}<li>{{ i }}</li>{% endfor %}</ul></section>
+<section class="card"><div class="card__head"><h2 class="card__title">{{ label }}</h2></div><div class="card__body prose"><ul>{% for i in b[key] %}<li>{{ i }}</li>{% endfor %}</ul></div></section>
 {% endfor %}
+</div>

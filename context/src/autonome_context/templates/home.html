@@ -1,8 +1,9 @@
 {% extends "base.html" %}
+{% block title %}Projects{% endblock %}
 {% block main %}
-<h1>Projects</h1>
-<div class="card">
-{% for p in projects %}<div><a href="/ui/p/{{ p }}">{{ p }}</a></div>
-{% else %}<p class="empty">No project yet. Projects appear when their first handoff arrives.</p>{% endfor %}
+<div class="page-head"><div class="page-head__text"><h1>Projects</h1><p class="page-head__meta">Projects appear when their first handoff or plan arrives.</p></div></div>
+<div class="grid grid--3">
+{% for p in projects %}<a class="card" href="/ui/p/{{ p }}"><div class="card__head"><span class="card__title">{{ p }}</span></div></a>
+{% else %}<p class="empty">No project yet.</p>{% endfor %}
 </div>
 {% endblock %}

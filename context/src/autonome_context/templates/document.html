@@ -1,64 +1,29 @@
 {% extends "base.html" %}
-{% block title %}#{{ doc.id }}{% endblock %}
+{% import "_ui.html" as ui %}
+{% block title %}{{ doc|ref }}{% endblock %}
+{% block crumbs %}<a href="/ui/p/{{ project }}/documents?type={{ doc.type }}">{{ doc.type|label }}</a><span class="sep">/</span><span aria-current="page">{{ doc|ref }}</span>{% endblock %}
 {% block main %}
-<h1>{{ doc.body.title or (doc.type ~ ' #' ~ doc.id) }}</h1>
-<div class="meta">
-  <span class="pill">{{ doc.type }}</span>{% if doc.status %}<span class="pill accent">{{ doc.status }}</span>{% endif %}
-  {% if doc.feature %}<span>feature {{ doc.feature }}</span>{% endif %}
-  {% if doc.layers %}<span>layers {{ doc.layers|join(', ') }}</span>{% endif %}
-  <span>version {{ doc.version }}</span><span>{{ doc.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
-  {% if doc.commit_sha %}<span>commit {{ doc.commit_sha[:10] }}</span>{% endif %}
+<div class="page-head">
+  <div class="page-head__text">
+    <div class="page-head__title"><span class="id">{{ doc|ref }}</span><h1>{{ doc.body.title or (doc.body.summary.split('. ')[0]|truncate(140) if doc.body.summary) or doc.type|label }}</h1>{% if doc.status %}{{ ui.st(doc.status) }}{% endif %}</div>
+    <div class="page-head__meta"><span class="tag">{{ doc.type }}</span>{{ ui.tags(doc) }}
+      <span>version {{ doc.version }}</span><span>{{ doc.created_at|when }}</span>
+      {% if doc.commit_sha %}<span class="mono">commit {{ doc.commit_sha[:10] }}</span>{% endif %}
+      {% if doc.type == 'handoff' and doc.body.adherence_score is not none %}<span class="mono">adherence {{ '%.2f'|format(doc.body.adherence_score) }}</span>{% endif %}</div>
+  </div>
+  <div class="page-head__actions">{{ ui.head_danger(project, doc, actions) }}</div>
 </div>
-{% if actions %}
-<form class="inline card" method="post" action="/ui/p/{{ project }}/documents/{{ doc.id }}/transition">
-  <span class="muted">Your call:</span>
-  {% for to in actions %}<button name="to" value="{{ to }}" class="{{ 'accent' if to in ('approved','accepted','released','revised') else ('danger' if to in ('abandoned','rejected') else 'secondary') }}">{{ labels.get(to) or to|capitalize }}</button>{% endfor %}
-</form>
-{% endif %}
-{% if in_wave %}<p class="muted">Part of <a href="/ui/p/{{ project }}/documents/{{ in_wave.id }}">wave #{{ in_wave.id }} {{ in_wave.body.title }}</a>{% if doc.status == 'draft' %}: approve it with the wave{% endif %}.</p>{% endif %}
-{% if doc.type == 'wave' %}
-<div class="card"><h2>Features, in order</h2>
-  {% for f in doc.body.features %}{% set p = wave_plans[f.plan_id] %}
-  <div class="meta"><span>{{ loop.index }}.</span><a href="/ui/p/{{ project }}/documents/{{ f.plan_id }}">#{{ f.plan_id }} {{ p.body.title if p else '?' }}</a>
-    {% if p and p.feature %}<span class="pill accent">{{ p.feature }}</span>{% endif %}<span class="pill">{{ p.status if p else 'missing' }}</span>
-    {% if p and p.body.tasks %}<span>{{ p.body.tasks|length }} tasks</span>{% endif %}
-    {% if p and p.body.gates %}<span>adds gates {{ p.body.gates|map(attribute='name')|join(', ') }}</span>{% endif %}
-    {% if f.depends_on %}<span>after {{ f.depends_on|join(', ') }}</span>{% endif %}</div>
-  {% endfor %}
+{{ ui.decision(project, doc, actions) }}
+<div class="grid grid--main-aside">
+  <div class="stack">
+    {% with body = doc.body %}{% include "_body.html" %}{% endwith %}
+  </div>
+  <aside class="stack">
+    {% if links %}
+    <div class="card"><div class="card__head"><h2 class="card__title">Links</h2></div>
+      <div class="card__body"><dl class="kv">{% for l in links %}<dt>{{ l.kind|replace('_', ' ') }}{{ ' (from)' if l.direction == 'in' }}</dt><dd><a href="/ui/p/{{ project }}/documents/{{ l.id }}">{{ l.id|ref(l.type) }}</a> {% if l.status %}{{ ui.st(l.status, sm=true) }}{% endif %}</dd>{% endfor %}</dl></div>
+    </div>
+    {% endif %}
+  </aside>
 </div>
-{% endif %}
-{% if doc.type == 'plan' and doc.body.rehearsal %}{% set r = doc.body.rehearsal %}
-<div class="card"><h2>Rehearsal</h2>
-  <div class="meta"><span class="pill {{ 'ok' if r.verdict in ('ready','kept','revised') else 'warn' }}">{{ r.verdict }}</span><span>{{ r.at }}</span></div>
-  {% if r.notes %}<pre class="body">{{ r.notes }}</pre>{% endif %}
-</div>
-{% if r.plan %}<h2>Proposed revision</h2>{% with body = r.plan %}{% include "_body.html" %}{% endwith %}<h2>Current plan</h2>{% endif %}
-{% endif %}
-{% if doc.type == 'plan' and doc.body.soundchecks %}{% set runs = doc.body.soundchecks|rejectattr('retry')|list %}{% if runs %}{% set sc = runs[-1] %}
-<div class="card"><h2>Soundcheck <span class="pill">{{ runs|length }} run{{ 's' if runs|length > 1 }}</span></h2>
-  <div class="meta"><span class="pill {{ 'ok' if sc.passed else 'stop' }}">{{ 'passed' if sc.passed else 'failed' }}</span><span>{{ sc.at }}</span></div>
-  <pre class="body">{{ sc.report }}</pre>
-  {% for c in sc.checks %}<details><summary><span class="pill {{ 'ok' if c.passed else 'stop' }}">{{ c.name }}</span></summary><pre class="body">{{ c.output }}</pre></details>{% endfor %}
-  {% if sc.fixes %}<h3>Fixes queued</h3><ul>{% for f in sc.fixes %}<li>{{ f.title }}</li>{% endfor %}</ul>{% endif %}
-</div>
-{% endif %}{% endif %}
-{% if links %}
-<div class="card"><h2>Links</h2>
-  {% for l in links %}<div class="meta"><span>{{ l.direction }} · {{ l.kind }}</span>
-    <a href="/ui/p/{{ project }}/documents/{{ l.id }}">#{{ l.id }}</a><span class="pill">{{ l.type }}</span><span>{{ l.status or '' }}</span></div>{% endfor %}
-</div>
-{% endif %}
-{% if doc.type == 'task' and doc.body.runs %}
-{% set last = doc.body.runs[-1] %}
-<div class="card">
-  <h2>Last run</h2>
-  <div class="meta"><span class="pill {{ 'ok' if last.outcome in ('merged',) else ('stop' if last.outcome in ('blocked','error') else 'warn') }}">{{ last.outcome }}</span>
-    <span>{{ last.at }}</span><span>{{ last.tokens or 0 }} tokens</span>{% if last.cost_usd %}<span>${{ '%.3f'|format(last.cost_usd) }}</span>{% endif %}
-    <code>{{ last.branch }}</code></div>
-  {% if last.reason %}<pre class="body">{{ last.reason }}</pre>{% endif %}
-  {% if last.diff_stat %}<pre class="body">{{ last.diff_stat }}</pre>{% endif %}
-  {% if last.diff %}<details><summary class="muted">Diff</summary><pre class="body">{{ last.diff }}</pre></details>{% endif %}
-</div>
-{% endif %}
-{% with body = doc.body %}{% include "_body.html" %}{% endwith %}
 {% endblock %}

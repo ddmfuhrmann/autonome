@@ -1,6 +1,10 @@
-"""Server-rendered UI: the human side of the context (search, lab, documents)."""
+"""Server-rendered UI: the human side of the context (setlist, approvals, memory, setup)."""
 
 import json
+import re
+from dataclasses import asdict
+from collections import Counter
+from datetime import UTC, datetime
 from pathlib import Path
 
 import markdown as md
@@ -19,24 +23,324 @@ from .gates import EXAMPLE, GateConfig
 _HERE = Path(__file__).parent
 templates = Jinja2Templates(directory=_HERE / "templates")
 templates.env.filters["pretty"] = lambda v: json.dumps(v, indent=2, ensure_ascii=False, default=str)
+_LIST_ITEM = re.compile(r"^( *)([-*+]|\d+[.)]) ")
+
+
+def _loose_lists(text: str) -> str:
+    """Agents write lists right under a paragraph and nest them by 2-3 spaces; Python-Markdown needs a
+    blank line before a list and 4 spaces per level, or the list melts into the paragraph."""
+    out: list[str] = []
+    fenced = False
+    for line in text.splitlines():
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+        m = None if fenced else _LIST_ITEM.match(line)
+        if m:
+            depth = len(m[1])
+            if 0 < depth < 4 or depth % 4:
+                line = "    " * max(1, round(depth / 3)) + line.lstrip()
+            prev = out[-1] if out else ""
+            if prev.strip() and not _LIST_ITEM.match(prev) and not prev.startswith(" "):
+                out.append("")
+        out.append(line)
+    return "\n".join(out)
+
+
 # Agent-written markdown: escape raw HTML, then render.
 templates.env.filters["md"] = lambda v: Markup(md.markdown(
-    str(v or "").replace("<", "&lt;"), extensions=["tables", "fenced_code", "sane_lists"]))
+    _loose_lists(str(v or "").replace("<", "&lt;")), extensions=["tables", "fenced_code", "sane_lists"]))
 
 DOC_TYPES = ["handoff", "plan", "task", "decision", "convention", "gate_config", "design", "feature_doc", "wave"]
 MODES = ["hybrid", "vector", "fts"]
+REF_PREFIX = {"task": "T", "plan": "P", "wave": "W", "decision": "D", "handoff": "H", "convention": "C"}
+STATUS_LABELS = {"on_hold": "On hold", "merge-failed": "Merge failed", "fts": "Full-text"}
+SEVERITY = {"high": "blocker", "medium": "major", "low": "minor"}
 
 
-def render(request: Request, name: str, **ctx) -> Response:
+def ref(v, type: str | None = None) -> str:
+    """T-21, P-15, W-18: the short id a human reads; other documents keep #id."""
+    doc_id, type = (v["id"], v["type"]) if isinstance(v, dict) else (v, type)
+    prefix = REF_PREFIX.get(type or "")
+    return f"{prefix}-{doc_id}" if prefix else f"#{doc_id}"
+
+
+def label(status) -> str:
+    s = str(status or "")
+    return STATUS_LABELS.get(s) or s.replace("_", " ").capitalize()
+
+
+def _when(v) -> datetime | None:
+    if isinstance(v, datetime):
+        return v if v.tzinfo else v.replace(tzinfo=UTC)
+    try:
+        return datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def ago(v) -> str:
+    t = _when(v)
+    if t is None:
+        return ""
+    s = int((datetime.now(UTC) - t).total_seconds())
+    if s < 60:
+        return "just now"
+    if s < 3600:
+        return f"{s // 60}m ago"
+    if s < 86400:
+        return f"{s // 3600}h ago"
+    if s < 7 * 86400:
+        return f"{s // 86400}d ago"
+    return t.strftime("%b %d")
+
+
+def when(v) -> str:
+    t = _when(v)
+    return t.strftime("%b %d, %H:%M") if t else ""
+
+
+def tokens(n) -> str:
+    n = n or 0
+    return f"{n / 1e6:.2f}M" if n >= 1e6 else f"{n / 1e3:.0f}k" if n >= 1e3 else str(n)
+
+
+def money(x) -> str:
+    return f"${x or 0:.2f}"
+
+
+def parse_diff(text: str | None) -> list[dict]:
+    """A unified diff, split into files with numbered rows for the .diff table."""
+    files: list[dict] = []
+    f = None
+    old = new = 0
+    for line in (text or "").splitlines():
+        if line.startswith("diff --git"):
+            f = {"path": line.split(" b/", 1)[-1], "add": 0, "del": 0, "rows": []}
+            files.append(f)
+        elif f is None or line.startswith(("index ", "--- ", "+++ ", "new file", "deleted file", "similarity",
+                                            "rename ", "old mode", "new mode", "Binary files")):
+            if f is not None and line.startswith("Binary files"):
+                f["rows"].append(("hunk", "", "binary file"))
+        elif line.startswith("@@"):
+            m = re.match(r"@@ -(\d+)(?:,\d+)? \+(\d+)", line)
+            old, new = (int(m[1]), int(m[2])) if m else (0, 0)
+            f["rows"].append(("hunk", "", line))
+        elif line.startswith("+"):
+            f["rows"].append(("add", new, line[1:]))
+            f["add"] += 1
+            new += 1
+        elif line.startswith("-"):
+            f["rows"].append(("del", old, line[1:]))
+            f["del"] += 1
+            old += 1
+        elif not line.startswith("\\"):
+            f["rows"].append(("ctx", new, line[1:]))
+            old += 1
+            new += 1
+    return files
+
+
+for _name, _fn in {"ref": ref, "label": label, "ago": ago, "when": when, "tokens": tokens, "money": money,
+                   "diff_files": parse_diff, "spent": lambda t: _cost(t), "sev": lambda s: SEVERITY.get(s, "minor")}.items():
+    templates.env.filters[_name] = _fn
+
+
+# --- what is waiting on the human ----------------------------------------------------------------
+
+QUEUE_KINDS = {
+    "plans": "Waves & plans", "held": "Held by rehearsal", "soundcheck": "Soundcheck", "fermata": "Fermata",
+    "blocked": "Blocked tasks", "decision": "Decisions", "convention": "Conventions",
+}
+
+
+async def _queue(conn, project: str) -> list[dict]:
+    """Everything only a human can move, most blocking first."""
+    docs = lambda type, status: store.list_documents(conn, project, type=type, status=status)
+    items = [{"kind": "fermata", "doc": d} for d in await docs("task", "on_hold")]
+    items += [{"kind": "held", "doc": d} for d in await docs("plan", "held")]
+    items += [{"kind": "soundcheck", "doc": d} for d in await docs("plan", "blocked")]
+    items += [{"kind": "blocked", "doc": d} for d in await docs("task", "blocked")]
+    items += [{"kind": "plans", "doc": d} for d in await docs("wave", "draft")]
+    items += [{"kind": "plans", "doc": d} for d in await docs("plan", "draft") if not await plans.wave_of(conn, d)]
+    items += [{"kind": "decision", "doc": d} for d in await docs("decision", "proposed")]
+    items += [{"kind": "convention", "doc": d} for d in await docs("convention", "proposed")]
+    return items
+
+
+async def _side(conn, project: str) -> dict:
+    """The sidebar's live part: what waits on the human and what the maestro is playing."""
+    tasks = await store.list_documents(conn, project, type="task", limit=500)
+    status = Counter(t["status"] for t in tasks)
+    waves = await store.list_documents(conn, project, type="wave", status="approved", limit=5)
+    return {"waiting": len(await _queue(conn, project)), "playing": status["playing"],
+            "on_hold": status["on_hold"], "pending": status["pending"], "wave": waves[0] if waves else None}
+
+
+async def render(request: Request, name: str, **ctx) -> Response:
     project = request.path_params.get("project")
-    return templates.TemplateResponse(request, name, {"project": project, **ctx})
+    side = None
+    if project:
+        pool, _ = await services.get()
+        async with pool.connection() as conn:
+            side = await _side(conn, project)
+    return templates.TemplateResponse(request, name, {"project": project, "side": side, **ctx})
+
+
+# --- decisions: the buttons a human gets, and what each one does ----------------------------------
+
+EFFECTS = {
+    ("wave", "draft", "approved"): "Every plan in the wave is approved; their tasks enter the setlist and play "
+                                   "in the order shown, each plan after the ones it depends on.",
+    ("wave", "draft", "abandoned"): "The wave is dropped. Its plans stay drafts and can be approved on their own.",
+    ("wave", "approved", "abandoned"): "The wave is dropped. Its plans keep their own status; merged work stays on main.",
+    ("plan", "draft", "approved"): "Its tasks enter the setlist and the maestro plays them in order.",
+    ("plan", "draft", "abandoned"): "The plan is dropped; nothing is queued.",
+    ("plan", "approved", "abandoned"): "No task of the plan is played any more. Merged work stays on main.",
+    ("plan", "held", "revised"): "The unplayed tasks are replaced by the revised ones and the plan starts.",
+    ("plan", "held", "approved"): "The plan starts as written; the rehearsal notes stay attached to it.",
+    ("plan", "held", "abandoned"): "The plan is dropped; plans that wait for it never start.",
+    ("plan", "blocked", "approved"): "One more soundcheck, with fresh fix rounds.",
+    ("plan", "blocked", "done"): "The feature is done as it is; the plans after it may play.",
+    ("plan", "blocked", "abandoned"): "The plan is dropped; plans that wait for it never start.",
+    ("task", "on_hold", "released"): "The maestro merges the branch into main next.",
+    ("task", "on_hold", "pending"): "Back to pending: a new session plays it again.",
+    ("task", "blocked", "pending"): "Back to pending: a new session plays it again.",
+    ("task", "blocked", "abandoned"): "The task is dropped; tasks that depend on it never start.",
+    ("task", "pending", "abandoned"): "The task is dropped; tasks that depend on it never start.",
+    ("convention", "proposed", "active"): "Injected into every agent session that touches its layers.",
+    ("convention", "proposed", "rejected"): "Dropped; tune will not propose it again from the same evidence.",
+    ("decision", "proposed", "accepted"): "Becomes a decision in effect for its feature.",
+    ("decision", "proposed", "rejected"): "Kept in memory as rejected.",
+    ("decision", "accepted", "superseded"): "Marked as no longer in effect.",
+}
+ACTION_LABELS = {
+    ("plan", "held", "revised"): "Accept revision", ("plan", "held", "approved"): "Keep original",
+    ("plan", "blocked", "approved"): "Try again", ("plan", "blocked", "done"): "Accept as is",
+    ("task", "on_hold", "released"): "Release to merge", ("task", "on_hold", "pending"): "Play again",
+    ("task", "blocked", "pending"): "Try again", ("convention", "proposed", "active"): "Adopt",
+}
+QUESTIONS = {
+    ("wave", "draft"): "Approve the whole wave?", ("plan", "draft"): "Approve this plan?",
+    ("plan", "held"): "Accept the revised plan?", ("plan", "blocked"): "The soundcheck kept failing. What now?",
+    ("task", "on_hold"): "Release this task to merge?", ("task", "blocked"): "Play it again?",
+    ("decision", "proposed"): "Accept this decision?", ("convention", "proposed"): "Adopt this convention?",
+}
+VERBS = {"approved": "Approve", "accepted": "Accept", "rejected": "Reject", "abandoned": "Abandon",
+         "released": "Release", "active": "Adopt", "superseded": "Supersede", "pending": "Play again", "done": "Done"}
+DANGER = {"abandoned", "rejected", "superseded"}
+APPROVE = {"approved", "accepted", "released", "revised", "active"}
+
+
+def actions(doc: dict, in_wave: dict | None = None) -> list[dict]:
+    type_, status = doc["type"], doc["status"] or ""
+    if type_ == "plan" and status == "held":
+        tos = ["revised", "approved", "abandoned"] if doc["body"].get("rehearsal", {}).get("plan") \
+            else ["approved", "abandoned"]
+    elif in_wave and status == "draft":
+        tos = []  # approved with its wave
+    else:
+        tos = [to for (t, frm, to), actors in rules.TRANSITIONS.items()
+               if t == type_ and frm == status and "human" in actors]
+    out = []
+    for to in tos:
+        key = (type_, status, to)
+        out.append({"to": to, "label": ACTION_LABELS.get(key) or VERBS.get(to) or label(to),
+                    "effect": EFFECTS.get(key, ""),
+                    "style": "danger" if to in DANGER else "approve" if to in APPROVE else ""})
+    # One recommended choice: the first approving one, else the first non-destructive one.
+    for a in [a for a in out if a["style"] == "approve"][1:]:
+        a["style"] = ""
+    if out and not any(a["style"] == "approve" for a in out):
+        for a in out:
+            if a["style"] == "":
+                a["style"] = "primary"
+                break
+    return out
+
+
+templates.env.globals["question"] = lambda doc: QUESTIONS.get((doc["type"], doc["status"] or ""))
+
+
+# --- reading tasks and plans ---------------------------------------------------------------------
+
+
+def _cost(t: dict) -> tuple[int, float]:
+    runs = t["body"].get("runs") or []
+    return sum(r.get("tokens") or 0 for r in runs), sum(r.get("cost_usd") or 0 for r in runs)
+
+
+def _progress(tasks: list[dict]) -> dict:
+    """Counts and bar widths (in %) of a group of tasks."""
+    live = [t for t in tasks if t["status"] != "abandoned"]
+    c = Counter(t["status"] for t in live)
+    n = len(live) or 1
+    tok, usd = (sum(x) for x in zip(*[_cost(t) for t in tasks])) if tasks else (0, 0.0)
+    return {"total": len(live), "counts": c, "done": c["done"], "tokens": tok, "cost": usd,
+            "bar": {"done": 100 * c["done"] / n, "playing": 100 * (c["playing"] + c["released"]) / n,
+                    "held": 100 * c["on_hold"] / n, "blocked": 100 * c["blocked"] / n}}
+
+
+async def _tasks_of(conn, plan_id: int) -> list[dict]:
+    ids = [l["id"] for l in await store.links_of(conn, plan_id) if l["kind"] == "has_task" and l["direction"] == "out"]
+    tasks = [await store.get_document(conn, i) for i in ids]
+    return sorted(tasks, key=lambda t: t["body"].get("seq", 0))
+
+
+async def _gate_config(conn, project: str) -> GateConfig | None:
+    doc = await store.latest_of_type(conn, project, "gate_config")
+    try:
+        return GateConfig.from_yaml(doc["body"]["yaml"]) if doc else None
+    except Exception:
+        return None
+
+
+def _mermaid(tasks: list[dict]) -> str:
+    lines = ["graph LR"]
+    for t in tasks:
+        lines.append(f'  T{t["id"]}["{ref(t)}"]')
+        lines += [f'  T{d} --> T{t["id"]}' for d in t["body"].get("depends_on", [])]
+    return "\n".join(lines)
+
+
+def _stages(run: dict | None, status: str) -> list[tuple[str, str]]:
+    """session → gates → review rN → merge, as far as the last run got."""
+    if not run:
+        return []
+    review = run.get("review")
+    names = ["session", "gates"] + ([f"review r{run.get('review_rounds') or 1}"] if review else []) + ["merge"]
+    outcome = run.get("outcome")
+    if outcome == "merged":
+        return [(n, "is-done") for n in names]
+    if outcome == "on_hold" or status in ("on_hold", "released"):
+        names[-1] = "fermata" if status == "on_hold" else "merge"
+        return [(n, "is-done") for n in names[:-1]] + [(names[-1], "is-current")]
+    if review and review.get("verdict") == "fail":
+        return [(n, "is-done") for n in names[:2]] + [(names[2], "is-failed"), (names[3], "")]
+    return []
+
+
+# --- pages ---------------------------------------------------------------------------------------
 
 
 async def home(request: Request) -> Response:
     pool, _ = await services.get()
     async with pool.connection() as conn:
         projects = await store.list_projects(conn)
-    return render(request, "home.html", projects=projects)
+    return await render(request, "home.html", projects=projects)
+
+
+async def _readable(conn, hits: list) -> list[dict]:
+    """Hits with their document's title and status, and the chunk text without its context prefix."""
+    out = []
+    for hit in hits:
+        h = asdict(hit)
+        d = await store.get_document(conn, h["document_id"])
+        h["title"] = (d["body"].get("title") or d["body"].get("summary") or "") if d else ""
+        h["status"] = d["status"] if d else None
+        _, sep, rest = h["text"].partition("\nsection: ")
+        h["snippet"] = rest.partition("\n")[2] if sep else h["text"]
+        out.append(h)
+    return out
 
 
 async def search_page(request: Request) -> Response:
@@ -53,8 +357,12 @@ async def search_page(request: Request) -> Response:
                 feature=p.get("feature") or None, layer=p.get("layer") or None,
                 doc_type=p.get("type") or None, mode=mode, k=20,
             )
-    return render(request, "search.html", q=q, mode=mode, strategy=strategy, hits=hits,
-                  strategies=list(STRATEGIES), modes=MODES, types=DOC_TYPES, filters=p)
+    if hits:
+        pool, _ = await services.get()
+        async with pool.connection() as conn:
+            hits = await _readable(conn, hits)
+    return await render(request, "search.html", q=q, mode=mode, strategy=strategy, hits=hits,
+                        strategies=list(STRATEGIES), modes=MODES, types=DOC_TYPES, filters=p)
 
 
 async def lab_page(request: Request) -> Response:
@@ -73,12 +381,13 @@ async def lab_page(request: Request) -> Response:
         compare = {}
         if q:
             for name, strategy in STRATEGIES.items():
-                compare[name] = await store.search(conn, q, project, strategy, indexer.embedder, k=5)
+                compare[name] = await _readable(conn, await store.search(conn, q, project, strategy, indexer.embedder, k=5))
         questions = await evaluation.questions(conn, project)
         runs = await evaluation.runs(conn, project)
     strategies = [{"name": n, "params": s.params, "chunks": counts.get(n, 0)} for n, s in STRATEGIES.items()]
-    return render(request, "lab.html", q=q, strategies=strategies, compare=compare,
-                  questions=questions, runs=runs)
+    best = {m: max((r[m] for r in runs), default=None) for m in ("recall", "mrr", "ndcg")}
+    return await render(request, "lab.html", q=q, strategies=strategies, compare=compare,
+                        questions=questions, runs=runs, best=best)
 
 
 async def lab_eval(request: Request) -> Response:
@@ -110,38 +419,80 @@ async def documents_page(request: Request) -> Response:
     async with pool.connection() as conn:
         docs = await store.list_documents(conn, project, type=p.get("type") or None,
                                           status=p.get("status") or None, feature=p.get("feature") or None)
-    return render(request, "documents.html", docs=docs, types=DOC_TYPES, filters=p)
+    return await render(request, "documents.html", docs=docs, types=DOC_TYPES, filters=p)
 
 
 async def document_page(request: Request) -> Response:
+    project = request.path_params["project"]
     pool, _ = await services.get()
     async with pool.connection() as conn:
         doc = await store.get_document(conn, int(request.path_params["doc_id"]))
-        if not doc or doc["project"] != request.path_params["project"]:
+        if not doc or doc["project"] != project:
             return Response("not found", status_code=404)
         links = await store.links_of(conn, doc["id"])
-        wave_plans = {f["plan_id"]: await store.get_document(conn, f["plan_id"])
-                      for f in doc["body"]["features"]} if doc["type"] == "wave" else {}
         in_wave = await plans.wave_of(conn, doc) if doc["type"] == "plan" else None
-    actions = [to for (type_, frm, to), actors in rules.TRANSITIONS.items()
-               if type_ == doc["type"] and frm == (doc["status"] or "") and "human" in actors]
-    if in_wave and doc["status"] == "draft":
-        actions = []  # approved with its wave
-    if doc["type"] == "plan" and doc["status"] == "held":
-        actions = ["revised", "approved", "abandoned"]
-    return render(request, "document.html", doc=doc, links=links, actions=actions, wave_plans=wave_plans,
-                  in_wave=in_wave, labels=LABELS.get(doc["status"], {}))
+        ctx = {"doc": doc, "links": links, "in_wave": in_wave, "actions": actions(doc, in_wave),
+               "nav_section": NAV_SECTION.get(doc["type"], "documents")}
+        if doc["type"] == "wave":
+            return await render(request, "wave.html", **ctx, **await _wave(conn, doc))
+        if doc["type"] == "plan":
+            return await render(request, "plan.html", **ctx, **await _plan(conn, doc))
+        if doc["type"] == "task":
+            return await render(request, "task.html", **ctx, **await _task(conn, doc))
+    return await render(request, "document.html", **ctx)
 
 
-LABELS = {
-    "held": {"revised": "Accept revision", "approved": "Keep original"},
-    "blocked": {"approved": "Try again", "done": "Accept as is"},
-}
+NAV_SECTION = {"wave": "waves", "plan": "waves", "task": "setlist", "convention": "conventions",
+               "gate_config": "config"}
+
+
+async def _wave(conn, wave: dict) -> dict:
+    feats = []
+    for i, f in enumerate(wave["body"]["features"], start=1):
+        plan = await store.get_document(conn, f["plan_id"])
+        tasks = await _tasks_of(conn, f["plan_id"]) if plan else []
+        feats.append({"pos": i, "plan": plan, "tasks": tasks, "progress": _progress(tasks),
+                      "after": [wave["body"]["features"][d - 1]["plan_id"] for d in f.get("depends_on", [])
+                                if 0 < d <= len(wave["body"]["features"])]})
+    all_tasks = [t for f in feats for t in f["tasks"]]
+    return {"features": feats, "progress": _progress(all_tasks)}
+
+
+async def _plan(conn, plan: dict) -> dict:
+    tasks = await _tasks_of(conn, plan["id"])
+    failures = Counter(g["task_id"] for g in await store.gate_runs(conn, project=plan["project"], limit=5000)
+                       if not g["passed"])
+    cfg = await _gate_config(conn, plan["project"])
+    return {"tasks": tasks, "progress": _progress(tasks), "encores": failures, "cfg": cfg,
+            "graph": _mermaid(tasks) if tasks else None,
+            "after": sorted({p for t in tasks for p in t["body"].get("after_plans", [])})}
+
+
+async def _task(conn, task: dict) -> dict:
+    runs = task["body"].get("runs") or []
+    gate_runs = await store.gate_runs(conn, task_id=task["id"], limit=500)
+    by_session: dict[str, list] = {}
+    for g in reversed(gate_runs):
+        by_session.setdefault(g["session_id"], []).append(g)
+    plan = await store.get_document(conn, task["body"]["plan_id"]) if task["body"].get("plan_id") else None
+    last = runs[-1] if runs else None
+    diff_run = next((r for r in reversed(runs) if r.get("diff")), None)
+    summary = {}
+    for sid, gs in by_session.items():
+        per: dict[str, dict] = {}
+        for g in gs:  # oldest first: the last one wins
+            s = per.setdefault(g["gate"], {"gate": g["gate"], "runs": 0, "failures": 0, "ms": 0})
+            s.update(runs=s["runs"] + 1, failures=s["failures"] + (not g["passed"]), passed=g["passed"],
+                     ms=g["duration_ms"], at=g["created_at"], output=g["output"] if not g["passed"] else s.get("output"))
+        summary[sid] = list(per.values())
+    return {"runs": runs, "gates_by_session": summary, "plan": plan, "last": last, "diff_run": diff_run,
+            "stages": _stages(last, task["status"]), "cfg": await _gate_config(conn, task["project"]),
+            "encores": sum(1 for g in gate_runs if not g["passed"])}
 
 
 async def config_page(request: Request) -> Response:
     project = request.path_params["project"]
-    error, text = None, None
+    error, text, summary = None, None, None
     pool, indexer = await services.get()
     async with pool.connection() as conn:
         if request.method == "POST":
@@ -157,31 +508,46 @@ async def config_page(request: Request) -> Response:
         runs = await store.gate_runs(conn, project=project, limit=30)
     if text is None:
         text = doc["body"]["yaml"] if doc else EXAMPLE
-    return render(request, "config.html", text=text, doc=doc, error=error, runs=runs)
+        try:
+            cfg = GateConfig.from_yaml(text)
+            summary = f"{len(cfg.gates)} gates" + (", soundcheck configured" if cfg.soundcheck else "")
+        except Exception as e:
+            error = str(e)
+    return await render(request, "config.html", text=text, doc=doc, error=error, runs=runs, summary=summary)
 
 
 async def approvals_page(request: Request) -> Response:
     project = request.path_params["project"]
+    kind = request.query_params.get("kind")
     pool, _ = await services.get()
     async with pool.connection() as conn:
-        groups = {
-            "Waves to approve": await store.list_documents(conn, project, type="wave", status="draft"),
-            "Plans to approve": [p for p in await store.list_documents(conn, project, type="plan", status="draft")
-                                 if not await plans.wave_of(conn, p)],
-            "Plans held after rehearsal": await store.list_documents(conn, project, type="plan", status="held"),
-            "Plans blocked at the soundcheck": await store.list_documents(conn, project, type="plan", status="blocked"),
-            "Held at the fermata": await store.list_documents(conn, project, type="task", status="on_hold"),
-            "Blocked tasks": await store.list_documents(conn, project, type="task", status="blocked"),
-            "Proposed decisions": await store.list_documents(conn, project, type="decision", status="proposed"),
-            "Proposed conventions": await store.list_documents(conn, project, type="convention", status="proposed"),
-        }
-    return render(request, "approvals.html", groups=groups)
+        items = await _queue(conn, project)
+        counts = Counter(i["kind"] for i in items)
+        shown = [i for i in items if not kind or i["kind"] == kind]
+        for item in shown:
+            doc = item["doc"]
+            item["actions"] = actions(doc)
+            if doc["type"] == "wave":
+                item["plans"] = [await store.get_document(conn, f["plan_id"]) for f in doc["body"]["features"]]
+            elif doc["type"] == "task":
+                item["plan"] = await store.get_document(conn, doc["body"]["plan_id"])
+                item["last"] = (doc["body"].get("runs") or [None])[-1]
+                if doc["status"] == "blocked":
+                    item["failed_gate"] = next((g for g in await store.gate_runs(conn, task_id=doc["id"], limit=50)
+                                                if not g["passed"]), None)
+            elif doc["type"] == "plan" and doc["status"] == "held":
+                item["tasks"] = await _tasks_of(conn, doc["id"])
+    oldest = min(items, key=lambda i: i["doc"]["created_at"]) if items else None
+    return await render(request, "approvals.html", items=shown, total=len(items), counts=counts, kind=kind,
+                        kinds=QUEUE_KINDS, oldest=oldest)
 
 
 async def transition(request: Request) -> Response:
     """The human gate. Only reachable from the UI."""
     project, doc_id = request.path_params["project"], int(request.path_params["doc_id"])
-    to = str((await request.form()).get("to"))
+    form = await request.form()
+    to = str(form.get("to"))
+    back = str(form.get("next") or "")
     pool, indexer = await services.get()
     async with pool.connection() as conn:
         doc = await store.get_document(conn, doc_id)
@@ -202,7 +568,9 @@ async def transition(request: Request) -> Response:
                 await rules.transition(conn, doc_id, to, "human")
         except rules.Forbidden as e:
             return Response(str(e), status_code=409)
-    return RedirectResponse(f"/ui/p/{project}/documents/{doc_id}", status_code=303)
+    if not back.startswith(f"/ui/p/{project}/"):
+        back = f"/ui/p/{project}/documents/{doc_id}"
+    return RedirectResponse(back, status_code=303)
 
 
 async def conventions_page(request: Request) -> Response:
@@ -219,7 +587,13 @@ async def conventions_page(request: Request) -> Response:
                                                 body={"title": title, "rule": rule}, layers=layers)
             return RedirectResponse(f"/ui/p/{project}/conventions", status_code=303)
         conventions = await store.list_documents(conn, project, type="convention")
-    return render(request, "conventions.html", conventions=conventions)
+    layer = request.query_params.get("layer")
+    layers = Counter(l or "all" for c in conventions if c["status"] != "proposed" for l in (c["layers"] or [None]))
+    shown = [c for c in conventions if c["status"] != "proposed"
+             and (not layer or layer in (c["layers"] or ["all"]))]
+    proposed = [c for c in conventions if c["status"] == "proposed"]
+    return await render(request, "conventions.html", conventions=shown, proposed=proposed, layers=layers,
+                        layer=layer, total=sum(1 for c in conventions if c["status"] != "proposed"))
 
 
 async def convention_edit(request: Request) -> Response:
@@ -240,6 +614,7 @@ async def convention_edit(request: Request) -> Response:
 
 
 SETLIST_COLUMNS = ["pending", "playing", "on_hold", "released", "blocked", "done"]
+COLUMN_LIMIT = {"pending": 12, "done": 12}
 
 
 async def setlist_page(request: Request) -> Response:
@@ -248,9 +623,28 @@ async def setlist_page(request: Request) -> Response:
     async with pool.connection() as conn:
         tasks = await store.list_documents(conn, project, type="task", limit=500)
         plans_ = {d["id"]: d for d in await store.list_documents(conn, project, type="plan", limit=200)}
+        waves = await store.list_documents(conn, project, type="wave", status="approved", limit=5)
+    tasks.sort(key=lambda t: (t["body"].get("plan_id", 0), t["body"].get("seq", 0)))
     columns = {c: [t for t in tasks if t["status"] == c] for c in SETLIST_COLUMNS}
-    columns["done"] = columns["done"][:20]
-    return render(request, "setlist.html", columns=columns, plans=plans_)
+    columns["done"].reverse()
+    totals = {c: len(ts) for c, ts in columns.items()}
+    for c, n in COLUMN_LIMIT.items():
+        columns[c] = columns[c][:n]
+    status_of = {t["id"]: t["status"] for t in tasks} | {p["id"]: p["status"] for p in plans_.values()}
+    return await render(request, "setlist.html", columns=columns, totals=totals, plans=plans_, status_of=status_of,
+                        wave=waves[0] if waves else None, progress=_progress(tasks),
+                        playing=[t for t in tasks if t["status"] == "playing"])
+
+
+async def waves_page(request: Request) -> Response:
+    project = request.path_params["project"]
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        waves = []
+        for w in await store.list_documents(conn, project, type="wave"):
+            tasks = [t for f in w["body"]["features"] for t in await _tasks_of(conn, f["plan_id"])]
+            waves.append({"doc": w, "progress": _progress(tasks)})
+    return await render(request, "waves.html", waves=waves)
 
 
 async def features_page(request: Request) -> Response:
@@ -259,7 +653,12 @@ async def features_page(request: Request) -> Response:
     async with pool.connection() as conn:
         feats = await store.features(conn, project)
         overview = await store.feature_doc(conn, project, None)
-    return render(request, "features.html", features=feats, overview=overview)
+        latest_plan = {}
+        for p in await store.list_documents(conn, project, type="plan", limit=500):
+            latest_plan.setdefault(p["feature"], p)  # newest first
+        docs = {f["slug"]: await store.feature_doc(conn, project, f["slug"]) for f in feats if f["documented"]}
+    return await render(request, "features.html", features=feats, overview=overview, latest_plan=latest_plan,
+                        docs=docs)
 
 
 async def feature_page(request: Request) -> Response:
@@ -269,21 +668,28 @@ async def feature_page(request: Request) -> Response:
         doc = await store.feature_doc(conn, project, feature)
         timeline = [d for d in await store.list_documents(conn, project, feature=feature, limit=300)
                     if d["type"] in ("plan", "handoff", "decision", "task")]
-    return render(request, "feature.html", feature=feature, doc=doc, timeline=timeline)
+    return await render(request, "feature.html", feature=feature, doc=doc, timeline=timeline)
 
 
 async def insights_page(request: Request) -> Response:
     pool, indexer = await services.get()
     async with pool.connection() as conn:
         data = await insights.build(conn, request.path_params["project"], indexer.embedder)
-    return render(request, "insights.html", i=data)
+    scored = [a for a in data["adherence"]]
+    avg = sum(a["avg"] * a["n"] for a in scored) / sum(a["n"] for a in scored) if scored else None
+    layers = sorted({a["layer"] for a in scored})
+    grid: dict[str, dict] = {}
+    for a in scored:
+        grid.setdefault(a["feature"], {})[a["layer"]] = a["avg"]
+    return await render(request, "insights.html", i=data, avg_adherence=avg, layers=layers, grid=grid,
+                        gate_failures=sum(g["failures"] for g in data["gates"]))
 
 
 def routes() -> list:
     return [
         Route("/", lambda r: RedirectResponse("/ui")),
         Route("/ui", home),
-        Route("/ui/p/{project}", lambda r: RedirectResponse(f"/ui/p/{r.path_params['project']}/search")),
+        Route("/ui/p/{project}", lambda r: RedirectResponse(f"/ui/p/{r.path_params['project']}/setlist")),
         Route("/ui/p/{project}/search", search_page),
         Route("/ui/p/{project}/lab", lab_page),
         Route("/ui/p/{project}/lab/eval", lab_eval, methods=["POST"]),
@@ -293,6 +699,7 @@ def routes() -> list:
         Route("/ui/p/{project}/config", config_page, methods=["GET", "POST"]),
         Route("/ui/p/{project}/approvals", approvals_page),
         Route("/ui/p/{project}/setlist", setlist_page),
+        Route("/ui/p/{project}/waves", waves_page),
         Route("/ui/p/{project}/features", features_page),
         Route("/ui/p/{project}/insights", insights_page),
         Route("/ui/p/{project}/features/{feature}", feature_page),

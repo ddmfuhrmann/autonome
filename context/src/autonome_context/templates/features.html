@@ -1,20 +1,29 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui %}
 {% block title %}Features{% endblock %}
 {% block main %}
-<h1>{{ project }}</h1>
-{% if overview %}{% with doc = overview %}{% include "_doc.html" %}{% endwith %}
-{% else %}<p class="empty card">No system overview yet. The scribe writes it after the first delivery, or run <code>autonome-docs --overview</code> in the repo.</p>{% endif %}
-<div class="card">
-  <h2>Features</h2>
-  <div class="tablewrap"><table>
-    <tr><th>Feature</th><th>Doc</th><th>Handoffs</th><th>Tasks</th><th>Decisions</th><th>Adherence</th><th>Last activity</th></tr>
-    {% for f in features %}
-    <tr><td><a href="/ui/p/{{ project }}/features/{{ f.slug }}">{{ f.slug }}</a></td>
-      <td>{% if f.documented %}<span class="pill ok">living</span>{% else %}<span class="pill">none</span>{% endif %}</td>
-      <td class="num">{{ f.handoffs }}</td><td class="num">{{ f.tasks }}</td><td class="num">{{ f.decisions }}</td>
-      <td class="num">{{ '%.2f'|format(f.adherence) if f.adherence is not none else '' }}</td>
-      <td>{{ f.last_activity.strftime('%Y-%m-%d') if f.last_activity else '' }}</td></tr>
-    {% else %}<tr><td colspan="7" class="empty">No features yet.</td></tr>{% endfor %}
-  </table></div>
+<div class="page-head"><div class="page-head__text"><h1>Features</h1><p class="page-head__meta">Each feature keeps a living doc rebuilt from plans and handoffs.</p></div></div>
+<div class="grid grid--3">
+  {% for f in features %}{% set p = latest_plan.get(f.slug) %}{% set doc = docs.get(f.slug) %}
+  <a class="card{{ ' card--live' if p and p.status == 'approved' }}" href="/ui/p/{{ project }}/features/{{ f.slug }}">
+    <div class="card__head"><span class="card__title">{{ f.slug }}</span>{% if p %}<span class="push">{{ ui.st(p.status, sm=true) }}</span>{% endif %}</div>
+    <div class="card__body">
+      {% if doc and doc.body.overview %}<p class="muted" style="font-size: 13px">{{ doc.body.overview|striptags|truncate(140) }}</p>{% endif %}
+      <dl class="kv">
+        <dt>Adherence</dt>
+        {% if f.adherence is not none %}<dd><span class="bar"><span class="bar__track"><span class="bar__fill{{ ' bar__fill--ok' if f.adherence >= 0.8 }}" style="width: {{ (f.adherence * 100)|round }}%"></span></span><span class="bar__value">{{ '%.2f'|format(f.adherence) }}</span></span></dd>
+        {% else %}<dd class="muted">no handoffs yet</dd>{% endif %}
+        <dt>Tasks</dt><dd class="num">{{ f.tasks }}</dd><dt>Handoffs</dt><dd class="num">{{ f.handoffs }}</dd>{% if f.decisions %}<dt>Decisions</dt><dd class="num">{{ f.decisions }}</dd>{% endif %}
+        <dt>Living doc</dt><dd>{{ 'yes' if f.documented else 'not yet' }}</dd>
+        <dt>Last activity</dt><dd>{{ f.last_activity|ago if f.last_activity else '—' }}</dd>
+      </dl>
+    </div>
+  </a>
+  {% else %}<p class="empty">No features yet.</p>{% endfor %}
 </div>
+<section class="stack">
+  <div class="section-head"><h2>System overview</h2></div>
+  {% if overview %}{% with doc = overview %}{% include "_doc.html" %}{% endwith %}
+  {% else %}<p class="empty">No system overview yet. The scribe writes it after the first delivery, or run <code>autonome-docs --overview</code> in the repo.</p>{% endif %}
+</section>
 {% endblock %}

@@ -1,24 +1,48 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui %}
 {% block title %}Conventions{% endblock %}
 {% block main %}
-<h1>Conventions</h1>
-<p class="muted">How code is written in this project, per layer. Injected into agent sessions for the layers a task touches. Only editable here; every edit is a new version.</p>
-{% for c in conventions %}
-<form class="card" method="post" action="/ui/p/{{ project }}/conventions/{{ c.id }}">
-  <div class="meta"><span class="pill {{ 'ok' if c.status == 'active' else '' }}">{{ c.status }}</span>
-    <span>layers: {{ c.layers|join(', ') or 'all' }}</span><span>version {{ c.version }}</span>
-    <a href="/ui/p/{{ project }}/documents/{{ c.id }}">#{{ c.id }}</a></div>
-  <input type="text" name="title" id="title-{{ c.id }}" value="{{ c.body.title }}">
-  <textarea name="rule" id="rule-{{ c.id }}" style="min-height: 160px">{{ c.body.rule }}</textarea>
-  <div class="inline"><button class="secondary">Save version</button>
-    <button name="archive" value="1" class="secondary">{{ 'Archive' if c.status == 'active' else 'Reactivate' }}</button></div>
-</form>
+<div class="page-head">
+  <div class="page-head__text"><h1>Conventions</h1><p class="page-head__meta">Rules the agents read, per layer. Injected into sessions for the layers a task touches. Every edit is a new version.</p></div>
+  <div class="page-head__actions"><a class="btn" href="#new">Add rule</a></div>
+</div>
+{% for c in proposed %}
+<div class="card card--attn"><div class="card__body"><div class="row">{{ ui.st('proposed', sm=true) }}<span style="font-size: 13px">“{{ c.body.title }}”{% if c.layers %} · {{ c.layers|join(', ') }}{% endif %}</span><span class="spacer"></span><a class="btn btn--sm" href="/ui/p/{{ project }}/approvals?kind=convention">Review</a></div></div></div>
 {% endfor %}
-<form class="card" method="post">
-  <h2>New convention</h2>
-  <input type="text" name="title" id="new-title" placeholder="Title, e.g. Money and rounding">
-  <input type="text" name="layers" id="new-layers" placeholder="layers, comma separated; empty = all">
-  <textarea name="rule" id="new-rule" style="min-height: 160px" placeholder="The rule, in markdown"></textarea>
-  <div><button class="accent">Add</button></div>
+{% if layers %}
+<nav class="tabs" aria-label="Layers">
+  <a href="?"{% if not layer %} aria-current="page"{% endif %}>All <span class="count-pill">{{ total }}</span></a>
+  {% for l, n in layers.items()|sort %}<a href="?layer={{ l }}"{% if layer == l %} aria-current="page"{% endif %}>{{ l }} <span class="count-pill">{{ n }}</span></a>{% endfor %}
+</nav>
+{% endif %}
+<ul class="findings">
+  {% for c in conventions %}
+  <li class="finding{{ ' is-resolved' if c.status == 'archived' }}">
+    <span class="tag">{{ c|ref }}</span>
+    <div class="stack stack--sm">
+      <strong>{{ c.body.title }}</strong>
+      <div class="prose" style="font-size: 13px">{{ c.body.rule|md }}</div>
+      <span class="muted" style="font-size: 12px">{{ c.layers|join(', ') or 'all layers' }} · version {{ c.version }} · {{ c.updated_at|ago }}{% if c.status != 'active' %} · {{ c.status }}{% endif %}</span>
+      <details>
+        <summary class="btn btn--sm btn--ghost">Edit</summary>
+        <form class="stack stack--sm" method="post" action="/ui/p/{{ project }}/conventions/{{ c.id }}" style="margin-top: 8px">
+          <label class="sr-only" for="title-{{ c.id }}">Title</label><input class="input" type="text" name="title" id="title-{{ c.id }}" value="{{ c.body.title }}">
+          <label class="sr-only" for="rule-{{ c.id }}">Rule</label><textarea class="textarea" name="rule" id="rule-{{ c.id }}" style="min-height: 160px">{{ c.body.rule }}</textarea>
+          <div class="row"><button class="btn btn--primary btn--sm" type="submit">Save version</button>
+            <button class="btn btn--sm" name="archive" value="1" type="submit">{{ 'Archive' if c.status == 'active' else 'Reactivate' }}</button></div>
+        </form>
+      </details>
+    </div>
+  </li>
+  {% else %}<li class="empty">No conventions yet.</li>{% endfor %}
+</ul>
+<form class="card" method="post" id="new">
+  <div class="card__head"><h2 class="card__title">New convention</h2></div>
+  <div class="card__body">
+    <label class="sr-only" for="new-title">Title</label><input class="input" type="text" name="title" id="new-title" placeholder="Title, e.g. Money and rounding">
+    <label class="sr-only" for="new-layers">Layers</label><input class="input" type="text" name="layers" id="new-layers" placeholder="layers, comma separated; empty = all">
+    <label class="sr-only" for="new-rule">Rule</label><textarea class="textarea" name="rule" id="new-rule" style="min-height: 160px" placeholder="The rule, in markdown"></textarea>
+    <div><button class="btn btn--primary" type="submit">Add</button></div>
+  </div>
 </form>
 {% endblock %}

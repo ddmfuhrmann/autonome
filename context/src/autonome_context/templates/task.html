@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% block title %}{{ doc|ref }}{% endblock %}
+{% block crumbs %}{% if plan %}<a href="/ui/p/{{ project }}/documents/{{ plan.id }}">{{ plan|ref }}</a><span class="sep">/</span>{% endif %}<span aria-current="page">{{ doc|ref }}</span>{% endblock %}
+{% block main %}
+{% set b = doc.body %}
+<div class="page-head">
+  <div class="page-head__text">
+    <div class="page-head__title"><span class="id">{{ doc|ref }}</span><h1>{{ b.title }}</h1></div>
+    <div class="page-head__meta">
+      {{ ui.st(doc.status, live=true) }}
+      {% if stages %}<ol class="stages" aria-label="Stages">{% for name, cls in stages %}<li class="{{ cls }}"{% if cls == 'is-current' %} aria-current="step"{% endif %}><span>{{ name }}</span></li>{% endfor %}</ol>{% endif %}
+    </div>
+  </div>
+  <div class="page-head__actions">{{ ui.head_danger(project, doc, actions) }}{% if last and last.branch %}<span class="mono muted" style="font-size: 12px">branch {{ last.branch }}</span>{% endif %}</div>
+</div>
+
+{% if doc.status == 'on_hold' and last %}
+<div class="callout callout--hold"><div><strong>Held at the fermata:</strong> gates passed{{ ' and the reviewer approved' if last.review and last.review.verdict == 'pass' }}. Read the diff below before releasing it.</div></div>
+{% endif %}
+{{ ui.decision(project, doc, actions) }}
+
+<nav class="tabs" aria-label="Task sections">
+  <a href="#spec" aria-current="page">Spec</a><a href="#runs">Runs <span class="count-pill">{{ runs|length }}</span></a>
+  {% if diff_run %}<a href="#diff">Diff <span class="count-pill">{{ (diff_run.diff|diff_files)|length }} files</span></a>{% endif %}
+</nav>
+
+<div class="grid grid--main-aside">
+<div class="stack stack--lg">
+  <section class="card" id="spec">
+    <div class="card__head"><h2 class="card__title">Spec</h2></div>
+    <div class="card__body">
+      <div class="prose">{{ b.spec|md }}</div>
+      {% if b.acceptance %}<h3>Acceptance criteria</h3><ul class="checklist">{% for a in b.acceptance %}<li class="{{ 'is-met' if doc.status == 'done' }}">{{ a }}</li>{% endfor %}</ul>{% endif %}
+    </div>
+  </section>
+  <section class="stack" aria-labelledby="runs-h">
+  <div class="section-head"><h2 id="runs-h">Runs</h2><span class="count">{{ runs|length }}</span></div>
+  <ol class="timeline" id="runs">
+    {% if doc.status == 'playing' %}
+    <li class="tl"><span class="tl__node">{{ ui.icon_st('playing') }}</span>
+      <div class="tl__body"><div class="tl__head"><strong>Run {{ runs|length + 1 }}</strong>{{ ui.eq() }}<span class="tl__time">started {{ doc.updated_at|ago }}</span></div>
+        <div class="callout callout--live"><div>A musician session is playing this task in its own worktree. Gates and the reviewer run when it ends its turn.</div></div></div></li>
+    {% endif %}
+    {% for run in runs|reverse %}{% set n = runs|length - loop.index0 %}
+    {% set gates = gates_by_session.get(run.session_id, []) %}
+    <li class="tl"><span class="tl__node">{{ ui.icon_st(run.outcome or 'done') }}</span>
+      <div class="tl__body">
+        <div class="tl__head"><strong>Run {{ n }}</strong>{{ ui.st(run.outcome or 'done', sm=true) }}
+          <span class="tl__time">{{ run.at|when }}{% if run.tokens %} · {{ run.tokens|tokens }} tokens{% endif %}{% if run.cost_usd %} · {{ run.cost_usd|money }}{% endif %}</span></div>
+        {% if run.reason %}<div class="callout callout--{{ 'block' if run.outcome in ('blocked', 'error', 'merge-failed') else 'hold' }}"><div class="prose">{{ run.reason|md }}</div></div>{% endif %}
+        {% if run.diff_stat %}<pre class="code">{{ run.diff_stat }}</pre>{% endif %}
+      </div></li>
+    {% if run.review %}
+    <li class="tl"><span class="tl__node">{{ ui.icon_st('passed' if run.review.verdict == 'pass' else 'failed') }}</span>
+      <div class="tl__body">
+        <div class="tl__head"><strong>Review{% if run.review_rounds %} · round {{ run.review_rounds }}{% endif %}</strong>{{ ui.st('passed' if run.review.verdict == 'pass' else 'failed', sm=true, text=run.review.verdict) }}</div>
+        {% if run.review.findings %}{{ ui.findings(run.review) }}{% else %}<p class="muted" style="font-size: 13px">No findings.</p>{% endif %}
+      </div></li>
+    {% endif %}
+    {% if gates %}{% set failing = gates|rejectattr('passed')|list %}{% set retried = gates|selectattr('failures')|list %}
+    <li class="tl"><span class="tl__node">{{ ui.icon_st('failed' if failing else ('encore' if retried else 'passed')) }}</span>
+      <div class="tl__body">
+        <div class="tl__head"><strong>Gates</strong>{{ ui.st('failed' if failing else 'passed', sm=true, text=(gates|length - failing|length) ~ ' / ' ~ gates|length) }}
+          {% if retried %}<span class="muted" style="font-size: 12px">{{ retried|sum(attribute='failures') }} failure{{ 's' if retried|sum(attribute='failures') > 1 }} fixed by encore</span>{% endif %}</div>
+        <ul class="gates">{% for g in gates %}<li>{{ ui.st('passed' if g.passed else 'failed', sm=true) }}{{ g.gate }}
+          {% if g.runs > 1 %}<span class="cmd">ran {{ g.runs }}×{% if g.failures %}, failed {{ g.failures }}×{% endif %}</span>{% endif %}<span class="dur">{{ '%.1f'|format(g.ms / 1000) }}s</span>
+          {% if g.output %}<details style="width: 100%"><summary class="muted" style="font-size: 12px; cursor: pointer">{{ 'Output' if not g.passed else 'Output of the last failure' }}</summary><pre class="log">{{ g.output }}</pre></details>{% endif %}</li>{% endfor %}</ul>
+      </div></li>
+    {% endif %}
+    {% else %}
+    {% if doc.status != 'playing' %}<li class="tl"><span class="tl__node">{{ ui.icon_st(doc.status) }}</span><div class="tl__body"><p class="empty">Not played yet.</p></div></li>{% endif %}
+    {% endfor %}
+  </ol>
+  </section>
+</div>
+
+  <aside class="stack">
+    {% if last %}
+    <div class="card{{ ' card--live' if doc.status == 'playing' }}">
+      <div class="card__head"><h2 class="card__title">Spent</h2></div>
+      <div class="card__body">
+        {% set tok, usd = doc|spent %}
+        <dl class="kv">
+          <dt>Runs</dt><dd class="mono">{{ runs|length }}</dd>
+          <dt>Cost</dt><dd class="mono">{{ usd|money }}</dd>
+          <dt>Encores</dt><dd class="mono">{{ encores }}{% if cfg %} of {{ cfg.encore.max }} per run{% endif %}</dd>
+        </dl>
+        {% if cfg %}{{ ui.meter('tokens, last run', last.tokens or 0, cfg.budget.task_tokens) }}{% endif %}
+      </div>
+    </div>
+    {% endif %}
+    <div class="card">
+      <div class="card__head"><h2 class="card__title">Details</h2></div>
+      <div class="card__body">
+        <dl class="kv">
+          {% if plan %}<dt>Plan</dt><dd>{{ ui.doc_link(project, plan) }}</dd>{% endif %}
+          {% if doc.feature %}<dt>Feature</dt><dd><a class="tag tag--feature" href="/ui/p/{{ project }}/features/{{ doc.feature }}">{{ doc.feature }}</a></dd>{% endif %}
+          {% if doc.layers %}<dt>Layer</dt><dd>{% for l in doc.layers %}<span class="tag tag--layer">{{ l }}</span>{% endfor %}</dd>{% endif %}
+          {% if b.depends_on %}<dt>After</dt><dd class="mono">{% for d in b.depends_on %}<a href="/ui/p/{{ project }}/documents/{{ d }}">{{ d|ref('task') }}</a>{{ ', ' if not loop.last }}{% endfor %}</dd>{% endif %}
+          {% if b.after_plans %}<dt>Waits for</dt><dd class="mono">{% for p in b.after_plans %}<a href="/ui/p/{{ project }}/documents/{{ p }}">{{ p|ref('plan') }}</a>{{ ', ' if not loop.last }}{% endfor %}</dd>{% endif %}
+          {% if b.fermata %}<dt>Fermata</dt><dd>waits for you before merging</dd>{% endif %}
+          {% if b.source %}<dt>Source</dt><dd>{{ b.source }}</dd>{% endif %}
+          {% if b.adds_gates %}<dt>Adds gates</dt><dd>{% for g in b.adds_gates %}<span class="tag tag--gate">{{ g.name }}</span>{% endfor %}</dd>{% endif %}
+        </dl>
+      </div>
+    </div>
+  </aside>
+</div>
+
+{% if diff_run %}
+<section class="stack" id="diff" aria-labelledby="diff-h">
+  {% set files = diff_run.diff|diff_files %}
+  <div class="section-head"><h2 id="diff-h">Diff</h2><span class="count">{{ files|length }} files · +{{ files|sum(attribute='add') }} −{{ files|sum(attribute='del') }}</span></div>
+  {{ ui.diff(diff_run.diff, open_files=6) }}
+</section>
+{% endif %}
+{% endblock %}

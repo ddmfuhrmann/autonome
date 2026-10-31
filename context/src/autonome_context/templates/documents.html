@@ -1,19 +1,21 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui %}
 {% block title %}Documents{% endblock %}
 {% block main %}
-<h1>Documents</h1>
-<form class="inline card" method="get">
-  <select name="type" id="type"><option value="">any type</option>{% for t in types %}<option {{ 'selected' if filters.get('type') == t }}>{{ t }}</option>{% endfor %}</select>
-  <input type="text" name="status" id="status" value="{{ filters.get('status','') }}" placeholder="status">
-  <input type="text" name="feature" id="feature" value="{{ filters.get('feature','') }}" placeholder="feature">
-  <button>Filter</button>
+<div class="page-head"><div class="page-head__text"><h1>Documents</h1><p class="page-head__meta">Everything in this project's memory, newest first.</p></div></div>
+<form class="row" method="get">
+  <label class="sr-only" for="type">Type</label>
+  <select class="select" name="type" id="type"><option value="">any type</option>{% for t in types %}<option {{ 'selected' if filters.get('type') == t }}>{{ t }}</option>{% endfor %}</select>
+  <label class="sr-only" for="status">Status</label><input class="input" type="text" name="status" id="status" value="{{ filters.get('status','') }}" placeholder="status">
+  <label class="sr-only" for="feature">Feature</label><input class="input" type="text" name="feature" id="feature" value="{{ filters.get('feature','') }}" placeholder="feature">
+  <button class="btn" type="submit">Filter</button>
 </form>
-<div class="card tablewrap"><table>
-  <tr><th>#</th><th>Type</th><th>Status</th><th>Feature</th><th>Layers</th><th>Title</th><th>Created</th></tr>
-  {% for d in docs %}
-  <tr><td><a href="/ui/p/{{ project }}/documents/{{ d.id }}">{{ d.id }}</a></td><td><span class="pill">{{ d.type }}</span></td>
-    <td>{{ d.status or '' }}</td><td>{{ d.feature or '' }}</td><td>{{ d.layers|join(', ') }}</td>
-    <td>{{ (d.body.title or d.body.summary or '')|truncate(90) }}</td><td>{{ d.created_at.strftime('%Y-%m-%d %H:%M') }}</td></tr>
-  {% else %}<tr><td colspan="7" class="empty">No documents.</td></tr>{% endfor %}
+<div class="table-wrap"><table class="table">
+  <thead><tr><th>Document</th><th>Type</th><th>Status</th><th>Feature</th><th>Layers</th><th>Created</th></tr></thead>
+  <tbody>{% for d in docs %}
+  <tr><td>{{ ui.doc_link(project, d) }}</td><td><span class="tag">{{ d.type }}</span></td>
+    <td>{% if d.status %}{{ ui.st(d.status, sm=true) }}{% endif %}</td><td>{% if d.feature %}<span class="tag tag--feature">{{ d.feature }}</span>{% endif %}</td>
+    <td>{% for l in d.layers %}<span class="tag tag--layer">{{ l }}</span>{% endfor %}</td><td class="mono muted" style="font-size: 12px; white-space: nowrap">{{ d.created_at|when }}</td></tr>
+  {% else %}<tr><td colspan="6" class="empty">No documents.</td></tr>{% endfor %}</tbody>
 </table></div>
 {% endblock %}

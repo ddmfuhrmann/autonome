@@ -1,0 +1,113 @@
+{# Shared pieces of the "Score" UI. Import with {% import "_ui.html" as ui %}. #}
+
+{% macro st(status, sm=false, live=false, text=none) -%}
+<span class="st st--{{ status }}{{ ' st--sm' if sm }}{{ ' st--live' if live and status == 'playing' }}">{{ text or status|label }}</span>
+{%- endmacro %}
+
+{% macro icon_st(status, text=none) -%}
+<span class="st st--{{ status }} st--icon"><span class="sr-only">{{ text or status|label }}</span></span>
+{%- endmacro %}
+
+{% macro eq() %}<span class="eq" aria-hidden="true"><i></i><i></i><i></i></span>{% endmacro %}
+
+{% macro doc_link(project, d, text=none) -%}
+<a href="/ui/p/{{ project }}/documents/{{ d.id }}"><span class="id">{{ d|ref }}</span> {{ text or d.body.title or d.body.summary|truncate(90) or d.type }}</a>
+{%- endmacro %}
+
+{% macro tags(d) -%}
+{% if d.feature %}<span class="tag tag--feature">{{ d.feature }}</span>{% endif %}{% for l in d.layers or [] %}<span class="tag tag--layer">{{ l }}</span>{% endfor %}
+{%- endmacro %}
+
+{# The buttons of a human decision. Destructive ones ask first, without JS. #}
+{% macro decision(project, doc, actions, next=none, ask=none) %}
+{% if actions|rejectattr('style', 'equalto', 'danger')|list %}
+<div class="decision">
+  {% if ask or question(doc) %}<span class="decision__ask">{{ ask or question(doc) }}</span>{% endif %}
+  <ul class="effects">
+    {% for a in actions if a.effect %}<li class="{{ 'is-remove' if a.style == 'danger' else ('is-change' if a.style == '' else '') }}"><strong>{{ a.label }}:</strong> {{ a.effect }}</li>{% endfor %}
+  </ul>
+  <div class="decision__actions">
+    {% for a in actions if a.style != 'danger' %}
+    <form method="post" action="/ui/p/{{ project }}/documents/{{ doc.id }}/transition">
+      {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+      <button class="btn{{ ' btn--' ~ a.style if a.style }}" name="to" value="{{ a.to }}" type="submit">{{ a.label }}</button>
+    </form>
+    {% endfor %}
+    {% for a in actions if a.style == 'danger' %}
+    <details class="confirm">
+      <summary class="btn btn--danger">{{ a.label }}…</summary>
+      <div class="confirm__panel">
+        <h4>{{ a.label }} {{ doc|ref }}?</h4>
+        <p class="muted">{{ a.effect }} This can’t be undone.</p>
+        <form class="btn-group" method="post" action="/ui/p/{{ project }}/documents/{{ doc.id }}/transition">
+          {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+          <button class="btn btn--danger-solid" name="to" value="{{ a.to }}" type="submit">{{ a.label }}</button>
+        </form>
+      </div>
+    </details>
+    {% endfor %}
+    {{ caller() if caller }}
+  </div>
+</div>
+{% endif %}
+{% endmacro %}
+
+{% macro diff(text, open_files=3) %}
+{% for f in text|diff_files %}
+<div class="diff">
+  <div class="diff__file"><span>{{ f.path }}</span><span class="diff__stat"><span class="add">+{{ f.add }}</span> <span class="del">−{{ f.del }}</span></span></div>
+  {% if loop.index <= open_files %}
+  <div class="diff__body"><table>
+    {% for kind, n, line in f.rows %}<tr class="{{ kind }}"><td class="n">{{ n }}</td><td class="m">{{ '+' if kind == 'add' else ('−' if kind == 'del' else '') }}</td><td>{{ line }}</td></tr>{% endfor %}
+  </table></div>
+  {% else %}
+  <details><summary class="muted" style="padding: 8px 12px; cursor: pointer; font-size: 12px">Show {{ f.rows|length }} lines</summary>
+  <div class="diff__body"><table>
+    {% for kind, n, line in f.rows %}<tr class="{{ kind }}"><td class="n">{{ n }}</td><td class="m">{{ '+' if kind == 'add' else ('−' if kind == 'del' else '') }}</td><td>{{ line }}</td></tr>{% endfor %}
+  </table></div></details>
+  {% endif %}
+</div>
+{% else %}
+<pre class="code">{{ text }}</pre>
+{% endfor %}
+{% endmacro %}
+
+{% macro findings(review) %}
+<ul class="findings">
+  {% for f in review.findings %}<li class="finding"><span class="sev sev--{{ f.severity|sev }}">{{ f.severity }}</span><div class="prose">{{ f.issue|md }}</div>{% if f.file %}<span class="finding__loc">{{ f.file }}</span>{% endif %}</li>{% endfor %}
+</ul>
+{% endmacro %}
+
+{% macro progress(p, height=none) -%}
+<div class="progress"{% if height %} style="height: {{ height }}"{% endif %} aria-hidden="true">{% for k in ['done', 'playing', 'held', 'blocked'] if p.bar[k] %}<span class="p-{{ k }}" style="width: {{ '%.1f'|format(p.bar[k]) }}%"></span>{% endfor %}</div>
+{%- endmacro %}
+
+{% macro meter(name, used, limit, fmt=none) -%}
+{% set pct = (100 * used / limit) if limit else 0 %}
+<div class="meter{{ ' meter--warn' if pct > 90 }}">
+  <div class="meter__row"><span>{{ name }}</span><b>{{ used|tokens }} / {{ limit|tokens }}</b></div>
+  <div class="meter__track"><span class="meter__fill" style="width: {{ [pct, 100]|min }}%"></span></div>
+</div>
+{%- endmacro %}
+
+{% macro checklist(items) %}
+<ul class="checklist">{% for a in items %}<li>{{ a }}</li>{% endfor %}</ul>
+{% endmacro %}
+
+{# Only destructive choices left (e.g. abandon a running plan): a quiet button in the page head. #}
+{% macro head_danger(project, doc, actions) %}
+{% if actions and not actions|rejectattr('style', 'equalto', 'danger')|list %}
+{% for a in actions %}
+<details class="confirm">
+  <summary class="btn btn--danger">{{ a.label }}…</summary>
+  <div class="confirm__panel">
+    <h4>{{ a.label }} {{ doc|ref }}?</h4>
+    <p class="muted">{{ a.effect }} This can’t be undone.</p>
+    <form class="btn-group" method="post" action="/ui/p/{{ project }}/documents/{{ doc.id }}/transition">
+      <button class="btn btn--danger-solid" name="to" value="{{ a.to }}" type="submit">{{ a.label }}</button>
+    </form>
+  </div>
+</details>
+{% endfor %}
+{% endif %}
+{% endmacro %}

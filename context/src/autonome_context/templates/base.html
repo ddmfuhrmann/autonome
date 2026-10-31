@@ -1,26 +1,99 @@
+{% import "_ui.html" as ui %}
 <!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}autonome{% endblock %}{% if project %} · {{ project }}{% endif %}</title>
+<title>{% block title %}autonome{% endblock %}{% if project %} · {{ project }}{% endif %} · autonome</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
 <link rel="stylesheet" href="/static/app.css">
 {% block head %}{% endblock %}
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
 <script>document.addEventListener("DOMContentLoaded", () => window.mermaid && mermaid.initialize({ startOnLoad: true, theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "neutral" }));</script>
 </head>
 <body>
-<header class="top"><div class="in">
-  <a class="brand" href="/ui">auto<span>nome</span></a>
+{% macro nav(slug, text, path) -%}
+<a class="side__link" href="/ui/p/{{ project }}/{{ slug }}"{% if (nav_section or request.url.path.split('/')[4:5]|first) == slug %} aria-current="page"{% endif %}><svg class="icon-svg" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{{ path|safe }}</svg><span>{{ text }}</span>{{ caller() if caller }}</a>
+{%- endmacro %}
+<div class="app">
+<aside class="side" aria-label="Primary">
+  <a class="brand" href="/ui"><svg class="brand-mark" viewBox="0 0 20 20" aria-hidden="true"><path d="M7.2 2.5h5.6l3.6 15H3.6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M10 15.2L13.6 5" stroke="var(--brass)" stroke-width="1.6" stroke-linecap="round"/><circle cx="12.5" cy="8.1" r="1.6" fill="var(--brass)"/><path d="M5.2 13.5h9.6" stroke="currentColor" stroke-width="1.2"/></svg><span>auto<b>nome</b></span></a>
   {% if project %}
-  <span class="project">{{ project }}</span>
-  <nav>
-    {% set here = request.url.path %}
-    {% for slug, label in nav_items|default([("features","Features"),("setlist","Setlist"),("approvals","Approvals"),("search","Search"),("documents","Documents"),("conventions","Conventions"),("config","Config"),("insights","Insights"),("lab","Lab")]) %}
-    <a href="/ui/p/{{ project }}/{{ slug }}" class="{{ 'on' if here.startswith('/ui/p/' ~ project ~ '/' ~ slug) }}">{{ label }}</a>
-    {% endfor %}
+  <a class="side__project" href="/ui" title="Switch project"><span>{{ project }}</span><span class="chev" aria-hidden="true">⌄</span></a>
+  <nav class="side__nav">
+    <div class="side__group">
+      {{ nav('setlist', 'Setlist', '<path d="M2.5 3.5h3v9h-3zM6.5 3.5h3v6h-3zM10.5 3.5h3v4h-3z"/>') }}
+      {% call nav('approvals', 'Approvals', '<path d="M2.2 11.5a5.8 5.8 0 0 1 11.6 0"/><circle cx="8" cy="10.6" r="1.3" fill="currentColor" stroke="none"/>') %}<span id="side-count" data-live>{% if side.waiting %}<span class="side__count side__count--attn">{{ side.waiting }}<span class="sr-only"> waiting</span></span>{% endif %}</span>{% endcall %}
+      {{ nav('waves', 'Waves', '<circle cx="3.5" cy="8" r="1.8"/><circle cx="12.5" cy="4" r="1.8"/><circle cx="12.5" cy="12" r="1.8"/><path d="M5.2 7.3l5.6-2.5M5.2 8.7l5.6 2.5"/>') }}
+    </div>
+    <div class="side__group"><span class="label">Score</span>
+      {{ nav('features', 'Features', '<path d="M2.5 2.5h4.5v4.5h-4.5zM9 2.5h4.5v4.5H9zM2.5 9h4.5v4.5h-4.5zM9 9h4.5v4.5H9z"/>') }}
+      {{ nav('insights', 'Insights', '<path d="M2.5 13.5h11M4 11V8M7 11V4.5M10 11V6.5M13 11V3"/>') }}
+    </div>
+    <div class="side__group"><span class="label">Memory</span>
+      {{ nav('search', 'Search', '<circle cx="7" cy="7" r="4.3"/><path d="M10.2 10.2l3.3 3.3"/>') }}
+      {{ nav('documents', 'Documents', '<path d="M4 2.5h5l3 3v8H4z"/><path d="M9 2.5v3h3"/>') }}
+      {{ nav('lab', 'Lab', '<path d="M6 2.5h4M6.8 2.5v4L3 12.6a.9.9 0 0 0 .8 1.4h8.4a.9.9 0 0 0 .8-1.4L9.2 6.5v-4"/>') }}
+    </div>
+    <div class="side__group"><span class="label">Setup</span>
+      {{ nav('conventions', 'Conventions', '<path d="M3 2.5h7.5L13 5v8.5H3z"/><path d="M5.5 7h5M5.5 9.5h5M5.5 12h3"/>') }}
+      {{ nav('config', 'Config', '<circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v1.8M8 12.4v1.8M1.8 8h1.8M12.4 8h1.8M3.6 3.6l1.3 1.3M11.1 11.1l1.3 1.3M3.6 12.4l1.3-1.3M11.1 4.9l1.3-1.3"/>') }}
+    </div>
   </nav>
+  <div class="side__foot" id="side-foot" data-live>
+    {% if side.playing %}
+    <div class="conductor" role="status">
+      <div class="conductor__head">{{ ui.eq() }}Conducting{% if side.wave %} {{ side.wave|ref }}{% endif %}</div>
+      <span>{{ side.playing }} playing · {{ side.on_hold }} on hold · {{ side.waiting }} waiting on you</span>
+    </div>
+    {% else %}
+    <div class="conductor conductor--idle" role="status">
+      <div class="conductor__head">Nothing playing</div>
+      <span>{{ side.pending }} pending · {{ side.waiting }} waiting on you</span>
+      <span class="mono">autonome conduct --project {{ project }}</span>
+    </div>
+    {% endif %}
+  </div>
   {% endif %}
-</div></header>
-<main>{% block main %}{% endblock %}</main>
+</aside>
+<main class="main">
+  <header class="topbar">
+    <nav class="crumbs" aria-label="Breadcrumb">
+      {% if project %}<a href="/ui/p/{{ project }}">{{ project }}</a><span class="sep">/</span>{% endif %}
+      {% block crumbs %}<span aria-current="page">{{ self.title() }}</span>{% endblock %}
+    </nav>
+    <span class="spacer"></span>
+    {% block topbar %}{% endblock %}
+  </header>
+  <div class="page">
+    {% block main %}{% endblock %}
+  </div>
+</main>
+</div>
+<script>
+// Pages with a [data-refresh] element swap their [data-live] regions every few seconds.
+// A region is left alone while the human is deciding inside it (an open confirm, focus).
+(() => {
+  const page = document.querySelector("[data-refresh]");
+  if (!page) return;
+  const stamp = document.querySelector(".live");
+  let last = Date.now();
+  const tick = () => { if (stamp) stamp.textContent = `Live · updated ${Math.round((Date.now() - last) / 1000)}s ago`; };
+  setInterval(tick, 1000);
+  setInterval(async () => {
+    if (document.hidden) return;
+    try {
+      const res = await fetch(location.href, { headers: { "X-Refresh": "1" } });
+      const next = new DOMParser().parseFromString(await res.text(), "text/html");
+      for (const el of document.querySelectorAll("[data-live]")) {
+        if (el.querySelector("details[open]") || el.contains(document.activeElement)) continue;
+        const fresh = next.getElementById(el.id);
+        if (fresh) el.replaceWith(fresh);
+      }
+      last = Date.now();
+      stamp?.classList.remove("live--off");
+    } catch { stamp?.classList.add("live--off"); }
+  }, 1000 * Number(page.dataset.refresh || 5));
+})();
+</script>
 </body>
 </html>

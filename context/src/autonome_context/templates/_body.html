@@ -1,16 +1,28 @@
-{# Renders a document body as readable sections; raw JSON stays one click away. #}
-{% for key, value in body.items() if value not in (None, '', [], {}) and key not in ('title', 'rehearsal', 'features', 'soundchecks') %}
+{# Renders a document body as readable sections; raw JSON stays one click away. Keys already shown in
+   the page head are left out, the summary comes first, and code-like strings stay verbatim. #}
+{% set hidden = ('title', 'rehearsal', 'features', 'soundchecks', 'runs', 'project', 'feature', 'layers', 'session_id',
+                 'plan_id', 'seq', 'wave_id', 'kind') %}
+{% set code_keys = ('yaml', 'diff', 'diff_stat', 'output', 'mermaid', 'last_output', 'transcript') %}
+{% set keys = (['summary'] if body.summary else []) + body.keys()|reject('equalto', 'summary')|list %}
+{% macro cell(v) -%}
+{% if v is sameas true or v is sameas false %}<span class="st st--sm st--{{ 'passed' if v else 'failed' }}">{{ 'yes' if v else 'no' }}</span>
+{%- elif v is mapping %}<span class="wrap mono" style="font-size: 12px">{{ v|tojson }}</span>
+{%- elif v is sequence and v is not string %}{{ v|join('; ') }}
+{%- else %}<span class="wrap">{{ v }}</span>{% endif %}
+{%- endmacro %}
+{% for key in keys if key not in hidden and body[key] not in (None, '', [], {}) %}{% set value = body[key] %}
 <section class="card">
-  <h2>{{ key|replace('_', ' ')|capitalize }}</h2>
-  {% if value is string %}<pre class="body">{{ value }}</pre>
-  {% elif value is mapping %}<div class="tablewrap"><table>{% for k, v in value.items() %}<tr><th>{{ k }}</th><td>{{ v }}</td></tr>{% endfor %}</table></div>
-  {% elif value is sequence and value and value[0] is mapping %}
+  <div class="card__head"><h2 class="card__title">{{ key|replace('_', ' ')|capitalize }}</h2>{% if value is sequence and value is not string %}<span class="push count-pill">{{ value|length }}</span>{% endif %}</div>
+  {% if value is string and key in code_keys %}<div class="card__body"><pre class="code">{{ value }}</pre></div>
+  {% elif value is string %}<div class="card__body prose">{{ value|md }}</div>
+  {% elif value is mapping %}<div class="card__body"><dl class="kv">{% for k, v in value.items() %}<dt>{{ k|replace('_', ' ') }}</dt><dd>{{ cell(v) }}</dd>{% endfor %}</dl></div>
+  {% elif value is sequence and value[0] is mapping %}
     {% set cols = value[0].keys()|list %}
-    <div class="tablewrap"><table><tr>{% if key == 'tasks' %}<th>#</th>{% endif %}{% for c in cols %}<th>{{ c }}</th>{% endfor %}</tr>
-    {% for row in value %}<tr>{% if key == 'tasks' %}<td>{{ loop.index }}</td>{% endif %}{% for c in cols %}<td>{% set v = row[c] %}{% if v is sequence and v is not string %}{{ v|join('; ') }}{% else %}<span style="white-space: pre-wrap">{{ v }}</span>{% endif %}</td>{% endfor %}</tr>{% endfor %}
+    <div class="card__body card__body--flush" style="overflow-x: auto"><table class="table"><thead><tr>{% if key == 'tasks' %}<th>#</th>{% endif %}{% for c in cols %}<th>{{ c|replace('_', ' ') }}</th>{% endfor %}</tr></thead>
+    <tbody>{% for row in value %}<tr>{% if key == 'tasks' %}<td class="mono">{{ loop.index }}</td>{% endif %}{% for c in cols %}<td>{{ cell(row[c]) }}</td>{% endfor %}</tr>{% endfor %}</tbody>
     </table></div>
-  {% elif value is sequence %}<ul>{% for v in value %}<li>{{ v }}</li>{% endfor %}</ul>
-  {% else %}<p>{{ value }}</p>{% endif %}
+  {% elif value is sequence %}<div class="card__body prose"><ul>{% for v in value %}<li>{{ v }}</li>{% endfor %}</ul></div>
+  {% else %}<div class="card__body"><p>{{ cell(value) }}</p></div>{% endif %}
 </section>
 {% endfor %}
-<details class="card"><summary class="muted">Raw JSON</summary><pre class="body">{{ body|pretty }}</pre></details>
+<details class="card"><summary class="card__head"><span class="card__title muted">Raw JSON</span></summary><div class="card__body"><pre class="code">{{ body|pretty }}</pre></div></details>

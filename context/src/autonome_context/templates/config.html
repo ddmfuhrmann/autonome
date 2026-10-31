@@ -1,24 +1,29 @@
 {% extends "base.html" %}
+{% import "_ui.html" as ui %}
 {% block title %}Config{% endblock %}
 {% block main %}
-<h1>Gate configuration</h1>
-<p class="muted">The rules live in the project's repo; this decides which commands run, in what order, and how strictly. Only editable here, never by an agent. Every save is a new version.</p>
-<form class="card" method="post">
-  <div class="meta">{% if doc %}<span class="pill accent">version {{ doc.version }}</span><span>saved {{ doc.updated_at.strftime('%Y-%m-%d %H:%M') }}</span>{% else %}<span class="pill">not saved yet: example below</span>{% endif %}</div>
-  {% if error %}<pre class="body" style="color: var(--stop)">{{ error }}</pre>{% endif %}
-  <label for="yaml" class="muted">YAML</label>
-  <textarea name="yaml" id="yaml" spellcheck="false">{{ text }}</textarea>
-  <div><button class="accent">Save new version</button></div>
-</form>
-<div class="card">
-  <h2>Recent gate runs</h2>
-  <div class="tablewrap"><table>
-    <tr><th>When</th><th>Session</th><th>Task</th><th>Gate</th><th>Result</th><th>ms</th></tr>
-    {% for r in runs %}<tr><td>{{ r.created_at.strftime('%m-%d %H:%M:%S') }}</td><td><code>{{ r.session_id[:8] }}</code></td>
-      <td>{% if r.task_id %}<a href="/ui/p/{{ project }}/documents/{{ r.task_id }}">#{{ r.task_id }}</a>{% endif %}</td>
-      <td>{{ r.gate }}</td><td><span class="pill {{ 'ok' if r.passed else 'stop' }}">{{ 'passed' if r.passed else 'failed' }}</span></td>
-      <td class="num">{{ r.duration_ms }}</td></tr>
-    {% else %}<tr><td colspan="6" class="empty">No gate has run yet.</td></tr>{% endfor %}
-  </table></div>
+<div class="page-head">
+  <div class="page-head__text"><h1>Config</h1>
+    <p class="page-head__meta">{% if doc %}<span>version {{ doc.version }} · saved {{ doc.updated_at|ago }}</span>{% else %}<span>not saved yet: an example below</span>{% endif %}<span>validated on save</span></p></div>
 </div>
+<p class="muted" style="font-size: 13px; max-width: 72ch">The rules live in the project's repo; this decides which commands run, in what order, and how strictly. Only editable here, never by an agent. Every save is a new version.</p>
+<form class="stack" method="post">
+  <label class="sr-only" for="yaml">Gate config (YAML)</label>
+  <textarea class="textarea" name="yaml" id="yaml" spellcheck="false" style="min-height: 420px">{{ text }}</textarea>
+  {% if error %}<div class="callout callout--block"><div class="wrap">{{ error }}</div></div>
+  {% elif summary %}<div class="callout callout--ok"><div>Valid · {{ summary }}.</div></div>{% endif %}
+  <div class="row"><button class="btn btn--primary" type="submit">Save new version</button><a class="btn btn--ghost" href="/ui/p/{{ project }}/config">Revert</a>
+    <span class="muted" style="font-size: 12px">Applies to tasks that start after saving.</span></div>
+</form>
+<section class="stack">
+  <div class="section-head"><h2>Recent gate runs</h2></div>
+  <div class="table-wrap"><table class="table">
+    <thead><tr><th>When</th><th>Session</th><th>Task</th><th>Gate</th><th>Result</th><th class="num">ms</th></tr></thead>
+    <tbody>{% for r in runs %}<tr><td class="mono muted" style="font-size: 12px">{{ r.created_at|when }}</td><td><code>{{ r.session_id[:8] }}</code></td>
+      <td>{% if r.task_id %}<a class="mono" href="/ui/p/{{ project }}/documents/{{ r.task_id }}">{{ r.task_id|ref('task') }}</a>{% endif %}</td>
+      <td><span class="tag tag--gate">{{ r.gate }}</span></td><td>{{ ui.st('passed' if r.passed else 'failed', sm=true) }}</td>
+      <td class="num">{{ r.duration_ms }}</td></tr>
+    {% else %}<tr><td colspan="6" class="empty">No gate has run yet.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
 {% endblock %}
