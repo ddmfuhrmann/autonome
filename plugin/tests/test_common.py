@@ -63,3 +63,13 @@ def test_a_session_in_a_maestro_worktree_belongs_to_the_main_checkouts_project(t
     assert common.project_slug(repo) == "shortlink"
     assert common.project_slug(worktree) == "shortlink"
     assert common.project_slug(worktree / ".") == "shortlink"
+
+
+def test_scribes_take_model_and_effort_from_env_then_gate_config_then_default(monkeypatch):
+    from autonome import common
+
+    monkeypatch.setattr(common, "get_json", lambda path, timeout=5: {"config": {"models": {"handoff": {"model": "haiku", "effort": "low"}}}})
+    assert common.role_model("p", "handoff") == ("haiku", "low")
+    assert common.role_model("p", "docs") == ("sonnet", "low")
+    monkeypatch.setenv("AUTONOME_HANDOFF_EFFORT", "medium")
+    assert common.role_model("p", "handoff") == ("haiku", "medium")

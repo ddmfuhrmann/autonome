@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { allowedTools, rehearsalPrompt, summary } from "./conduct.js";
+import { roleModel } from "./context.js";
 import { commitMessage, fastForwardMain, git, stageWork, strayFiles } from "./git.js";
 
 function repo(): string {
@@ -134,4 +135,14 @@ test("the conductor's summary counts outcomes and totals time and tokens", () =>
   assert.match(text, /^summary: 1 merged, 1 blocked, 0 held · 6m47s · 50000 tokens/);
   assert.match(text, /#25 blocked .*review 3  POST \/links\n {6}imports: the same failure repeated$/);
   assert.equal(summary([]), "");
+});
+
+test("each role runs on its own model and effort, and the command line overrides them all", () => {
+  const cfg = { gates: [], encore: { max: 3, stop_on_repeat: true }, budget: { task_tokens: 1, task_minutes: 1, plan_tokens: 1 },
+    review: { enabled: true, max_rounds: 2 }, soundcheck: null,
+    models: { musician: { model: "sonnet", effort: "medium" as const }, reviewer: { model: "sonnet", effort: "high" as const } } };
+  assert.deepEqual(roleModel(cfg, "reviewer"), { model: "sonnet", effort: "high" });
+  assert.deepEqual(roleModel(cfg, "musician", { model: "opus" }), { model: "opus", effort: "medium" });
+  assert.deepEqual(roleModel(cfg, "musician", { effort: "low" }), { model: "sonnet", effort: "low" });
+  assert.deepEqual(roleModel({ ...cfg, models: undefined }, "tune"), { model: "sonnet", effort: "medium" });
 });

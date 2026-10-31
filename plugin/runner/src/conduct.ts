@@ -7,7 +7,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { consult } from "./agents.js";
-import { ContextError, context, waitForContext, type GateConfig, type Plan, type Rehearsal, type Run, type Task } from "./context.js";
+import { ContextError, context, roleModel, waitForContext, type Effort, type GateConfig, type Plan, type Rehearsal, type Run, type Task } from "./context.js";
 import { doctor, report } from "./doctor.js";
 import { findingsForEncore, review } from "./review.js";
 import { soundcheck } from "./soundcheck.js";
@@ -21,6 +21,8 @@ export interface ConductOptions {
   project: string;
   repo: string;
   model?: string;
+  /** Overrides every role's effort (the gate config's `models` sets it per role). */
+  effort?: Effort;
   maxTasks: number;
   push: boolean;
   /** Keep waiting for newly approved work instead of stopping when the queue is empty (seconds between checks). */
@@ -106,9 +108,10 @@ export function rehearsalPrompt(plan: Plan, project: string, gates: GateConfig["
 
 export async function rehearse(plan: Plan, opts: ConductOptions): Promise<Rehearsal> {
   const { gates } = (await context.gateConfig(opts.project)).config;
+  const cfg = (await context.gateConfig(opts.project)).config;
   const { answer } = await consult<Rehearsal>({
     cwd: mainCheckout(opts.repo) ?? opts.repo,
-    model: opts.model,
+    ...roleModel(cfg, "rehearsal", opts),
     role: REHEARSAL_PROMPT,
     schema: PLAN_SCHEMA,
     prompt: rehearsalPrompt(plan, opts.project, gates),
@@ -176,7 +179,7 @@ async function play(task: Task, worktree: string, base: string, opts: ConductOpt
       options: {
         resume: encore?.sessionId,
         cwd: worktree,
-        model: opts.model,
+        ...roleModel(cfg, "musician", opts),
         abortController: abort,
         permissionMode: "dontAsk",
         allowedTools: allowedTools(cfg),
@@ -341,7 +344,7 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<Run | unde
       if (!check.passed) return check.summary;
       if (!cfg.review.enabled) return null;
       const briefing = (await context.briefing(opts.project, task.id)).text;
-      const rv = await review(task, briefing, worktree, base, opts.model);
+      const rv = await review(task, briefing, worktree, base, roleModel(cfg, "reviewer", opts));
       run.review = rv.result;
       run.review_rounds = round + 1;
       run.cost_usd = (run.cost_usd ?? 0) + rv.cost;
@@ -402,7 +405,8 @@ async function soundcheckPlan(plan: Plan, opts: ConductOptions): Promise<void> {
   const cfg = (await context.gateConfig(opts.project)).config.soundcheck;
   if (!cfg) return;
   opts.log(`plan #${plan.id} ${plan.body.title}: every task merged; soundcheck`);
-  const r = await soundcheck(plan, cfg, mainCheckout(opts.repo) ?? opts.repo, opts.model, opts.log);
+  const r = await soundcheck(plan, cfg, mainCheckout(opts.repo) ?? opts.repo,
+    roleModel((await context.gateConfig(opts.project)).config, "listener", opts), opts.log);
   const { outcome } = await context.soundcheck(plan.id, r);
   opts.log(outcome === "done" ? `  passed; the feature is done`
     : outcome === "fixing" ? `  failed; ${r.fixes.length} fix task(s) queued`

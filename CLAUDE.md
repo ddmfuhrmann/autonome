@@ -42,6 +42,9 @@ plugin/runner/  the maestro (TypeScript, Claude Agent SDK): one session + worktr
   finished feature in a running environment (checks + a listener agent) and turns failures into fix
   tasks in the same plan, blocking it for a human after `max_fixes` rounds. Environments use fakes,
   never real external services.
+- **Models**: every agent role (musician, reviewer, rehearsal, listener, tune, handoff, docs) has a
+  model and an effort in the gate config (`models`, defaults in `gates.DEFAULT_MODELS`: Sonnet,
+  low effort for the scribes, high for the reviewer). `conduct --model/--effort` override all roles.
 - **Loops**: compose (human + agent, the only conversation) → conduct (one session per task) →
   tune (reads `insights`, only proposes conventions and at most one plan) ← cues (scheduled checks
   that only queue tasks into a maintenance plan a human approved once). Only conduct writes code.

@@ -3,7 +3,7 @@
 // the live app. A failure comes back as fix tasks for the same plan.
 import { spawnSync } from "node:child_process";
 import { consult } from "./agents.js";
-import type { Plan, Soundcheck, SoundcheckResult } from "./context.js";
+import type { Plan, RoleModel, Soundcheck, SoundcheckResult } from "./context.js";
 
 const LISTENER_PROMPT = `You are the listener of the autonome process. A feature was just merged, and the app
 is running with synthetic data. Try it the way a user or a client would, against the URL you are given:
@@ -45,7 +45,7 @@ function sh(cmd: string, cwd: string, env: Record<string, string>, timeoutS = 90
 }
 
 export async function soundcheck(
-  plan: Plan, cfg: Soundcheck, cwd: string, model: string | undefined, log: (line: string) => void,
+  plan: Plan, cfg: Soundcheck, cwd: string, who: RoleModel | undefined, log: (line: string) => void,
 ): Promise<SoundcheckResult> {
   const env = { AUTONOME_APP_URL: cfg.url };
   const blocked = (report: string): SoundcheckResult => ({ passed: false, report, checks: [], fixes: [] });
@@ -75,7 +75,7 @@ export async function soundcheck(
     }
     const { title, goal, acceptance, tasks, out_of_scope } = plan.body as Record<string, unknown>;
     const { answer } = await consult<Omit<SoundcheckResult, "checks">>({
-      cwd, model, role: LISTENER_PROMPT, schema: SCHEMA, maxTurns: 60, env,
+      cwd, ...who, role: LISTENER_PROMPT, schema: SCHEMA, maxTurns: 60, env,
       tools: ["Bash(curl:*)"],
       prompt: [
         `The app runs at ${cfg.url}. Soundcheck plan #${plan.id} (feature ${plan.feature ?? "-"}).`,

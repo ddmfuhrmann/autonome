@@ -86,3 +86,11 @@ def send_json(path: str, data, method: str = "POST", timeout: float = 30):
         except OSError as e:
             if attempt == 2 or not _unreachable(e) or not WAIT_S or not wait_for_context(WAIT_S):
                 raise
+
+
+def role_model(project: str, role: str, default_model: str = "sonnet", default_effort: str = "low") -> tuple[str, str]:
+    """Model and effort for a role: AUTONOME_<ROLE>_MODEL/_EFFORT, else the gate config, else the default."""
+    cfg = (get_json(f"/api/projects/{project}/gate-config") or {}).get("config") or {}
+    r = (cfg.get("models") or {}).get(role) or {}
+    return (os.getenv(f"AUTONOME_{role.upper()}_MODEL") or r.get("model") or default_model,
+            os.getenv(f"AUTONOME_{role.upper()}_EFFORT") or r.get("effort") or default_effort)

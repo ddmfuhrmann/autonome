@@ -5,6 +5,7 @@
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { conduct } from "./conduct.js";
+import type { Effort } from "./context.js";
 import { cues } from "./cues.js";
 import { doctor, report } from "./doctor.js";
 
@@ -14,6 +15,7 @@ const { positionals, values } = parseArgs({
     project: { type: "string" },
     repo: { type: "string", default: process.cwd() },
     model: { type: "string" },
+    effort: { type: "string" },
     "max-tasks": { type: "string", default: "50" },
     push: { type: "boolean", default: false },
     force: { type: "boolean", default: false },
@@ -25,7 +27,7 @@ const { positionals, values } = parseArgs({
 const command = positionals[0];
 if (!["conduct", "cues", "doctor"].includes(command ?? "") || !values.project) {
   console.error(
-    "usage: autonome conduct --project <slug> [--repo <path>] [--model <model>] [--max-tasks <n>] [--push]\n" +
+    "usage: autonome conduct --project <slug> [--repo <path>] [--model <model>] [--effort <level>] [--max-tasks <n>] [--push]\n" +
       "                        [--watch [--every <seconds>]]   keep waiting for approved work\n" +
       "       autonome cues --project <slug> [--repo <path>] [--force]\n" +
       "       autonome doctor --project <slug> [--repo <path>]",
@@ -44,7 +46,7 @@ if (command === "doctor") {
 const run =
   command === "cues"
     ? cues({ project: values.project, repo, force: values.force!, log })
-    : conduct({ project: values.project, repo, model: values.model, maxTasks: Number(values["max-tasks"]), push: values.push!,
+    : conduct({ project: values.project, repo, model: values.model, effort: values.effort as Effort | undefined, maxTasks: Number(values["max-tasks"]), push: values.push!,
         watch: values.watch ? Number(values.every) : undefined, log });
 
 run.catch((e) => {

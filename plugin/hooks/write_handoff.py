@@ -17,7 +17,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 from autonome import common  # noqa: E402
 
-MODEL = os.getenv("AUTONOME_HANDOFF_MODEL", "sonnet")
 MAX_CHARS = 150_000
 TOOL_RESULT_CHARS = 400
 # One source for the scribe's instructions: the handoff skill, which the evals also exercise.
@@ -86,8 +85,9 @@ def gate_facts(session_id: str) -> str:
 
 def write(condensed: str, cwd: str, facts: str) -> dict:
     env = {**os.environ, "AUTONOME_HANDOFF_CHILD": "1"}
+    model, effort = common.role_model(common.project_slug(cwd), "handoff")
     out = subprocess.run(
-        ["claude", "-p", "--model", MODEL, "--output-format", "json",
+        ["claude", "-p", "--model", model, "--effort", effort, "--output-format", "json",
          "--allowedTools", *READ_ONLY_TOOLS],
         input=prompt() + "\n\n" + facts + "\n\n" + condensed,
         cwd=cwd, env=env, capture_output=True, text=True, timeout=600,

@@ -62,8 +62,22 @@ export interface GateConfig {
     cues?: Cue[];
     review: { enabled: boolean; max_rounds: number };
     tune_after_wave?: boolean;
+    models?: Record<string, RoleModel>;
     soundcheck: Soundcheck | null;
   };
+}
+
+export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
+
+export interface RoleModel {
+  model: string;
+  effort: Effort;
+}
+
+/** Model and effort for a role: the command line overrides every role, then the gate config. */
+export function roleModel(cfg: GateConfig["config"], role: string, override: { model?: string; effort?: Effort } = {}): RoleModel {
+  const r = cfg.models?.[role] ?? { model: "sonnet", effort: "medium" as Effort };
+  return { model: override.model ?? r.model, effort: override.effort ?? r.effort };
 }
 
 export interface Soundcheck {

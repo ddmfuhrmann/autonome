@@ -2,7 +2,7 @@
 // project's conventions, before anything merges. Gates check that the code passes; this checks that
 // it is the code the plan asked for.
 import { consult } from "./agents.js";
-import type { ReviewResult, Task } from "./context.js";
+import type { ReviewResult, RoleModel, Task } from "./context.js";
 import { git } from "./git.js";
 
 const REVIEWER_PROMPT = `You review one task of the autonome process before it merges. You did not write it.
@@ -49,11 +49,11 @@ const SCHEMA = {
   required: ["verdict", "findings"],
 } as const;
 
-export async function review(task: Task, briefing: string, worktree: string, base: string, model?: string) {
+export async function review(task: Task, briefing: string, worktree: string, base: string, who: RoleModel) {
   const diff = git(worktree, "diff", "--cached", base).slice(0, 80_000);
   const { answer, cost } = await consult<ReviewResult>({
     cwd: worktree,
-    model,
+    ...who,
     role: REVIEWER_PROMPT,
     schema: SCHEMA,
     maxTurns: 30,

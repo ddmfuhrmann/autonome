@@ -10,7 +10,6 @@ import subprocess
 
 from . import common
 
-MODEL = os.getenv("AUTONOME_DOCS_MODEL", "sonnet")
 READ_ONLY = ["Read", "Grep", "Glob", "Bash(git log:*)", "Bash(git show:*)", "Bash(git diff:*)"]
 
 SHAPE = """{
@@ -75,8 +74,10 @@ Gate config:
 
 
 def _ask(prompt: str, cwd: str, tools: list[str]) -> dict:
+    model, effort = common.role_model(common.project_slug(cwd), "docs")
     out = subprocess.run(
-        ["claude", "-p", "--model", MODEL, "--output-format", "json", *(["--allowedTools", *tools] if tools else [])],
+        ["claude", "-p", "--model", model, "--effort", effort, "--output-format", "json",
+         *(["--allowedTools", *tools] if tools else [])],
         input=prompt, cwd=cwd, capture_output=True, text=True, timeout=900,
         env={**os.environ, "AUTONOME_HANDOFF_CHILD": "1"},
     )

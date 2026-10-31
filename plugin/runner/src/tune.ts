@@ -2,13 +2,14 @@
 // findings, fix tasks, repeated gate failures, friction) and proposes conventions for the next
 // compose to start from. It only proposes; the human approves on the Approvals page.
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import { context, type Plan } from "./context.js";
+import { context, roleModel, type Effort, type Plan } from "./context.js";
 import { mainCheckout } from "./git.js";
 
 export interface TuneOptions {
   project: string;
   repo: string;
   model?: string;
+  effort?: Effort;
   log: (line: string) => void;
 }
 
@@ -43,12 +44,13 @@ export async function tuneFinishedWaves(opts: TuneOptions, run = runTune): Promi
 
 async function runTune(wave: Plan, opts: TuneOptions): Promise<string> {
   const { PLUGIN_ROOT } = await import("./conduct.js");
+  const cfg = (await context.gateConfig(opts.project)).config;
   let summary = "";
   for await (const msg of query({
     prompt: tunePrompt(wave, opts.project),
     options: {
       cwd: mainCheckout(opts.repo) ?? opts.repo,
-      model: opts.model,
+      ...roleModel(cfg, "tune", opts),
       permissionMode: "dontAsk",
       allowedTools: ["Read", "Glob", "Grep", "Skill",
         ...MEMORY.flatMap((t) => [`mcp__plugin_autonome_autonome__${t}`, `mcp__autonome__${t}`])],

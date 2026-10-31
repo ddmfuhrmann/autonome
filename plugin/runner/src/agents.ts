@@ -1,6 +1,6 @@
 // Read-only agents the maestro consults: they look, never change the code, and answer as JSON.
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import { CONTEXT_URL } from "./context.js";
+import { CONTEXT_URL, type Effort } from "./context.js";
 
 const READ_ONLY = [
   "Read", "Glob", "Grep",
@@ -14,6 +14,7 @@ export interface Consult {
   role: string;
   schema: Record<string, unknown>;
   model?: string;
+  effort?: Effort;
   /** Extra tools on top of reading files, git and the project memory. */
   tools?: string[];
   env?: Record<string, string>;
@@ -29,6 +30,7 @@ export async function consult<T>(c: Consult): Promise<{ answer: T; cost: number 
     options: {
       cwd: c.cwd,
       model: c.model,
+      effort: c.effort,
       permissionMode: "dontAsk",
       allowedTools: [...READ_ONLY, ...(c.tools ?? [])],
       mcpServers: { autonome: { type: "http", url: `${CONTEXT_URL}/mcp` } },

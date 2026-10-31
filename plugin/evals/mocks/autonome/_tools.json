@@ -1012,6 +1012,15 @@
             "default": null,
             "description": "id of the convention it would replace",
             "title": "Replaces"
+          },
+          "evidence": {
+            "default": [],
+            "description": "ids of the documents that justify it: tasks, handoffs, plans",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Evidence",
+            "type": "array"
           }
         },
         "required": [

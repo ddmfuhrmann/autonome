@@ -4,7 +4,7 @@ tests, Semgrep) live in the project's repo; this only says what runs, in which o
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class Gate(BaseModel):
@@ -64,6 +64,27 @@ class Review(BaseModel):
     max_rounds: int = Field(default=2, description="times the implementer is sent back with blocking findings")
 
 
+Effort = Literal["low", "medium", "high", "xhigh", "max"]
+
+
+class RoleModel(BaseModel):
+    model: str
+    effort: Effort
+
+
+# Who does what, on which model and with how much thinking. Cheap where the job is to summarise,
+# rigorous where it is to find what is missing. Measured with `autonome bench` (plugin/runner).
+DEFAULT_MODELS: dict[str, RoleModel] = {
+    "musician": RoleModel(model="sonnet", effort="medium"),
+    "reviewer": RoleModel(model="sonnet", effort="high"),
+    "rehearsal": RoleModel(model="sonnet", effort="medium"),
+    "listener": RoleModel(model="sonnet", effort="medium"),
+    "tune": RoleModel(model="sonnet", effort="medium"),
+    "handoff": RoleModel(model="sonnet", effort="low"),
+    "docs": RoleModel(model="sonnet", effort="low"),
+}
+
+
 class GateConfig(BaseModel):
     """Gates run cheapest first; the first blocking failure stops the rest."""
 
@@ -78,6 +99,14 @@ class GateConfig(BaseModel):
     review: Review = Review()
     tune_after_wave: bool = Field(default=True, description="propose conventions from each finished wave's evidence")
     soundcheck: Soundcheck | None = None
+    models: dict[str, RoleModel] = Field(
+        default_factory=lambda: dict(DEFAULT_MODELS),
+        description="model and effort per role; roles left out keep their default")
+
+    @field_validator("models", mode="before")
+    @classmethod
+    def _over_defaults(cls, v):
+        return {**{k: r.model_dump() for k, r in DEFAULT_MODELS.items()}, **(v or {})}
 
     @classmethod
     def from_yaml(cls, text: str) -> "GateConfig":
@@ -101,6 +130,7 @@ budget: {task_tokens: 400000, task_minutes: 30, plan_tokens: 3000000}
 fermata: {features: []}
 cues: []
 review: {enabled: true, max_rounds: 2}
+# models: {musician: {model: sonnet, effort: medium}}   # per role; see DEFAULT_MODELS for the rest
 # soundcheck:                # try each finished feature in a running environment (fakes, never real services)
 #   up: docker compose -f infra/compose.yml up -d --wait
 #   down: docker compose -f infra/compose.yml down
