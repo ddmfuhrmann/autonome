@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -155,4 +155,16 @@ test("bench configs parse as model:effort and the table totals the cost", () => 
   const text = table([{ role: "reviewer", case: "reviewer/post-links", who: { model: "haiku", effort: "low" }, score: 0.67,
     cost: 0.0412, seconds: 31, note: "found control chars, raw 500" }]);
   assert.match(text, /reviewer\/post-links +haiku:low +0\.67 +\$ 0\.041 +31s  found control chars, raw 500\ntotal \$0\.04$/);
+});
+
+test("a build wrapper's jar is not a stray binary, in the repo root or a subproject", () => {
+  const dir = repo();
+  const base = git(dir, "rev-parse", "HEAD");
+  for (const path of ["gradle/wrapper/gradle-wrapper.jar", "apps/landing/.mvn/wrapper/maven-wrapper.jar", "lib/blob.bin"]) {
+    mkdirSync(join(dir, path, ".."), { recursive: true });
+    writeFileSync(join(dir, path), Buffer.from([0, 1, 2, 0, 255]));
+  }
+  stageWork(dir);
+  assert.deepEqual(strayFiles(dir, base, "Set up the Gradle build with its wrapper"),
+    ["lib/blob.bin: a new binary file the task does not mention"]);
 });

@@ -62,14 +62,18 @@ export function stageWork(worktree: string): void {
 
 /**
  * Staged files that do not belong in a task's change: ones .gitignore excludes but are tracked
- * anyway, and new binary files the task (its title and spec) does not mention.
+ * anyway, and new binary files the task (its title and spec) does not mention, build wrappers aside.
  */
+// Binaries a build tool commits on purpose: its wrapper, which `./gradlew` or `./mvnw` needs to run.
+const BUILD_WRAPPERS = ["gradle/wrapper/gradle-wrapper.jar", ".mvn/wrapper/maven-wrapper.jar"];
+
 export function strayFiles(worktree: string, base: string, taskText: string): string[] {
   const changed = new Set(git(worktree, "diff", "--cached", "--name-only", base).split("\n").filter(Boolean));
   const ignored = git(worktree, "ls-files", "-ci", "--exclude-standard").split("\n")
     .filter((f) => changed.has(f)).map((f) => `${f}: tracked although .gitignore excludes it`);
   const binaries = git(worktree, "diff", "--cached", "--numstat", "--diff-filter=A", base).split("\n")
     .filter((l) => l.startsWith("-\t-\t")).map((l) => l.slice(4))
+    .filter((f) => !BUILD_WRAPPERS.some((w) => f === w || f.endsWith(`/${w}`)))
     .filter((f) => !taskText.includes(f) && !taskText.includes(f.split("/").at(-1)!))
     .map((f) => `${f}: a new binary file the task does not mention`);
   return [...ignored, ...binaries];
