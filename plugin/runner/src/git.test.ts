@@ -25,6 +25,14 @@ function branchWithCommit(dir: string, name: string): void {
   git(wt, "commit", "-qm", "b");
 }
 
+test("commit subjects lowercase a plain first word and keep acronyms and names as they are", () => {
+  const subject = (title: string) => commitMessage({ id: 1, feature: "links", body: { title, plan_id: 1 } }).split("\n")[0];
+  assert.equal(subject("Count clicks per link"), "feat(links): count clicks per link");
+  assert.equal(subject("POST /links with URL validation"), "feat(links): POST /links with URL validation");
+  assert.equal(subject("SQLite connection, schema and test fixture"), "feat(links): SQLite connection, schema and test fixture");
+  assert.equal(subject("GET /links/{code}/stats"), "feat(links): GET /links/{code}/stats");
+});
+
 test("commit message follows conventional commits with plan and task trailers", () => {
   const msg = commitMessage({ id: 7, feature: "wallet", body: { title: "Fix: Rounding of fees", plan_id: 3 } });
   assert.match(msg, /^fix\(wallet\): rounding of fees\n\nPlan: #3\nTask: #7\n/);

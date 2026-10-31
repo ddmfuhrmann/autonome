@@ -44,7 +44,10 @@ export function commitMessage(task: { id: number; feature: string | null; body: 
   const title = task.body.title.trim();
   const type = /^(fix|refactor|test|docs|build|ci|chore|perf)\b/i.exec(title)?.[1]?.toLowerCase() ?? "feat";
   const summary = title.replace(/^(fix|refactor|test|docs|build|ci|chore|perf)\b[:\s-]*/i, "");
-  const subject = `${type}${task.feature ? `(${task.feature})` : ""}: ${summary.charAt(0).toLowerCase()}${summary.slice(1)}`;
+  // "Count clicks" -> "count clicks", but an acronym or a name keeps its case: "POST", "SQLite".
+  const firstWord = summary.split(/\s/)[0];
+  const lower = firstWord.slice(1) === firstWord.slice(1).toLowerCase();
+  const subject = `${type}${task.feature ? `(${task.feature})` : ""}: ${lower ? summary.charAt(0).toLowerCase() : summary.charAt(0)}${summary.slice(1)}`;
   return `${subject}\n\nPlan: #${task.body.plan_id}\nTask: #${task.id}\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n`;
 }
 
