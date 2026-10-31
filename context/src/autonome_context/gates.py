@@ -33,7 +33,7 @@ class Fermata(BaseModel):
 
 class Cue(BaseModel):
     name: str
-    kind: Literal["command", "doc-drift", "main-red", "flaky"]
+    kind: Literal["command", "doc-drift", "main-red"]
     every_hours: int = 24
     run: str | None = Field(default=None, description="for kind=command: non-empty output or failure enqueues a task")
     task: str | None = Field(default=None, description="title of the task to enqueue")

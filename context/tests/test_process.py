@@ -95,3 +95,40 @@ def test_living_docs_are_one_per_feature_plus_overview(run_db, project, indexer)
     assert a == b != o
     assert doc["version"] == 2 and doc["body"]["overview"] == "v2" and overview["body"]["overview"] == "system"
     assert feats[0]["slug"] == "wallet" and feats[0]["documented"] and feats[0]["handoffs"] == 1
+
+
+def test_insights_cluster_repeated_friction_and_count_gate_failures(run_db, project, indexer):
+    from autonome_context import insights
+
+    async def go(conn):
+        for _ in range(2):
+            await store.put_handoff(conn, indexer, make_handoff(project, friction=["no convention for money rounding"]), None)
+        await store.put_handoff(conn, indexer, make_handoff(project, friction=["flaky docker startup"]), None)
+        await store.record_gate_runs(conn, project, "s1", [{"gate": "test", "passed": False, "duration_ms": 5, "signature": "x"}])
+        await store.record_gate_runs(conn, project, "s2", [{"gate": "test", "passed": False, "duration_ms": 7, "signature": "x"},
+                                                           {"gate": "lint", "passed": True, "duration_ms": 1}])
+        return await insights.build(conn, project, indexer.embedder)
+
+    i = run_db(go)
+    assert [c["example"] for c in i["friction_clusters"]] == ["no convention for money rounding"]
+    assert i["friction_clusters"][0]["size"] == 2
+    assert {g["gate"]: g["failures"] for g in i["gates"]} == {"test": 2, "lint": 0}
+    assert i["repeated_failures"][0]["sessions"] == 2
+
+
+def test_cues_queue_into_one_maintenance_plan_that_a_human_approves_once(run_db, project, indexer):
+    async def go(conn):
+        a = await store.enqueue_task(conn, indexer, project, title="Fix main", spec="test is red", source="cue:main-red")
+        dup = await store.enqueue_task(conn, indexer, project, title="Fix main", spec="still red", source="cue:main-red")
+        claim_before = await store.next_task(conn, project)
+        await plans.approve(conn, indexer, a["plan_id"])
+        task = await store.next_task(conn, project)
+        await rules.transition(conn, task["id"], "playing", "runner")
+        await rules.transition(conn, task["id"], "done", "runner")
+        finished = await store.finish_plan_if_complete(conn, a["plan_id"])
+        return a, dup, claim_before, task, finished
+
+    a, dup, claim_before, task, finished = run_db(go)
+    assert a["plan_status"] == "draft" and dup["duplicate"] and dup["task_id"] == a["task_id"]
+    assert claim_before is None and task["id"] == a["task_id"]
+    assert not finished  # the maintenance plan stays open for the next cue

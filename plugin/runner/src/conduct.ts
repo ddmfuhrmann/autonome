@@ -9,8 +9,8 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import { context, type GateConfig, type Run, type Task } from "./context.js";
 import { commitMessage, fastForwardMain, git, mainCheckout, tryGit } from "./git.js";
 
-const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const AUTONOME_HOME = process.env.AUTONOME_HOME ?? join(homedir(), ".autonome");
+export const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+export const AUTONOME_HOME = process.env.AUTONOME_HOME ?? join(homedir(), ".autonome");
 
 export interface ConductOptions {
   project: string;
@@ -150,7 +150,7 @@ async function play(task: Task, worktree: string, base: string, opts: ConductOpt
 
 /** The scribe keeps the living docs true to main after each delivery. A failure does not undo the
  * merge; the doc-drift cue picks the feature up later. */
-function updateDocs(repo: string, project: string, args: string[], log: ConductOptions["log"]): void {
+export function updateDocs(repo: string, project: string, args: string[], log: ConductOptions["log"]): void {
   const cwd = mainCheckout(repo) ?? repo;
   const r = spawnSync(join(PLUGIN_ROOT, "bin", "autonome-docs"), ["--project", project, ...args], { cwd, encoding: "utf8" });
   log(r.status === 0 ? `  docs: ${r.stdout.trim()}` : `  docs update failed: ${r.stderr.slice(-400)}`);

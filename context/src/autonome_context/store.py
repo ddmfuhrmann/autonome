@@ -456,6 +456,9 @@ async def next_task(conn: AsyncConnection, project: str) -> dict | None:
 
 
 async def finish_plan_if_complete(conn: AsyncConnection, plan_id: int) -> bool:
+    plan = await get_document(conn, plan_id)
+    if plan and plan["body"].get("kind") == "maintenance":
+        return False  # the standing plan cues add to; it ends only when a human abandons it
     open_tasks = await (await conn.execute(
         """select count(*) from link l join document t on t.id = l.to_id
            where l.from_id = %s and l.kind = 'has_task' and t.status not in ('done', 'abandoned')""",
@@ -499,12 +502,51 @@ async def features(conn: AsyncConnection, project: str) -> list[dict]:
                       count(*) filter (where d.type = 'decision' and d.status = 'accepted') as decisions,
                       count(*) filter (where d.type = 'feature_doc') > 0 as documented,
                       max(d.created_at) as last_activity,
+                      max(d.created_at) filter (where d.type in ('handoff', 'task')) as last_work_at,
+                      max(dv.created_at) filter (where d.type = 'feature_doc') as doc_updated_at,
                       avg((dv.body->>'adherence_score')::float8) filter (where d.type = 'handoff') as adherence
                from feature f join project p on p.id = f.project_id and p.slug = %s
                left join document d on d.feature_id = f.id
-               left join lateral (select body from document_version v where v.document_id = d.id
+               left join lateral (select body, created_at from document_version v where v.document_id = d.id
                                   order by v.version desc limit 1) dv on true
                group by f.slug order by max(d.created_at) desc nulls last""",
             (project,),
         )
         return await cur.fetchall()
+
+
+MAINTENANCE_PLAN = {
+    "kind": "maintenance",
+    "title": "Maintenance (cues)",
+    "goal": "Tasks found by scheduled checks (cues): dependency updates, a red main, drift. Approving this"
+            " plan once lets cues queue work here; abandon it to stop them.",
+    "out_of_scope": ["anything not described in the task itself"],
+    "tasks": [],
+}
+
+
+async def enqueue_task(
+    conn: AsyncConnection, indexer: Indexer | None, project: str, *, title: str, spec: str,
+    feature: str | None = None, layers: list[str] | tuple = (), source: str,
+) -> dict:
+    """Adds a task to the project's standing maintenance plan (created as a draft if missing). The same
+    open source+title is not queued twice."""
+    async with conn.transaction():
+        plan = next((p for p in await list_documents(conn, project, type="plan")
+                     if p["body"].get("kind") == "maintenance" and p["status"] in ("draft", "approved")), None)
+        if plan is None:
+            plan_id = await create_document(conn, indexer, project=project, type="plan", status="draft",
+                                            body=MAINTENANCE_PLAN, feature="maintenance")
+            plan = await get_document(conn, plan_id)
+        existing = [l["id"] for l in await links_of(conn, plan["id"]) if l["kind"] == "has_task"]
+        for task_id in existing:
+            t = await get_document(conn, task_id)
+            if t["status"] not in ("done", "abandoned") and (t["body"].get("source"), t["body"]["title"]) == (source, title):
+                return {"task_id": task_id, "plan_id": plan["id"], "duplicate": True}
+        task_id = await create_document(
+            conn, indexer, project=project, type="task", status="pending", feature=feature, layers=layers,
+            body={"title": title, "spec": spec, "acceptance": [], "plan_id": plan["id"], "seq": len(existing) + 1,
+                  "depends_on": [], "fermata": False, "source": source},
+        )
+        await link(conn, plan["id"], task_id, "has_task")
+    return {"task_id": task_id, "plan_id": plan["id"], "plan_status": plan["status"], "duplicate": False}

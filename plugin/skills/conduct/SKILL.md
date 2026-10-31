@@ -25,3 +25,10 @@ this session: each task gets its own fresh session, so start it in the backgroun
 Each task ends merged into main, held at the fermata (critical features), or blocked with the reason
 and a handoff that explains what went wrong. Blocked tasks need a human decision in the UI: retry
 or abandon.
+
+## Cues
+
+`autonome cues --project <slug>` runs the scheduled checks configured in the gate config (`cues`):
+a command whose output means work, a red main, docs that drifted from the code. They queue tasks into
+the project's maintenance plan, which the user approves once (and abandons to stop them). Suggest
+running it from cron or launchd, e.g. hourly; each cue has its own `every_hours`.

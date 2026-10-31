@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Insights{% endblock %}
+{% block main %}
+<h1>Insights</h1>
+<p class="muted">How the process is going, from {{ i.handoffs }} handoffs and every recorded gate run. The tune loop (<code>/autonome:tune</code>) reads the same data and proposes improvements for you to approve.</p>
+<div class="grid">
+  <div class="card"><h2>Tasks</h2>
+    <div class="meta">{% for s, n in i.task_outcomes.items() %}<span class="pill {{ 'ok' if s == 'done' else ('stop' if s == 'blocked' else '') }}">{{ s }} {{ n }}</span>{% else %}<span class="empty">No tasks yet.</span>{% endfor %}</div>
+    <p class="muted">Encores per task: average {{ '%.1f'|format(i.encores_per_task.avg) }}, max {{ i.encores_per_task.max }}.</p>
+  </div>
+  <div class="card"><h2>Gates</h2>
+    <div class="tablewrap"><table><tr><th>Gate</th><th>Runs</th><th>Failures</th><th>Avg ms</th></tr>
+    {% for g in i.gates %}<tr><td>{{ g.gate }}</td><td class="num">{{ g.runs }}</td><td class="num">{{ g.failures }}</td><td class="num">{{ g.avg_ms }}</td></tr>
+    {% else %}<tr><td colspan="4" class="empty">No gate runs.</td></tr>{% endfor %}</table></div>
+  </div>
+</div>
+<div class="card"><h2>Friction that repeats</h2>
+  {% for c in i.friction_clusters %}<div class="hit"><div class="meta"><span class="pill warn">{{ c.size }}×</span>
+    {% for f in c.features %}<span class="pill accent">{{ f }}</span>{% endfor %}
+    {% for h in c.handoffs %}<a href="/ui/p/{{ project }}/documents/{{ h }}">#{{ h }}</a>{% endfor %}</div><p>{{ c.example }}</p></div>
+  {% else %}<p class="empty">No friction seen in more than one handoff yet.</p>{% endfor %}
+</div>
+<div class="card"><h2>Failures that repeat across sessions</h2>
+  {% for r in i.repeated_failures %}<div class="hit"><div class="meta"><span class="pill stop">{{ r.gate }}</span><span>{{ r.times }} times in {{ r.sessions }} sessions</span></div><pre>{{ r.last_output }}</pre></div>
+  {% else %}<p class="empty">None.</p>{% endfor %}
+</div>
+<div class="grid">
+  <div class="card"><h2>Adherence, lowest first</h2>
+    <div class="tablewrap"><table><tr><th>Feature</th><th>Layer</th><th>Avg</th><th>n</th></tr>
+    {% for a in i.adherence %}<tr><td>{{ a.feature }}</td><td>{{ a.layer }}</td><td class="num">{{ '%.2f'|format(a.avg) }}</td><td class="num">{{ a.n }}</td></tr>
+    {% else %}<tr><td colspan="4" class="empty">No scored handoffs.</td></tr>{% endfor %}</table></div>
+  </div>
+  <div class="card"><h2>Plan items by outcome</h2>
+    <div class="tablewrap"><table><tr><th>Feature</th><th>done</th><th>partial</th><th>changed</th><th>skipped</th></tr>
+    {% for f, c in i.plan_items.items() %}<tr><td>{{ f }}</td>{% for s in ['done','partial','changed','skipped'] %}<td class="num">{{ c.get(s, 0) }}</td>{% endfor %}</tr>
+    {% else %}<tr><td colspan="5" class="empty">No plan items recorded.</td></tr>{% endfor %}</table></div>
+  </div>
+</div>
+<div class="card"><h2>Blocked</h2>
+  {% for b in i.blocked %}<div class="meta"><a href="/ui/p/{{ project }}/documents/{{ b.task_id }}">#{{ b.task_id }} {{ b.title }}</a><span>{{ b.reason|truncate(160) }}</span></div>
+  {% else %}<p class="empty">Nothing blocked.</p>{% endfor %}
+</div>
+{% endblock %}

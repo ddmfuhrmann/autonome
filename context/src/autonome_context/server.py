@@ -16,7 +16,7 @@ from pydantic import Field, ValidationError
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from . import api, evaluation, plans, rules, services, store, web
+from . import api, evaluation, insights, plans, rules, services, store, web
 from .chunking import DEFAULT_STRATEGY, STRATEGIES
 from .handoff import Handoff
 from .migrate import migrate
@@ -135,6 +135,29 @@ async def decision_propose(project: str, title: str, decision: str, context: str
                 conn, indexer, project=project, type="decision", status="proposed", feature=feature, layers=layers,
                 body={"title": title, "context": context, "decision": decision, "consequences": consequences})
     return {"decision_id": doc_id, "status": "proposed"}
+
+
+@mcp.tool()
+async def insights_get(project: str) -> dict:
+    """How the process is going: adherence by feature and layer, plan items skipped or changed, gate
+    failure rates, failures that repeat across sessions, encores, blocked tasks, and friction grouped
+    by meaning. The tune loop reads this."""
+    pool, indexer = await services.get()
+    async with pool.connection() as conn:
+        return api.jsonable(await insights.build(conn, project, indexer.embedder))
+
+
+@mcp.tool()
+async def convention_propose(project: str, title: str, rule: str, why: str, layers: list[str] = [],
+                             replaces: Annotated[int | None, Field(description="id of the convention it would replace")] = None) -> dict:
+    """Suggest a new or changed convention. It stays proposed until a human activates it in the UI."""
+    pool, indexer = await services.get()
+    async with pool.connection() as conn:
+        async with conn.transaction():
+            doc_id = await store.create_document(
+                conn, indexer, project=project, type="convention", status="proposed", layers=layers,
+                body={"title": title, "rule": rule, "why": why, "replaces": replaces})
+    return {"convention_id": doc_id, "status": "proposed"}
 
 
 @mcp.custom_route("/health", methods=["GET"])

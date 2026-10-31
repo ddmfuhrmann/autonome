@@ -6,7 +6,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from . import briefing, rules, services, store
+from . import briefing, insights, rules, services, store
 from .gates import GateConfig
 
 
@@ -137,8 +137,27 @@ async def get_features(request: Request) -> JSONResponse:
     return _json(out)
 
 
+async def get_insights(request: Request) -> JSONResponse:
+    pool, indexer = await services.get()
+    async with pool.connection() as conn:
+        return _json(await insights.build(conn, request.path_params["project"], indexer.embedder))
+
+
+async def post_task(request: Request) -> JSONResponse:
+    """Cues queue work here; it lands in the maintenance plan, which a human approves once."""
+    body = await request.json()
+    pool, indexer = await services.get()
+    async with pool.connection() as conn:
+        result = await store.enqueue_task(
+            conn, indexer, request.path_params["project"], title=body["title"], spec=body["spec"],
+            feature=body.get("feature"), layers=body.get("layers", []), source=body["source"])
+    return _json(result, 201)
+
+
 def routes() -> list:
     return [
+        Route("/api/projects/{project}/insights", get_insights),
+        Route("/api/projects/{project}/tasks", post_task, methods=["POST"]),
         Route("/api/projects/{project}/features", get_features),
         Route("/api/projects/{project}/features/{feature}/dossier", feature_dossier),
         Route("/api/projects/{project}/features/{feature}/doc", put_feature_doc, methods=["PUT"]),

@@ -31,6 +31,9 @@ plugin/runner/  the maestro (TypeScript, Claude Agent SDK): one session + worktr
 - **Conduct sessions are sandboxed by permission**: `dontAsk` with an allowlist (read/edit files,
   the gates' own commands, `allowed_commands`, read-only git). Never `bypassPermissions`. Only the
   runner commits, and main only moves by fast-forward, never over uncommitted work.
+- **Loops**: compose (human + agent, the only conversation) → conduct (one session per task) →
+  tune (reads `insights`, only proposes conventions and at most one plan) ← cues (scheduled checks
+  that only queue tasks into a maintenance plan a human approved once). Only conduct writes code.
 - **Gates**: the rules live in each project's repo; the context only holds their orchestration
   (`gate_config`, edited in the UI). The metronome (`Stop` hook) runs them cheapest first, records
   every run as a fact, and turns repeated failures into a blocked task instead of looping.
@@ -45,6 +48,8 @@ cd context && uv run pytest                     # the gate; DB tests skip if pos
 uv run --project context pytest plugin/tests    # plugin (stdlib code, tested with the context's pytest)
 pnpm --dir plugin/runner test                   # the runner (TypeScript, Agent SDK)
 plugin/bin/autonome conduct --project <slug>    # play approved tasks of the repo in the cwd
+plugin/bin/autonome cues --project <slug>       # scheduled checks; queue maintenance tasks
+plugin/bin/autonome-docs --feature <slug>       # rewrite a feature's living doc (or --overview)
 ```
 
 Install the plugin locally: `claude plugin marketplace add ~/git/autonome` then

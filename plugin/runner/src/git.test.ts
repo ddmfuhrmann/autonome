@@ -66,3 +66,13 @@ test("a musician may run the gates' commands and nothing else in the shell", () 
   assert.ok(tools.includes("Bash(./mvnw:*)") && tools.includes("Bash(pnpm:*)") && tools.includes("Bash(autonome-gates:*)"));
   assert.ok(!tools.some((t) => t === "Bash" || t.startsWith("Bash(git commit") || t.startsWith("Bash(git push")));
 });
+
+test("a feature's docs drift when work landed after its doc, or it has work and no doc", async () => {
+  const { drifted } = await import("./cues.js");
+  assert.deepEqual(drifted([
+    { slug: "fresh", handoffs: 2, documented: true, last_work_at: "2026-10-01", doc_updated_at: "2026-10-02" },
+    { slug: "stale", handoffs: 2, documented: true, last_work_at: "2026-10-03", doc_updated_at: "2026-10-02" },
+    { slug: "undocumented", handoffs: 1, documented: false, last_work_at: "2026-10-01", doc_updated_at: null },
+    { slug: "idle", handoffs: 0, documented: false, last_work_at: null, doc_updated_at: null },
+  ]), ["stale", "undocumented"]);
+});

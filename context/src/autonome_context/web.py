@@ -12,7 +12,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 
-from . import evaluation, plans, rules, services, store
+from . import evaluation, insights, plans, rules, services, store
 from .chunking import DEFAULT_STRATEGY, STRATEGIES
 from .gates import EXAMPLE, GateConfig
 
@@ -155,6 +155,7 @@ async def approvals_page(request: Request) -> Response:
             "Held at the fermata": await store.list_documents(conn, project, type="task", status="on_hold"),
             "Blocked tasks": await store.list_documents(conn, project, type="task", status="blocked"),
             "Proposed decisions": await store.list_documents(conn, project, type="decision", status="proposed"),
+            "Proposed conventions": await store.list_documents(conn, project, type="convention", status="proposed"),
         }
     return render(request, "approvals.html", groups=groups)
 
@@ -245,6 +246,13 @@ async def feature_page(request: Request) -> Response:
     return render(request, "feature.html", feature=feature, doc=doc, timeline=timeline)
 
 
+async def insights_page(request: Request) -> Response:
+    pool, indexer = await services.get()
+    async with pool.connection() as conn:
+        data = await insights.build(conn, request.path_params["project"], indexer.embedder)
+    return render(request, "insights.html", i=data)
+
+
 def routes() -> list:
     return [
         Route("/", lambda r: RedirectResponse("/ui")),
@@ -260,6 +268,7 @@ def routes() -> list:
         Route("/ui/p/{project}/approvals", approvals_page),
         Route("/ui/p/{project}/setlist", setlist_page),
         Route("/ui/p/{project}/features", features_page),
+        Route("/ui/p/{project}/insights", insights_page),
         Route("/ui/p/{project}/features/{feature}", feature_page),
         Route("/ui/p/{project}/documents/{doc_id:int}/transition", transition, methods=["POST"]),
         Route("/ui/p/{project}/conventions", conventions_page, methods=["GET", "POST"]),

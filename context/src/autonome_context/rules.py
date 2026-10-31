@@ -27,6 +27,8 @@ TRANSITIONS: dict[tuple[str, str, str], set[str]] = {
     ("task", "blocked", "pending"): {"human"},
     ("task", "blocked", "abandoned"): {"human"},
     ("task", "pending", "abandoned"): {"human"},
+    ("convention", "proposed", "active"): {"human"},  # suggested by the tune loop
+    ("convention", "proposed", "rejected"): {"human"},
     ("decision", "proposed", "accepted"): {"human"},
     ("decision", "proposed", "rejected"): {"human"},
     ("decision", "accepted", "superseded"): {"human"},

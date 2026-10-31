@@ -40,7 +40,24 @@ export interface GateConfig {
     allowed_commands?: string[];
     encore: { max: number; stop_on_repeat: boolean };
     budget: { task_tokens: number; task_minutes: number; plan_tokens: number };
+    cues?: Cue[];
   };
+}
+
+export interface Cue {
+  name: string;
+  kind: "command" | "doc-drift" | "main-red";
+  every_hours: number;
+  run?: string | null;
+  task?: string | null;
+}
+
+export interface Feature {
+  slug: string;
+  handoffs: number;
+  documented: boolean;
+  last_work_at: string | null;
+  doc_updated_at: string | null;
 }
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
@@ -63,4 +80,8 @@ export const context = {
       body: JSON.stringify({ to, run }),
     }),
   gateConfig: (project: string) => call<GateConfig>(`/api/projects/${project}/gate-config`),
+  features: (project: string) => call<Feature[]>(`/api/projects/${project}/features`),
+  enqueue: (project: string, task: { title: string; spec: string; source: string; feature?: string }) =>
+    call<{ task_id: number; plan_id: number; plan_status?: string; duplicate: boolean }>(
+      `/api/projects/${project}/tasks`, { method: "POST", body: JSON.stringify(task) }),
 };
