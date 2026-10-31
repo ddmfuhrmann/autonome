@@ -114,14 +114,46 @@ export interface Feature {
   doc_updated_at: string | null;
 }
 
-async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${CONTEXT_URL}${path}`, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
-  });
-  const body = (await res.json()) as T & { error?: string };
-  if (!res.ok) throw new Error(`${init?.method ?? "GET"} ${path}: ${res.status} ${body.error ?? ""}`);
-  return body;
+/** The context API failed (down, 5xx, not JSON): an infrastructure problem, never the task's fault. */
+export class ContextError extends Error {}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Calls the context API. A 4xx is an answer and throws at once; a 5xx, a non-JSON body or a network
+ * error is retried with backoff, then thrown as a ContextError naming the call. */
+export async function call<T>(path: string, init?: RequestInit, attempts = 3): Promise<T> {
+  const what = `${init?.method ?? "GET"} ${path}`;
+  const delay = Number(process.env.AUTONOME_CONTEXT_RETRY_MS ?? 500);
+  let failure = "";
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    if (attempt > 1) await sleep(delay * 2 ** (attempt - 2));
+    let res: Response;
+    let text: string;
+    try {
+      res = await fetch(`${CONTEXT_URL}${path}`, {
+        ...init,
+        headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+      });
+      text = await res.text();
+    } catch (e) {
+      failure = `context API unreachable on ${what}: ${String(e)}`;
+      continue;
+    }
+    let body: (T & { error?: string }) | undefined;
+    if (res.headers.get("content-type")?.includes("application/json")) {
+      try {
+        body = JSON.parse(text);
+      } catch {
+        body = undefined;
+      }
+    }
+    if (res.status < 500 && body !== undefined) {
+      if (!res.ok) throw new Error(`${what}: ${res.status} ${body.error ?? ""}`);
+      return body;
+    }
+    failure = `context API ${res.status} on ${what}: ${text.trim().split("\n")[0].slice(0, 200)}`;
+  }
+  throw new ContextError(failure);
 }
 
 export const context = {

@@ -7,7 +7,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { consult } from "./agents.js";
-import { context, type GateConfig, type Plan, type Rehearsal, type Run, type Task } from "./context.js";
+import { ContextError, context, type GateConfig, type Plan, type Rehearsal, type Run, type Task } from "./context.js";
 import { findingsForEncore, review } from "./review.js";
 import { soundcheck } from "./soundcheck.js";
 import { commitMessage, fastForwardMain, git, mainCheckout, stageWork, strayFiles, tryGit } from "./git.js";
@@ -365,6 +365,12 @@ export async function conduct(opts: ConductOptions): Promise<number> {
       }
       await conductTask(task, opts);
     } catch (e) {
+      if (e instanceof ContextError) {
+        // Not the task's fault: hand it back and stop, rather than block it or spin on a broken context.
+        opts.log(`${e.message}\n  #${task.id} goes back to pending; stopping the conductor`);
+        await context.transition(task.id, "pending").catch(() => undefined);
+        throw e;
+      }
       opts.log(`#${task.id} failed unexpectedly: ${String(e)}`);
       await context.transition(task.id, task.status === "released" ? "pending" : "blocked", {
         at: now(), branch: "", worktree: "", base: "", outcome: "error", reason: String(e).slice(0, 2000),
