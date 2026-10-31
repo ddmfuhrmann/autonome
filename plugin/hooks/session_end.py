@@ -36,18 +36,16 @@ def user_turns(transcript: Path) -> int:
     return n
 
 
-def context_up() -> bool:
-    return common.get_json("/health", timeout=1) is not None
-
-
 def main() -> None:
     # Conduct sessions get their handoff from the runner, which knows the task.
     if os.getenv("AUTONOME_HANDOFF_CHILD") or os.getenv("AUTONOME_CONDUCT"):
         return
     event = json.load(sys.stdin)
     transcript = Path(event.get("transcript_path", ""))
-    if not transcript.is_file() or user_turns(transcript) < MIN_USER_TURNS or not context_up():
+    if not transcript.is_file() or user_turns(transcript) < MIN_USER_TURNS:
         return
+    if not common.project_active(event.get("cwd") or os.getcwd()):
+        return  # not an autonome project (or the context is down): no handoff, no tokens spent
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     payload = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, dir=LOG_DIR)
     json.dump(event, payload)

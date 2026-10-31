@@ -20,6 +20,12 @@ Every session, interactive or not, ends in a **handoff** written by a separate a
 implementation vs. gates, deviations, decisions and friction. It goes to the context, where it is
 redacted, chunked and indexed.
 
+## Where it acts
+
+Only in projects set up for it: the project has a gate config saved in the context (UI → Config),
+or `AUTONOME_PROJECT` is set. Everywhere else the hooks stay silent and cost nothing: no briefing at
+the start of a session, no handoff at the end.
+
 ## What's in here
 
 | Path | What |

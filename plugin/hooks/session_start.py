@@ -2,7 +2,7 @@
 
 In a conduct session (AUTONOME_TASK_ID set) it injects the task, its plan, the conventions for the
 task's layers and earlier friction in the feature. Otherwise it injects a short pointer to the
-memory. Silent when the context is down.
+memory. Silent when the context is down or the project is not set up for autonome.
 """
 
 import json
@@ -21,6 +21,8 @@ def main() -> None:
     event = json.load(sys.stdin)
     cwd = event.get("cwd") or os.getcwd()
     task_id = os.getenv("AUTONOME_TASK_ID")
+    if not task_id and not common.project_active(cwd):
+        return
     query = f"?task_id={task_id}" if task_id else ""
     result = common.get_json(f"/api/projects/{common.project_slug(cwd)}/briefing{query}", timeout=3)
     if not result or not result.get("text"):

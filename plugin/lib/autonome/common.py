@@ -94,3 +94,13 @@ def role_model(project: str, role: str, default_model: str = "sonnet", default_e
     r = (cfg.get("models") or {}).get(role) or {}
     return (os.getenv(f"AUTONOME_{role.upper()}_MODEL") or r.get("model") or default_model,
             os.getenv(f"AUTONOME_{role.upper()}_EFFORT") or r.get("effort") or default_effort)
+
+
+def project_active(cwd: str | Path) -> bool:
+    """autonome only acts in projects set up for it: AUTONOME_PROJECT is set, or the project has a gate
+    config saved in the context (the setup step, in the UI). Anywhere else its hooks stay silent and
+    spend nothing: no briefing, no handoff."""
+    if os.getenv("AUTONOME_PROJECT"):
+        return True
+    cfg = get_json(f"/api/projects/{project_slug(cwd)}/gate-config", timeout=2)
+    return bool(cfg and cfg.get("version") is not None)
