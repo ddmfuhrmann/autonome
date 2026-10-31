@@ -40,6 +40,10 @@ the start of this session has the task, its plan, the conventions for its layers
   file you leave in the tree that .gitignore does not exclude; to keep a generated file (coverage data,
   build output, a local database) out, add it to .gitignore.
 - Never edit, weaken or skip a gate or the rules behind it to make it pass.
+- Create and change files only with the Write and Edit tools. The shell is for running things: the
+  gates' commands, \`autonome-gates --fast\`, read-only git and inspection. Writing through the shell
+  (heredocs, \`cat >\`, \`python -c\`, \`sed -i\`) is denied in this session, and so is \`git -C\`:
+  you are already in the right directory.
 - Nobody will answer questions. If something is truly ambiguous, choose the option most consistent
   with the plan and the conventions, and say so in your final message.
 - When done, end your turn with a short summary. The metronome then runs every gate and may send you
@@ -59,6 +63,8 @@ export function allowedTools(cfg: Pick<GateConfig["config"], "gates" | "allowed_
   return [
     "Read", "Glob", "Grep", "Edit", "Write", "TodoWrite",
     "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)",
+    // Read-only helpers sessions reach for; writing goes through Edit/Write, never the shell.
+    "Bash(sed -n:*)", "Bash(echo:*)", "Bash(head:*)", "Bash(tail:*)", "Bash(wc:*)",
     ...[...commands].map((c) => `Bash(${c}:*)`),
     // The memory, under the plugin's server name (the musician loads the plugin) and the plain one.
     ...["search", "conventions_get", "plan_get"].flatMap((t) => [`mcp__autonome__${t}`, `mcp__plugin_autonome_autonome__${t}`]),
