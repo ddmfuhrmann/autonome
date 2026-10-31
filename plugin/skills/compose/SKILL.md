@@ -22,6 +22,9 @@ Before asking the user anything:
 
 - `search` the idea in plain words, then again with the exact names involved (classes, endpoints).
   Look for earlier decisions, handoffs of related work, and their **friction** and **deviations**.
+- `history_get` with the subject (and the feature, if known): what went off plan before on the same
+  subject (items changed or skipped, deviations and how the user judged them, reviewer blocks, fixes,
+  blocked tasks, friction). Every pattern there is a lesson this plan must apply (section 3).
 - `plan_list` for plans on the same feature (an approved one may already cover it).
 - When the user names a roadmap wave ("wave 2", "the credito-api wave"), `search` with type `backlog`:
   its open items are the starting scope of the autonome wave, and its notes and PRD links are context.
@@ -31,8 +34,9 @@ Before asking the user anything:
 - Read the code the change will touch. If it is not in the working directory, say so in one line
   and go on from the memory; where the code lives is not a question to ask now.
 
-Tell the user, briefly, what you found that matters (a decision that constrains the idea, friction
-that happened last time). Do not dump search results.
+Tell the user, briefly, what you found that matters: a decision that constrains the idea, and the
+lessons from the same subject in two or three lines ("last time the limit returned 500 and was fixed
+after merge"). Do not dump search results.
 
 ## 2. Grill, one question at a time
 
@@ -58,6 +62,12 @@ only sees the task, the plan's goal and out-of-scope, and the conventions of its
 - `layers` per task (domain, application, api, persistence, integration, ui, infra, test, docs).
 - `depends_on`: 1-based positions of earlier tasks this one needs.
 - Record the questions and answers that shaped the plan in `discussion`.
+
+**Lessons, before writing tasks.** Each pattern from `history_get` that applies becomes part of this
+plan: an acceptance criterion (a test for the case that went wrong), an out-of-scope line, a
+convention (section 3), or a question to the user (section 2) when it is a product decision. A
+rejected deviation is never repeated. List them in the plan's `context` under "Lessons from earlier
+work", each with what it became, so the reviewer can hold the code to them.
 
 **Edges, before writing tasks.** For each task, walk this list and keep what applies:
 

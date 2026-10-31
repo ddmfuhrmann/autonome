@@ -793,6 +793,42 @@
       }
     },
     {
+      "name": "history_get",
+      "description": "What went off plan before on the same subject (the feature and the closest related ones): plan\nitems changed or skipped, deviations, decisions taken against the plan and how the human judged them,\nrehearsal revisions, reviewer blocks, fixes from soundcheck, playback and rejected decisions, blocked\ntasks and friction. Read it before planning, and turn each pattern into acceptance, out of scope, a\nconvention or a question.",
+      "inputSchema": {
+        "properties": {
+          "project": {
+            "title": "Project",
+            "type": "string"
+          },
+          "subject": {
+            "description": "What is being planned, in plain words",
+            "title": "Subject",
+            "type": "string"
+          },
+          "feature": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The feature slug, if known",
+            "title": "Feature"
+          }
+        },
+        "required": [
+          "project",
+          "subject"
+        ],
+        "type": "object",
+        "title": "history_getArguments"
+      }
+    },
+    {
       "name": "plan_get",
       "description": "A plan with its status and the status of its tasks.",
       "inputSchema": {

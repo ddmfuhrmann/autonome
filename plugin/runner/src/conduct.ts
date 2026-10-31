@@ -72,7 +72,7 @@ export function allowedTools(cfg: Pick<GateConfig["config"], "gates" | "allowed_
     "Bash(sed -n:*)", "Bash(echo:*)", "Bash(head:*)", "Bash(tail:*)", "Bash(wc:*)",
     ...[...commands].map((c) => `Bash(${c}:*)`),
     // The memory, under the plugin's server name (the musician loads the plugin) and the plain one.
-    ...["search", "conventions_get", "plan_get", "gate_config_get"].flatMap((t) => [`mcp__autonome__${t}`, `mcp__plugin_autonome_autonome__${t}`]),
+    ...["search", "conventions_get", "plan_get", "gate_config_get", "history_get"].flatMap((t) => [`mcp__autonome__${t}`, `mcp__plugin_autonome_autonome__${t}`]),
   ];
 }
 
@@ -81,7 +81,8 @@ approved together with other features of a wave; those are merged now, so the co
 plan assumed. Nobody will answer questions.
 
 Read the plan below, then the code it touches and what changed since it was written (git log, and the
-project memory via the autonome MCP: handoffs and decisions of the features merged before it).
+project memory via the autonome MCP: handoffs and decisions of the features merged before it, and
+\`history_get\` for what went off plan on this subject; a lesson the plan ignores is a reason to revise).
 
 Check it against the gates too. For each gate below, read the rules it enforces in the repo (import
 contracts, type checker strictness, lint rules, coverage floors: pyproject.toml, setup.cfg, .importlinter,

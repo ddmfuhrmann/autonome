@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field, ValidationError
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from . import api, evaluation, imports, insights, plans, rules, services, store, web
+from . import api, evaluation, history, imports, insights, plans, rules, services, store, web
 from .chunking import DEFAULT_STRATEGY, STRATEGIES
 from .handoff import Handoff
 from .migrate import migrate
@@ -169,6 +169,22 @@ async def wave_approve(project: str, wave_id: int, ctx: Context) -> dict:
     """Ask the human, right in their session, to approve a draft wave and every plan in it, the same
     way as plan_approve."""
     return await _approve(ctx, project, wave_id, "wave")
+
+
+@mcp.tool()
+async def history_get(
+    project: str,
+    subject: Annotated[str, Field(description="What is being planned, in plain words")],
+    feature: Annotated[str | None, Field(description="The feature slug, if known")] = None,
+) -> dict:
+    """What went off plan before on the same subject (the feature and the closest related ones): plan
+    items changed or skipped, deviations, decisions taken against the plan and how the human judged them,
+    rehearsal revisions, reviewer blocks, fixes from soundcheck, playback and rejected decisions, blocked
+    tasks and friction. Read it before planning, and turn each pattern into acceptance, out of scope, a
+    convention or a question."""
+    pool, indexer = await services.get()
+    async with pool.connection() as conn:
+        return api.jsonable(await history.build(conn, project, subject, indexer.embedder, feature))
 
 
 @mcp.tool()

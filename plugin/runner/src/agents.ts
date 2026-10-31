@@ -5,7 +5,7 @@ import { CONTEXT_URL, type Effort } from "./context.js";
 const READ_ONLY = [
   "Read", "Glob", "Grep",
   "Bash(git log:*)", "Bash(git diff:*)", "Bash(git show:*)", "Bash(git status:*)",
-  "mcp__autonome__search", "mcp__autonome__plan_get", "mcp__autonome__conventions_get",
+  "mcp__autonome__search", "mcp__autonome__plan_get", "mcp__autonome__conventions_get", "mcp__autonome__history_get",
 ];
 
 export interface Consult {
