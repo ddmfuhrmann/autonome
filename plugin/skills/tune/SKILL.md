@@ -36,5 +36,11 @@ agent may skip.
 - Code changes to the process (new lint or Semgrep rules, tests that guard a pattern): at most ONE
   plan per tune run, via `plan_draft` with feature `process`, small tasks, acceptance checked by gates.
 
+When a proposal changes how an agent behaves (a skill under `plugin/skills/`, including the
+handoff instructions), its plan must say how the change is measured: add or adjust a case under
+`plugin/evals/` that reproduces the problem, and make an acceptance criterion that
+`claude plugin eval plugin --tag <skill>` scores at least as well as before the change. A process
+change that cannot be measured is an opinion.
+
 Everything stays proposed until the user approves it in the UI. Finish with a short report: the
 three biggest problems, the evidence, and what you proposed for each (with ids).

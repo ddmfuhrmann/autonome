@@ -26,6 +26,8 @@ plugin/runner/  the maestro (TypeScript, Claude Agent SDK): one session + worktr
   only in the UI. The MCP must refuse them.
 - **Don't generalize ahead of need.** No plugin systems, no pluggable UI, until a second real consumer
   exists.
+- **The handoff instructions live in `plugin/skills/handoff/SKILL.md`**: the scribe script reads that
+  file, so the evals test exactly what runs.
 - The plugin's hooks use the Python standard library only and must never break the user's session.
   Shared code lives in `plugin/lib/autonome/`.
 - **Conduct sessions are sandboxed by permission**: `dontAsk` with an allowlist (read/edit files,
@@ -50,7 +52,13 @@ pnpm --dir plugin/runner test                   # the runner (TypeScript, Agent 
 plugin/bin/autonome conduct --project <slug>    # play approved tasks of the repo in the cwd
 plugin/bin/autonome cues --project <slug>       # scheduled checks; queue maintenance tasks
 plugin/bin/autonome-docs --feature <slug>       # rewrite a feature's living doc (or --overview)
+claude plugin eval plugin --trust-plugin --model sonnet   # skill evals, with vs without the plugin
 ```
+
+**Skill evals** (`plugin/evals/`): compose, tune and handoff cases with the `autonome` MCP mocked
+(`mocks/autonome/`, schemas in `_tools.json` saved from the real server). Hooks are offline in evals
+(`EVAL_AUTONOME_OFFLINE`). Each run is a full Claude session, so run them when a skill or the handoff
+instructions change, not on every commit. A change to agent behaviour comes with a case that shows it.
 
 Install the plugin locally: `claude plugin marketplace add ~/git/autonome` then
 `claude plugin install autonome@autonome`.

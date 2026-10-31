@@ -20,7 +20,13 @@ from autonome import common  # noqa: E402
 MODEL = os.getenv("AUTONOME_HANDOFF_MODEL", "sonnet")
 MAX_CHARS = 150_000
 TOOL_RESULT_CHARS = 400
-PROMPT = Path(__file__).with_name("handoff_prompt.txt")
+# One source for the scribe's instructions: the handoff skill, which the evals also exercise.
+SKILL = Path(__file__).resolve().parent.parent / "skills" / "handoff" / "SKILL.md"
+
+
+def prompt() -> str:
+    text = SKILL.read_text()
+    return text.split("---", 2)[2].strip() if text.startswith("---") else text
 READ_ONLY_TOOLS = ["Read", "Grep", "Glob", "Bash(git log:*)", "Bash(git diff:*)", "Bash(git show:*)",
                    "Bash(git status:*)"]
 
@@ -83,7 +89,7 @@ def write(condensed: str, cwd: str, facts: str) -> dict:
     out = subprocess.run(
         ["claude", "-p", "--model", MODEL, "--output-format", "json",
          "--allowedTools", *READ_ONLY_TOOLS],
-        input=PROMPT.read_text() + "\n" + facts + "\n\n" + condensed,
+        input=prompt() + "\n\n" + facts + "\n\n" + condensed,
         cwd=cwd, env=env, capture_output=True, text=True, timeout=600,
     )
     if out.returncode != 0:

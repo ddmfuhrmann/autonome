@@ -1,0 +1,751 @@
+{
+  "tools": [
+    {
+      "name": "handoff_put",
+      "description": "Store the handoff of a finished unit of work and index it for search.",
+      "inputSchema": {
+        "properties": {
+          "handoff": {
+            "$ref": "#/$defs/Handoff"
+          }
+        },
+        "required": [
+          "handoff"
+        ],
+        "type": "object",
+        "$defs": {
+          "Decision": {
+            "properties": {
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "rationale": {
+                "title": "Rationale",
+                "type": "string"
+              }
+            },
+            "required": [
+              "title",
+              "rationale"
+            ],
+            "title": "Decision",
+            "type": "object"
+          },
+          "GateResult": {
+            "properties": {
+              "name": {
+                "title": "Name",
+                "type": "string"
+              },
+              "passed": {
+                "title": "Passed",
+                "type": "boolean"
+              },
+              "encores": {
+                "default": 0,
+                "title": "Encores",
+                "type": "integer"
+              },
+              "root_cause": {
+                "default": "",
+                "title": "Root Cause",
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "passed"
+            ],
+            "title": "GateResult",
+            "type": "object"
+          },
+          "Handoff": {
+            "description": "What one unit of work left behind. Written by an agent other than the one that did the work.",
+            "properties": {
+              "project": {
+                "title": "Project",
+                "type": "string"
+              },
+              "session_id": {
+                "title": "Session Id",
+                "type": "string"
+              },
+              "feature": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "kebab-case slug, e.g. credit-inquiry",
+                "title": "Feature"
+              },
+              "layers": {
+                "default": [],
+                "items": {
+                  "type": "string"
+                },
+                "title": "Layers",
+                "type": "array"
+              },
+              "summary": {
+                "title": "Summary",
+                "type": "string"
+              },
+              "plan_adherence": {
+                "default": [],
+                "items": {
+                  "$ref": "#/$defs/PlanItem"
+                },
+                "title": "Plan Adherence",
+                "type": "array"
+              },
+              "gates": {
+                "default": [],
+                "items": {
+                  "$ref": "#/$defs/GateResult"
+                },
+                "title": "Gates",
+                "type": "array"
+              },
+              "deviations": {
+                "default": [],
+                "items": {
+                  "type": "string"
+                },
+                "title": "Deviations",
+                "type": "array"
+              },
+              "decisions": {
+                "default": [],
+                "items": {
+                  "$ref": "#/$defs/Decision"
+                },
+                "title": "Decisions",
+                "type": "array"
+              },
+              "friction": {
+                "default": [],
+                "items": {
+                  "type": "string"
+                },
+                "title": "Friction",
+                "type": "array"
+              },
+              "adherence_score": {
+                "anyOf": [
+                  {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Adherence Score"
+              },
+              "commit_sha": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Commit Sha"
+              }
+            },
+            "required": [
+              "project",
+              "session_id",
+              "summary"
+            ],
+            "title": "Handoff",
+            "type": "object"
+          },
+          "PlanItem": {
+            "properties": {
+              "item": {
+                "title": "Item",
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "done",
+                  "partial",
+                  "skipped",
+                  "changed"
+                ],
+                "title": "Status",
+                "type": "string"
+              },
+              "note": {
+                "default": "",
+                "title": "Note",
+                "type": "string"
+              }
+            },
+            "required": [
+              "item",
+              "status"
+            ],
+            "title": "PlanItem",
+            "type": "object"
+          }
+        },
+        "title": "handoff_putArguments"
+      }
+    },
+    {
+      "name": "search",
+      "description": "Search the project's memory. Returns the best chunk of each matching document.",
+      "inputSchema": {
+        "properties": {
+          "query": {
+            "description": "Natural language or exact terms, e.g. class names",
+            "title": "Query",
+            "type": "string"
+          },
+          "project": {
+            "description": "Project slug",
+            "title": "Project",
+            "type": "string"
+          },
+          "feature": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Feature"
+          },
+          "layer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Layer"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "plan, task, handoff, decision, convention, ...",
+            "title": "Type"
+          },
+          "mode": {
+            "default": "hybrid",
+            "enum": [
+              "hybrid",
+              "vector",
+              "fts"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "k": {
+            "default": 8,
+            "title": "K",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "query",
+          "project"
+        ],
+        "type": "object",
+        "title": "searchArguments"
+      },
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Result",
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "title": "searchOutput"
+      }
+    },
+    {
+      "name": "gate_config_get",
+      "description": "The project's current gate configuration: which gates run, in which order, encore and budget.",
+      "inputSchema": {
+        "properties": {
+          "project": {
+            "description": "Project slug",
+            "title": "Project",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project"
+        ],
+        "type": "object",
+        "title": "gate_config_getArguments"
+      }
+    },
+    {
+      "name": "plan_draft",
+      "description": "Save a draft plan for the human to approve in the UI. Agents cannot approve plans.",
+      "inputSchema": {
+        "properties": {
+          "project": {
+            "title": "Project",
+            "type": "string"
+          },
+          "plan": {
+            "$ref": "#/$defs/PlanBody"
+          },
+          "feature": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "kebab-case feature slug",
+            "title": "Feature"
+          },
+          "layers": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Layers",
+            "type": "array"
+          },
+          "plan_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "revise this draft instead of creating a new one",
+            "title": "Plan Id"
+          }
+        },
+        "required": [
+          "project",
+          "plan"
+        ],
+        "type": "object",
+        "$defs": {
+          "PlanBody": {
+            "properties": {
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "goal": {
+                "title": "Goal",
+                "type": "string"
+              },
+              "context": {
+                "default": "",
+                "title": "Context",
+                "type": "string"
+              },
+              "scope": {
+                "default": [],
+                "items": {
+                  "type": "string"
+                },
+                "title": "Scope",
+                "type": "array"
+              },
+              "out_of_scope": {
+                "default": [],
+                "items": {
+                  "type": "string"
+                },
+                "title": "Out Of Scope",
+                "type": "array"
+              },
+              "acceptance": {
+                "default": [],
+                "items": {
+                  "type": "string"
+                },
+                "title": "Acceptance",
+                "type": "array"
+              },
+              "risks": {
+                "default": [],
+                "items": {
+                  "type": "string"
+                },
+                "title": "Risks",
+                "type": "array"
+              },
+              "tasks": {
+                "items": {
+                  "$ref": "#/$defs/TaskSpec"
+                },
+                "title": "Tasks",
+                "type": "array"
+              },
+              "discussion": {
+                "default": [],
+                "description": "the questions and answers that shaped the plan",
+                "items": {
+                  "$ref": "#/$defs/Turn"
+                },
+                "title": "Discussion",
+                "type": "array"
+              }
+            },
+            "required": [
+              "title",
+              "goal",
+              "tasks"
+            ],
+            "title": "PlanBody",
+            "type": "object"
+          },
+          "TaskSpec": {
+            "properties": {
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "spec": {
+                "description": "what to do, concretely enough to be done without asking",
+                "title": "Spec",
+                "type": "string"
+              },
+              "layers": {
+                "default": [],
+                "items": {
+                  "type": "string"
+                },
+                "title": "Layers",
+                "type": "array"
+              },
+              "acceptance": {
+                "default": [],
+                "description": "verifiable criteria, ideally checked by gates",
+                "items": {
+                  "type": "string"
+                },
+                "title": "Acceptance",
+                "type": "array"
+              },
+              "depends_on": {
+                "default": [],
+                "description": "1-based positions of earlier tasks in this plan",
+                "items": {
+                  "type": "integer"
+                },
+                "title": "Depends On",
+                "type": "array"
+              }
+            },
+            "required": [
+              "title",
+              "spec"
+            ],
+            "title": "TaskSpec",
+            "type": "object"
+          },
+          "Turn": {
+            "properties": {
+              "role": {
+                "title": "Role",
+                "type": "string"
+              },
+              "text": {
+                "title": "Text",
+                "type": "string"
+              }
+            },
+            "required": [
+              "role",
+              "text"
+            ],
+            "title": "Turn",
+            "type": "object"
+          }
+        },
+        "title": "plan_draftArguments"
+      }
+    },
+    {
+      "name": "plan_get",
+      "description": "A plan with its status and the status of its tasks.",
+      "inputSchema": {
+        "properties": {
+          "plan_id": {
+            "title": "Plan Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "plan_id"
+        ],
+        "type": "object",
+        "title": "plan_getArguments"
+      }
+    },
+    {
+      "name": "plan_list",
+      "description": "Plans of a project, newest first: id, title, status, feature.",
+      "inputSchema": {
+        "properties": {
+          "project": {
+            "title": "Project",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Status"
+          }
+        },
+        "required": [
+          "project"
+        ],
+        "type": "object",
+        "title": "plan_listArguments"
+      },
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Result",
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "title": "plan_listOutput"
+      }
+    },
+    {
+      "name": "conventions_get",
+      "description": "The project's conventions (code style, testing, patterns...). Read-only: humans edit them in the UI.",
+      "inputSchema": {
+        "properties": {
+          "project": {
+            "title": "Project",
+            "type": "string"
+          },
+          "layers": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "only conventions for these layers; omit for all",
+            "title": "Layers"
+          }
+        },
+        "required": [
+          "project"
+        ],
+        "type": "object",
+        "title": "conventions_getArguments"
+      },
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Result",
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "title": "conventions_getOutput"
+      }
+    },
+    {
+      "name": "decision_propose",
+      "description": "Propose an architectural or product decision. A human accepts or rejects it in the UI.",
+      "inputSchema": {
+        "properties": {
+          "project": {
+            "title": "Project",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "decision": {
+            "title": "Decision",
+            "type": "string"
+          },
+          "context": {
+            "default": "",
+            "title": "Context",
+            "type": "string"
+          },
+          "consequences": {
+            "default": "",
+            "title": "Consequences",
+            "type": "string"
+          },
+          "feature": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Feature"
+          },
+          "layers": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Layers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "project",
+          "title",
+          "decision"
+        ],
+        "type": "object",
+        "title": "decision_proposeArguments"
+      }
+    },
+    {
+      "name": "insights_get",
+      "description": "How the process is going: adherence by feature and layer, plan items skipped or changed, gate\nfailure rates, failures that repeat across sessions, encores, blocked tasks, and friction grouped\nby meaning. The tune loop reads this.",
+      "inputSchema": {
+        "properties": {
+          "project": {
+            "title": "Project",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project"
+        ],
+        "type": "object",
+        "title": "insights_getArguments"
+      }
+    },
+    {
+      "name": "convention_propose",
+      "description": "Suggest a new or changed convention. It stays proposed until a human activates it in the UI.",
+      "inputSchema": {
+        "properties": {
+          "project": {
+            "title": "Project",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "rule": {
+            "title": "Rule",
+            "type": "string"
+          },
+          "why": {
+            "title": "Why",
+            "type": "string"
+          },
+          "layers": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Layers",
+            "type": "array"
+          },
+          "replaces": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "id of the convention it would replace",
+            "title": "Replaces"
+          }
+        },
+        "required": [
+          "project",
+          "title",
+          "rule",
+          "why"
+        ],
+        "type": "object",
+        "title": "convention_proposeArguments"
+      }
+    }
+  ]
+}

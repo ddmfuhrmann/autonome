@@ -24,8 +24,14 @@ def project_slug(cwd: str | Path) -> str:
     return Path(git(cwd, "rev-parse", "--show-toplevel") or cwd).name
 
 
+# Eval runs (claude plugin eval) set this so hooks never reach a real context.
+OFFLINE = bool(os.getenv("EVAL_AUTONOME_OFFLINE"))
+
+
 def get_json(path: str, timeout: float = 5):
     """None when the context is unreachable or answers with an error."""
+    if OFFLINE:
+        return None
     try:
         with urllib.request.urlopen(f"{CONTEXT_URL}{path}", timeout=timeout) as r:
             return json.loads(r.read())
@@ -34,6 +40,8 @@ def get_json(path: str, timeout: float = 5):
 
 
 def send_json(path: str, data, method: str = "POST", timeout: float = 30):
+    if OFFLINE:
+        raise OSError("autonome is offline (eval run)")
     req = urllib.request.Request(
         f"{CONTEXT_URL}{path}", data=json.dumps(data, default=str).encode(), method=method,
         headers={"Content-Type": "application/json"},
