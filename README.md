@@ -1,21 +1,46 @@
 # autonome
 
-*autonomous + metronome.* An agent team for software projects that plays in time: a human writes the
-score, agents play it, deterministic gates keep the tempo, and everything that happened becomes a
-searchable project memory.
+*autonomous + metronome* — an agent team for software projects that plays in time.
 
-This repository has two parts:
+## Why
 
-- **autonome-context** (`context/`): the memory. Every unit of work ends in a *handoff* (what was done,
-  plan vs. implementation vs. gates, deviations, decisions, friction), which is redacted, chunked,
-  embedded and indexed for hybrid search (pgvector + Postgres full-text, fused by reciprocal rank).
-  Knowledge is organized by **feature**, **layer** and **time**. It is also a lab for comparing
-  chunking strategies and embedding models.
-- **autonome plugin** (`plugin/`): the process for Claude Code. Today it ships a `SessionEnd` hook
-  that has a separate headless Claude write the handoff of each session and send it to the context.
+Most AI coding workflows keep a human in every loop: approving each plan, reading each diff,
+writing each note. That doesn't scale, and the notes rot in markdown files nobody reads again.
+autonome moves the human to the one place where judgment matters most, the plan, and replaces
+the rest with two things: **deterministic gates** and **a memory that learns**.
 
-Status: phase 0 — context minimal + handoff hook. Plan, conduct, tune, the lab UI and the docs UI
-come next.
+## The idea
+
+An orchestra doesn't need the composer on stage.
+
+- **You compose.** You and a planning agent write the score: what, why, and what "done" means.
+  It's the only conversation.
+- **The maestro conducts.** Each task runs in its own session, alone, until it lands on `main`.
+- **The metronome keeps time.** Linters, tests and static analysis decide pass or fail. An
+  agent's opinion never does. A failure gets an *encore* with the error in hand, and a repeated
+  failure stops instead of looping.
+- **A fermata holds.** Critical areas wait for your eyes on the diff. Nothing else does.
+- **Every piece leaves notes.** A handoff written by a *different* agent records plan vs.
+  implementation vs. gates, deviations, decisions and friction.
+- **The orchestra tunes itself.** Repeated friction becomes a better convention; a repeated
+  review finding becomes a new gate. Every change to the process still needs your approval.
+
+## Principles
+
+- **Humans approve, agents execute.** Approving a plan or releasing a hold exists only in the
+  UI. No tool lets an agent approve its own work.
+- **Facts over claims.** Gate results and diffs come from data, not from what the agent says.
+- **Memory, not markdown.** Plans, handoffs and decisions live in a searchable store organized
+  by **feature**, **layer** and **time**. The repo keeps only what the build needs.
+- **Redact first.** Secrets and personal data never reach storage or embeddings.
+- **Don't generalize ahead of need.**
+
+## What's inside
+
+| Part | What it is |
+|---|---|
+| `context/` | **autonome-context**: the memory. Postgres + pgvector, hybrid search (vector + full-text, fused by RRF), an MCP server for agents and a web UI for humans. It's also a lab for comparing chunking strategies and embedding models. |
+| `plugin/` | **autonome plugin** for Claude Code: the recommended process (compose, conduct, tune) as skills, agents and hooks. It's the context's first client, not its only one. |
 
 ## Quick start
 
@@ -23,7 +48,10 @@ come next.
 docker compose up -d --wait
 ollama serve & ollama pull nomic-embed-text
 cd context && uv run autonome-context
-claude plugin marketplace add /path/to/autonome && claude plugin install autonome@autonome
+claude plugin marketplace add /path/to/autonome
+claude plugin install autonome@autonome
 ```
 
-The plugin registers the context's MCP server (`search`, `handoff_put`) on its own.
+## License
+
+MIT
