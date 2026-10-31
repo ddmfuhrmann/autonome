@@ -63,6 +63,10 @@ claude plugin install autonome@autonome
 The plugin registers the context's MCP server by itself. From any project, `/autonome:compose`
 starts a plan; see [plugin/README.md](plugin/README.md) for the rest.
 
+**3. Set your project up**: save a gate config in the UI, and tune gates, review, models, fermata,
+playback and the soundcheck as described in the [configuration guide](docs/configuration.md).
+Benchmarks of real runs are in [docs/benchmarks](docs/benchmarks).
+
 ## License
 
 MIT
