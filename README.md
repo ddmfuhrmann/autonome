@@ -52,6 +52,8 @@ An orchestra doesn't need the composer on stage.
 | [plugin/README.md](plugin/README.md) | understand the cycle step by step: compose, approve, conduct (rehearsal, review, soundcheck, playback), tune, cues, and what the metronome does |
 | [docs/configuration.md](docs/configuration.md) | set a project up and tune it: what activates it, every key of the gate config (gates, review, models, fermata, playback, soundcheck, cues), the commands and environment variables, backup and restore |
 | [docs/conventions.md](docs/conventions.md) | write the rules agents follow and the reviewer enforces: where they come from, who reads them, convention vs. gate vs. decision, how to write good ones |
+| [docs/operations.md](docs/operations.md) | know what to do when something stops: doctor failures, blocked tasks and their reasons, held plans, the review queue, why a run stopped, and cleaning up worktrees and branches |
+| [docs/reference.md](docs/reference.md) | build on the context: every MCP tool with its arguments and answer, the HTTP API the hooks and the runner use, and the UI routes |
 | [docs/memory.md](docs/memory.md) | see how the memory works: what it stores (plans, tasks, handoffs, decisions, conventions, waves, backlog), how it is redacted, chunked, embedded and searched, and what each agent gets from it |
 | [docs/benchmarks/](docs/benchmarks) | see the numbers from real runs: shortlink v1, v2 and v4 compared, which model and effort each role needs, and whether vector search earns its keep |
 | [CLAUDE.md](CLAUDE.md) | work on autonome itself: layout, rules and how to run and test it |

@@ -13,8 +13,8 @@ plugin/runner/  the maestro (TypeScript, Claude Agent SDK): one session + worktr
 
 - **The context is the product; the plugin is its first client.** The context is process-agnostic
   but software-specific: everything hangs on **feature**, **layer** and **time**. Document types are
-  fixed and neutral (`plan`, `task`, `handoff`, `decision`, `convention`, `gate_config`, `design`);
-  the plugin maps its music vocabulary onto them (score → plan, movement → task).
+  fixed and neutral (`plan`, `task`, `handoff`, `decision`, `convention`, `gate_config`, `design`,
+  `feature_doc`, `wave`, `backlog`); the plugin maps its music vocabulary onto them.
 - **Handoffs are the source**, not whole sessions. A handoff is written by an agent other than the one
   that did the work, and facts come from data (git, gate output), not the agent's word.
 - **Chunking is a variable, not a decision.** A strategy has a name; changing its params or embedding
@@ -22,8 +22,15 @@ plugin/runner/  the maestro (TypeScript, Claude Agent SDK): one session + worktr
 - **Redact before storing or embedding**: secrets, CPF/CNPJ, e-mails. Raw transcripts are kept
   redacted and gzipped, never indexed.
 - **Append-only**: documents change by new versions. Migrations are immutable; fix forward.
-- **Human-only transitions** (approve a plan, release a hold, edit conventions or gate config) exist
-  only in the UI. The MCP must refuse them.
+- **Human-only transitions** (approve a plan or wave, release a hold, judge a playback, accept or
+  reject a decision, edit conventions or gate config) belong to the human: in the UI, or for approval
+  in a dialog the context shows the human through MCP elicitation, which the agent cannot answer. No
+  agent may make them, and an unanswered or unsupported dialog leaves things as they were.
+- **Only real decisions.** A handoff records a decision only for a choice the plan did not make; one
+  within the plan is in effect, a `deviation` waits for review, and rejecting it queues an undo task.
+- **Nothing blocks on review unless asked.** What holds up the setlist (plans to approve, rehearsal
+  and soundcheck holds, fermata, blocked tasks) is "waiting on you"; playback, deviations and proposed
+  conventions are "to review when you like" and turn into tasks, never blocks.
 - **Don't generalize ahead of need.** No plugin systems, no pluggable UI, until a second real consumer
   exists.
 - **The handoff instructions live in `plugin/skills/handoff/SKILL.md`**: the scribe script reads that
@@ -45,9 +52,19 @@ plugin/runner/  the maestro (TypeScript, Claude Agent SDK): one session + worktr
 - **Models**: every agent role (musician, reviewer, rehearsal, listener, tune, handoff, docs) has a
   model and an effort in the gate config (`models`, defaults in `gates.DEFAULT_MODELS`: Haiku low
   for reviewer and rehearsal, as measured by `autonome bench`; Sonnet for the rest). `conduct --model/--effort` override all roles.
+- **Plans learn from the subject's history.** compose and the rehearsal read `history_get` (what went
+  off plan before on the same feature and related ones) and turn each lesson into acceptance, out of
+  scope, a convention or a question; plans also walk each task's edge cases and propose the
+  conventions and gates the project lacks.
 - **Loops**: compose (human + agent, the only conversation) → conduct (one session per task) →
-  tune (reads `insights`, only proposes conventions and at most one plan) ← cues (scheduled checks
-  that only queue tasks into a maintenance plan a human approved once). Only conduct writes code.
+  tune (after each wave, automatically; reads `insights`, only proposes conventions and at most one
+  plan) ← cues (scheduled checks that only queue tasks into a maintenance plan a human approved once).
+  Only conduct writes code.
+- **Infrastructure is not the task's fault.** A context outage, a restart or the account's usage
+  limit hands the task back to pending (waiting where it can); it never blocks a task. A merge the
+  context could not record is journaled and recorded by the next run.
+- **Projects opt in.** The hooks act only in a project with a saved gate config, approved plans that
+  bring gates, or `AUTONOME_PROJECT`; elsewhere they spend nothing.
 - **Gates**: the rules live in each project's repo; the context only holds their orchestration
   (`gate_config`, edited in the UI). The metronome (`Stop` hook) runs them cheapest first, records
   every run as a fact, and turns repeated failures into a blocked task instead of looping.
@@ -65,6 +82,8 @@ pnpm --dir plugin/runner test                   # the runner (TypeScript, Agent 
 plugin/bin/autonome conduct --project <slug>    # play approved tasks of the repo in the cwd (--watch: keep waiting)
 plugin/bin/autonome cues --project <slug>       # scheduled checks; queue maintenance tasks
 plugin/bin/autonome doctor --project <slug>     # what conduct needs; conduct runs it first
+plugin/bin/autonome bench                        # model/effort per role on known cases (costs tokens)
+cd context && uv run autonome-context import-adrs|import-backlog|import-conventions --project <slug> ...
 plugin/bin/autonome-docs --feature <slug>       # rewrite a feature's living doc (or --overview)
 claude plugin eval plugin --trust-plugin --model sonnet   # skill evals, with vs without the plugin
 docker compose exec -T postgres pg_dump -U autonome -Fc autonome > ~/autonome-backups/autonome-$(date +%Y%m%d-%H%M).dump
@@ -76,6 +95,9 @@ cd context && uv run autonome-context delete-project --project <slug>   # irreve
 (`mocks/autonome/`, schemas in `_tools.json` saved from the real server). Hooks are offline in evals
 (`EVAL_AUTONOME_OFFLINE`). Each run is a full Claude session, so run them when a skill or the handoff
 instructions change, not on every commit. A change to agent behaviour comes with a case that shows it.
+
+Docs for users are in `docs/` (configuration, conventions, memory, operations, reference, benchmarks);
+keep them true when behaviour changes.
 
 Install the plugin locally: `claude plugin marketplace add ~/git/autonome` then
 `claude plugin install autonome@autonome`.
