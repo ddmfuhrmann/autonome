@@ -91,7 +91,7 @@
 {%- endmacro %}
 
 {% macro checklist(items) %}
-<ul class="checklist">{% for a in items %}<li>{{ a }}</li>{% endfor %}</ul>
+<ul class="checklist">{% for a in items %}<li>{{ a|mdi }}</li>{% endfor %}</ul>
 {% endmacro %}
 
 {# Only destructive choices left (e.g. abandon a running plan): a quiet button in the page head. #}

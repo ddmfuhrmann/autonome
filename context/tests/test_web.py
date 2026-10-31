@@ -83,3 +83,16 @@ def test_the_wave_page_shows_how_each_task_played(client, project, run_db, index
     page = client.get(f"/ui/p/{project}/documents/{wave}").text
     assert "How it played" in page and "1 merged · 1 blocked · 0 held · 6m 01s" in page
     assert "review: still blocking" in page and "5m 00s" in page
+
+
+def test_one_line_markdown_renders_in_lists_and_escapes_html(client, project, run_db, indexer):
+    async def go(conn):
+        async with conn.transaction():
+            await store.save_feature_doc(conn, indexer, project, "links", {
+                "overview": "Short links.", "interfaces": [
+                    "`uv run uvicorn shortlink.app:app --reload`: starts the API on http://127.0.0.1:8000",
+                    "<script>alert(1)</script> is shown, not run"]})
+    run_db(go)
+    page = client.get(f"/ui/p/{project}/features/links").text
+    assert "<code>uv run uvicorn shortlink.app:app --reload</code>: starts the API" in page
+    assert "<script>alert(1)" not in page and "&lt;script&gt;" in page

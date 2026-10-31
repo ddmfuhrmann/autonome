@@ -31,7 +31,7 @@
     <div class="card__head"><h2 class="card__title">Spec</h2></div>
     <div class="card__body">
       <div class="prose">{{ b.spec|md }}</div>
-      {% if b.acceptance %}<h3>Acceptance criteria</h3><ul class="checklist">{% for a in b.acceptance %}<li class="{{ 'is-met' if doc.status == 'done' }}">{{ a }}</li>{% endfor %}</ul>{% endif %}
+      {% if b.acceptance %}<h3>Acceptance criteria</h3><ul class="checklist">{% for a in b.acceptance %}<li class="{{ 'is-met' if doc.status == 'done' }}">{{ a|mdi }}</li>{% endfor %}</ul>{% endif %}
     </div>
   </section>
   <section class="stack" aria-labelledby="runs-h">

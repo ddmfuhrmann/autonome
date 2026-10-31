@@ -32,10 +32,10 @@
       {{ b.goal|md }}
       {% if b.context %}<h3>Context</h3>{{ b.context|md }}{% endif %}
       <div class="grid grid--2">
-        {% if b.scope %}<div class="stack stack--sm"><h3>Scope</h3><ul>{% for s in b.scope %}<li>{{ s }}</li>{% endfor %}</ul></div>{% endif %}
-        {% if b.out_of_scope %}<div class="stack stack--sm"><h3>Out of scope</h3><ul>{% for s in b.out_of_scope %}<li>{{ s }}</li>{% endfor %}</ul></div>{% endif %}
-        {% if b.acceptance %}<div class="stack stack--sm"><h3>Acceptance criteria</h3><ul class="checklist">{% for a in b.acceptance %}<li class="{{ 'is-met' if doc.status == 'done' }}">{{ a }}</li>{% endfor %}</ul></div>{% endif %}
-        {% if b.risks %}<div class="stack stack--sm"><h3>Risks</h3><ul>{% for r in b.risks %}<li>{{ r }}</li>{% endfor %}</ul></div>{% endif %}
+        {% if b.scope %}<div class="stack stack--sm"><h3>Scope</h3><ul>{% for s in b.scope %}<li>{{ s|mdi }}</li>{% endfor %}</ul></div>{% endif %}
+        {% if b.out_of_scope %}<div class="stack stack--sm"><h3>Out of scope</h3><ul>{% for s in b.out_of_scope %}<li>{{ s|mdi }}</li>{% endfor %}</ul></div>{% endif %}
+        {% if b.acceptance %}<div class="stack stack--sm"><h3>Acceptance criteria</h3><ul class="checklist">{% for a in b.acceptance %}<li class="{{ 'is-met' if doc.status == 'done' }}">{{ a|mdi }}</li>{% endfor %}</ul></div>{% endif %}
+        {% if b.risks %}<div class="stack stack--sm"><h3>Risks</h3><ul>{% for r in b.risks %}<li>{{ r|mdi }}</li>{% endfor %}</ul></div>{% endif %}
       </div>
     </div>
   </section>
@@ -71,7 +71,7 @@
       {% if r.plan %}
       <div class="split">
         <div class="split__col"><div class="split__head">Current · {{ b.tasks|length }} tasks</div>
-          <div class="split__body"><ol>{% for t in b.tasks %}<li>{{ t.title }}</li>{% endfor %}</ol></div></div>
+          <div class="split__body"><ol>{% for t in b.tasks %}<li>{{ t.title|mdi }}</li>{% endfor %}</ol></div></div>
         <div class="split__col"><div class="split__head">Proposed revision · {{ r.plan.tasks|length }} tasks</div>
           <div class="split__body"><ol>{% for t in r.plan.tasks %}{% set same = b.tasks|selectattr('title', 'equalto', t.title)|list %}<li>{% if same %}{{ t.title }}{% else %}<mark class="add">{{ t.title }}</mark>{% endif %}<div class="muted wrap" style="font-size: 12px">{{ t.spec|truncate(200) }}</div></li>{% endfor %}</ol></div></div>
       </div>

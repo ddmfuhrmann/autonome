@@ -49,7 +49,7 @@
       {% if r.plan %}
       <div class="split">
         <div class="split__col"><div class="split__head">Original · {{ d.body.tasks|length }} tasks</div>
-          <div class="split__body"><ol>{% for t in d.body.tasks %}<li>{{ t.title }}</li>{% endfor %}</ol></div></div>
+          <div class="split__body"><ol>{% for t in d.body.tasks %}<li>{{ t.title|mdi }}</li>{% endfor %}</ol></div></div>
         <div class="split__col"><div class="split__head">Proposed revision · {{ r.plan.tasks|length }} tasks</div>
           <div class="split__body"><ol>{% for t in r.plan.tasks %}{% set same = d.body.tasks|selectattr('title', 'equalto', t.title)|list %}<li>{% if same %}{{ t.title }}{% else %}<mark class="add">{{ t.title }}</mark>{% endif %}</li>{% endfor %}</ol></div></div>
       </div>

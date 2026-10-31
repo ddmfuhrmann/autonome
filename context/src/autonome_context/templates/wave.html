@@ -86,7 +86,7 @@
     <div class="card">
       <div class="card__head"><h2 class="card__title">Goal</h2></div>
       <div class="card__body prose">{{ doc.body.goal|md }}
-        {% if doc.body.out_of_scope %}<h3>Out of scope</h3><ul>{% for o in doc.body.out_of_scope %}<li>{{ o }}</li>{% endfor %}</ul>{% endif %}
+        {% if doc.body.out_of_scope %}<h3>Out of scope</h3><ul>{% for o in doc.body.out_of_scope %}<li>{{ o|mdi }}</li>{% endfor %}</ul>{% endif %}
       </div>
     </div>
     {% if doc.body.discussion %}

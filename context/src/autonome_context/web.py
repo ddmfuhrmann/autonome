@@ -53,6 +53,16 @@ def _loose_lists(text: str) -> str:
 templates.env.filters["md"] = lambda v: Markup(md.markdown(
     _loose_lists(str(v or "").replace("<", "&lt;")), extensions=["tables", "fenced_code", "sane_lists"]))
 
+
+
+def _md_inline(v) -> Markup:
+    """One line of agent-written markdown (a list item, a criterion): `code`, **bold**, links."""
+    html = md.markdown(str(v or "").replace("<", "&lt;"))
+    return Markup(html[3:-4] if html.startswith("<p>") and html.endswith("</p>") and html.count("<p>") == 1 else html)
+
+
+templates.env.filters["mdi"] = _md_inline
+
 DOC_TYPES = ["handoff", "plan", "task", "decision", "convention", "gate_config", "design", "feature_doc", "wave"]
 MODES = ["hybrid", "vector", "fts"]
 REF_PREFIX = {"task": "T", "plan": "P", "wave": "W", "decision": "D", "handoff": "H", "convention": "C"}

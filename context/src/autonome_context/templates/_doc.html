@@ -12,6 +12,6 @@
 {% endif %}
 <div class="grid grid--2">
 {% for key, label in [('entities', 'Entities'), ('interfaces', 'Interfaces'), ('decisions_in_effect', 'Decisions in effect'), ('known_issues', 'Known issues')] if b.get(key) %}
-<section class="card"><div class="card__head"><h2 class="card__title">{{ label }}</h2></div><div class="card__body prose"><ul>{% for i in b[key] %}<li>{{ i }}</li>{% endfor %}</ul></div></section>
+<section class="card"><div class="card__head"><h2 class="card__title">{{ label }}</h2></div><div class="card__body prose"><ul>{% for i in b[key] %}<li>{{ i|mdi }}</li>{% endfor %}</ul></div></section>
 {% endfor %}
 </div>
