@@ -11,9 +11,10 @@ from typing import Annotated, Literal
 from pathlib import Path
 
 import uvicorn
-from mcp.server.mcpserver import MCPServer
+from mcp.server.elicitation import AcceptedElicitation
+from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
-from pydantic import Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -108,6 +109,65 @@ async def wave_draft(
             return {"error": str(e)}
     return {"wave_id": doc_id, "status": "draft",
             "approve_at": f"{services.settings.public_url}/ui/p/{project}/documents/{doc_id}"}
+
+
+class _Approval(BaseModel):
+    approve: bool = Field(default=True, title="Approve", description="Leave checked and accept to approve")
+
+
+async def _ask_human(ctx: Context, question: str, link: str) -> str:
+    """Asks the person in the session, through MCP elicitation: the client shows it to them and the
+    agent never sees or answers it. Returns approved, declined, or unavailable."""
+    try:
+        result = await ctx.elicit(f"{question}\n\nOr decide in the UI: {link}", _Approval)
+    except Exception:  # the client cannot ask (a headless conduct session, an old client)
+        return "unavailable"
+    return "approved" if isinstance(result, AcceptedElicitation) and result.data.approve else "declined"
+
+
+async def _approve(ctx: Context, project: str, doc_id: int, kind: str) -> dict:
+    link = f"{services.settings.public_url}/ui/p/{project}/documents/{doc_id}"
+    pool, indexer = await services.get()
+    async with pool.connection() as conn:
+        doc = await store.get_document(conn, doc_id)
+        if not doc or doc["type"] != kind or doc["project"] != project:
+            return {"error": f"{kind} {doc_id} does not exist in {project}"}
+        if doc["status"] != "draft":
+            return {"error": f"{kind} {doc_id} is {doc['status']}, not a draft"}
+        if kind == "plan" and (wave := await plans.wave_of(conn, doc)):
+            return {"error": f"plan {doc_id} belongs to wave #{wave['id']}; ask with wave_approve"}
+        if kind == "plan":
+            summary = plans.plan_summary(doc)
+        else:
+            summary = plans.wave_summary(doc, [await store.get_document(conn, f["plan_id"]) for f in doc["body"]["features"]])
+    answer = await _ask_human(ctx, f"Approve this {kind}? Its tasks start playing when the maestro runs.\n\n{summary}", link)
+    if answer != "approved":
+        return {"status": "draft", "human": answer, "approve_at": link,
+                "note": "Nothing was approved. The draft waits; the human can approve it in the UI."}
+    async with pool.connection() as conn:
+        try:
+            if kind == "plan":
+                await plans.approve(conn, indexer, doc_id)
+            else:
+                await plans.approve_wave(conn, indexer, doc_id)
+        except rules.Forbidden as e:
+            return {"error": str(e)}
+    return {"status": "approved", "human": "approved", "url": link}
+
+
+@mcp.tool()
+async def plan_approve(project: str, plan_id: int, ctx: Context) -> dict:
+    """Ask the human, right in their session, to approve a draft plan. The question and a summary of
+    the stored plan go to the person through their client (MCP elicitation); the agent cannot answer
+    it. If they decline, or the client cannot ask, the plan stays a draft for the UI."""
+    return await _approve(ctx, project, plan_id, "plan")
+
+
+@mcp.tool()
+async def wave_approve(project: str, wave_id: int, ctx: Context) -> dict:
+    """Ask the human, right in their session, to approve a draft wave and every plan in it, the same
+    way as plan_approve."""
+    return await _approve(ctx, project, wave_id, "wave")
 
 
 @mcp.tool()

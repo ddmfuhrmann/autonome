@@ -699,6 +699,50 @@
       }
     },
     {
+      "name": "plan_approve",
+      "description": "Ask the human, right in their session, to approve a draft plan. The question and a summary of\nthe stored plan go to the person through their client (MCP elicitation); the agent cannot answer\nit. If they decline, or the client cannot ask, the plan stays a draft for the UI.",
+      "inputSchema": {
+        "properties": {
+          "project": {
+            "title": "Project",
+            "type": "string"
+          },
+          "plan_id": {
+            "title": "Plan Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "project",
+          "plan_id"
+        ],
+        "type": "object",
+        "title": "plan_approveArguments"
+      }
+    },
+    {
+      "name": "wave_approve",
+      "description": "Ask the human, right in their session, to approve a draft wave and every plan in it, the same\nway as plan_approve.",
+      "inputSchema": {
+        "properties": {
+          "project": {
+            "title": "Project",
+            "type": "string"
+          },
+          "wave_id": {
+            "title": "Wave Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "project",
+          "wave_id"
+        ],
+        "type": "object",
+        "title": "wave_approveArguments"
+      }
+    },
+    {
       "name": "plan_get",
       "description": "A plan with its status and the status of its tasks.",
       "inputSchema": {

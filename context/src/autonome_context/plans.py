@@ -344,3 +344,30 @@ async def accept_as_is(conn: AsyncConnection, plan_id: int) -> None:
     async with conn.transaction():
         await rules.transition(conn, plan_id, "done", "human")
         await finish_wave_if_complete(conn, plan_id)
+
+
+def plan_summary(plan: dict) -> str:
+    """What the human approves, written from the stored plan, never from the agent's words."""
+    b = PlanBody.model_validate(plan["body"])
+    lines = [f"Plan #{plan['id']} {b.title}" + (f" (feature {plan['feature']})" if plan["feature"] else ""),
+             f"Goal: {b.goal}", f"{len(b.tasks)} tasks:"]
+    lines += [f"  {i}. {t.title}" for i, t in enumerate(b.tasks, start=1)]
+    if b.out_of_scope:
+        lines.append("Out of scope: " + "; ".join(b.out_of_scope))
+    if b.gates:
+        lines.append("Adds gates: " + "; ".join(
+            f"{g.name} (`{g.run}`" + (f", once task {g.with_task} merges)" if g.with_task else ")") for g in b.gates))
+    return "\n".join(lines)
+
+
+def wave_summary(wave: dict, wave_plans: list[dict]) -> str:
+    body = WaveBody.model_validate(wave["body"])
+    lines = [f"Wave #{wave['id']} {body.title}", f"Goal: {body.goal}", "Features, in order:"]
+    for i, (f, p) in enumerate(zip(body.features, wave_plans), start=1):
+        pb = PlanBody.model_validate(p["body"])
+        after = f" (after {', '.join(map(str, f.depends_on))})" if f.depends_on else ""
+        gates = f"; adds gates {', '.join(g.name for g in pb.gates)}" if pb.gates else ""
+        lines.append(f"  {i}. {pb.title}: {len(pb.tasks)} tasks{after}{gates}")
+    if body.out_of_scope:
+        lines.append("Out of scope: " + "; ".join(body.out_of_scope))
+    return "\n".join(lines)

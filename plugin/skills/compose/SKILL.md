@@ -77,12 +77,21 @@ it again with the same `plan_id`; only drafts can change.
 
 ## 4. Hand it over
 
-Give the user the `approve_at` link and a three-line summary (goal, number of tasks, what is out of
-scope, and the gates it adds, if any: approving the plan adds them, each one once its setup task
-merges). If the gate config has no `soundcheck` and the project runs as
-a service, say in one line that finished features will not be tried in a running environment, and
-offer the YAML for it (the user adds it in the UI). You cannot approve the plan; only the user can, in the UI. If an architectural or product
-decision came up, record it with `decision_propose` so the user accepts it there too.
+First write the user a short summary, as a message of its own: goal, the tasks in order, what is
+out of scope, and the gates it adds, if any (approving the plan adds them, each one once its setup
+task merges). The summary stays in the conversation whatever they answer. Then call `plan_approve`
+(or `wave_approve` for a wave). It asks the user directly, in a dialog their
+client shows with the stored plan; you cannot answer it, and you never approve anything yourself.
+
+- `approved`: say so in one line; the tasks play when the maestro runs (`/autonome:conduct`).
+- `declined` or `unavailable`: it is still a draft. Ask what to change, or give the `approve_at`
+  link for the UI. Never say it is approved.
+
+Either way, your reply after the answer names each gate the plan adds and its command, if any: the
+dialog is gone by then, and they change the project's config.
+
+If an architectural or product decision came up, record it with `decision_propose` so the user
+accepts it in the UI.
 
 ## 5. Waves
 
@@ -95,7 +104,7 @@ decision came up, record it with `decision_propose` so the user accepts it there
 - Draft each plan with `plan_draft`, then group them with `wave_draft`: `title`, `goal`,
   `out_of_scope`, and `features` in play order, each with its `plan_id` and `depends_on` (1-based
   positions of earlier features it needs). Record the wave-level questions in `discussion`.
-- Hand over the wave's `approve_at` link, the features in order with their task counts, and the gates
-  the wave adds. The user approves the whole wave at once. Before a feature that depends on others
-  plays, an agent checks its plan against the code as it is by then; the user only sees it again if
-  it needs a real revision.
+- Hand over the wave as in section 4: the features in order with their task counts and the gates
+  the wave adds, then `wave_approve`. The user approves the whole wave at once. Before a feature that
+  depends on others plays, an agent checks its plan against the code as it is by then; the user
+  only sees it again if it needs a real revision.
