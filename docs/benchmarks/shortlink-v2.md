@@ -2,9 +2,9 @@
 
 Same scaffold (`0e481ce`), same brief, the same answers as far as the questions allowed, same
 starting gates (ruff, pytest). What changed is autonome: conventions proposed by plans, an edge-case
-pass in compose, a reviewer that judges conventions and edges, approval in the session, per-role
-models (musician Sonnet medium, reviewer and rehearsal Haiku low), the stray-file check, the
-restart-safe maestro. Raw data: [`shortlink-v2.json`](shortlink-v2.json); v1:
+pass in the plan, a reviewer that judges conventions and edges, approval in the session, per-role
+models (implementer Sonnet medium, reviewer and preflight Haiku low), the stray-file check, the
+restart-safe runner. Raw data: [`shortlink-v2.json`](shortlink-v2.json); v1:
 [`shortlink-v1.md`](shortlink-v1.md).
 
 Run on 2026-10-31, 15:00–15:52 (-03:00), autonome at `61916eb`.
@@ -24,7 +24,7 @@ Run on 2026-10-31, 15:00–15:52 (-03:00), autonome at `61916eb`.
 | Agent time | ~15 min | 11.6 min |
 | Wall time | ~2 h 15 min (autonome bugs) | 52 min (including the usage-limit pause) |
 | Tests / coverage | 30 / 100 % | 70 / 99 % |
-| Conventions | none | 5 proposed by the plan and active; 3 more proposed by tune |
+| Conventions | none | 5 proposed by the plan and active; 3 more proposed by the retro |
 | Product questions asked | none | internal hosts (refused), scope; DNS resolution put out of scope explicitly |
 
 ## Code: the six v1 gaps
@@ -49,16 +49,16 @@ plan; the miss is where a convention existed but the reviewer did not block on i
    and rated it low, so it merged. The bench measured detection, not severity, so it did not catch
    this. Fix: a "missing" finding against a named convention blocks deterministically, and/or the
    reviewer goes back to Sonnet medium.
-2. **The musician worked blind.** Bash was denied in 9 of 10 sessions: it chained commands
+2. **The implementer worked blind.** Bash was denied in 9 of 10 sessions: it chained commands
    (`cd … && uv run …`, `… | tail`, heredocs) and the allowlist only admits simple commands of the
    gates' tools. It could not run tests or gates itself and learned of failures from the Stop hook.
    Fix: one command per Bash call (no `cd`, pipes or heredocs; Read/Write instead of cat/heredoc) in
-   the musician prompt, and allow the harmless prefixes it needs.
+   the implementer prompt, and allow the harmless prefixes it needs.
 3. **The account's usage limit blocked a task.** Like a context outage, it is infrastructure: the
-   task should go back to pending and the conductor wait, not block.
+   task should go back to pending and the runner wait, not block.
 4. uv built the venv on Python 3.14 again (CLAUDE.md says 3.13): no pin.
 
-## Learned (tune, automatic at the end of the wave)
+## Learned (retro, automatic at the end of the wave)
 
 Three conventions and one plan, linked to their evidence: use Edit/Write and only `uv run` and run
 the gates before finishing; read the briefing first and list off-briefing changes; storage

@@ -6,31 +6,31 @@ Rerun the same prompt on a fresh shortlink scaffold and compare against the numb
 - **Date**: 2026-10-31, waves run 11:06–13:21 (-03:00) on shortlink's main.
 - **autonome**: from `fec0ca8` (waves) to `be5d7e6`; bugs found by this run were fixed while it ran
   (see "What the process got wrong").
-- **Models**: every conduct role on the account default (Opus, effort high); handoff and docs
-  scribes on Sonnet. Per-role models did not exist yet.
+- **Models**: every run role on the account default (Opus, effort high); handoff and docs
+  writers on Sonnet. Per-role models did not exist yet.
 - **Raw data**: [`shortlink-v1.json`](shortlink-v1.json) (wave, plans, tasks with runs, gate runs,
-  review findings, handoff friction, tune summary).
+  review findings, handoff friction, retro summary).
 
 ## The prompt
 
 The starting point: the `0e481ce` scaffold of shortlink (FastAPI, stdlib sqlite3, uv, ruff and
-pytest, a `/health` route and its test) and this brief to a compose session:
+pytest, a `/health` route and its test) and this brief to a plan session:
 
-> Use the `autonome:compose` skill to compose a **wave** for project `shortlink` together with the
+> Use the `autonome:plan` skill to plan a **wave** for project `shortlink` together with the
 > user. The wave has two features: (1) `links`: shorten a URL (`POST /links` creates a short code)
 > and redirect (`GET /{code}`), with URL validation; (2) `click-stats`: count accesses per link and
 > expose `GET /links/{code}/stats`; it depends on `links`. Follow the skill: search the memory, read
 > the repo, check `gate_config_get`, grill one question at a time with a recommendation, then draft
 > one plan per feature with `plan_draft` and group them with `wave_draft`.
 
-The user's answers during compose, as recorded in the wave:
+The user's answers during planning, as recorded in the wave:
 
 - Out of scope for the wave: auth, custom aliases, expiration, edit/delete, rate limiting.
 - Asked for more gates (style, linter) since the goal is to validate autonome working under limits.
 - Accepted a separate first feature for them: three features, `quality-gates` → `links` → `click-stats`.
 
 Gate config at the start: `ruff`, `pytest` (from the scaffold); the wave added `format`, `types`
-(mypy strict), `imports` (import-linter contracts) and `coverage` (≥ 90 %, branches). No soundcheck.
+(mypy strict), `imports` (import-linter contracts) and `coverage` (≥ 90 %, branches). No smoke test.
 
 ## Results
 
@@ -80,13 +80,13 @@ new reviewer finds 1, 3 and 4.
 |---|---|---|
 | A generated `.coverage` got staged and the implementer could not unstage it | #23 blocked, 2 review rounds | `7659966`, `699a873`, `a46a6ef` |
 | Plan #15's import contract could never pass plan #16's own spec | #25 blocked, manual fix `c90c07f` | `be5d7e6` |
-| A long plan overflowed the embedding model's context: rehearsal returned 500 | #25 error | `ed6bff0`, `eaa7065`, `1cbb313` |
-| Retry lost while the context restarted; conduct exited after a merge | 2 manual restarts | `61f7c8d`, `4b0a094` |
+| A long plan overflowed the embedding model's context: preflight returned 500 | #25 error | `ed6bff0`, `eaa7065`, `1cbb313` |
+| Retry lost while the context restarted; the runner exited after a merge | 2 manual restarts | `61f7c8d`, `4b0a094` |
 | Commit subjects lowercased acronyms (`pOST /links`) | cosmetic | `930eefe` |
-| Handoffs filed under worktree-named projects: memory, insights and tune blind | no learning from the wave | `fe16fea` |
+| Handoffs filed under worktree-named projects: memory, insights and retro blind | no learning from the wave | `fe16fea` |
 | Every role on Opus with high effort | most of the cost | `3a8a582` |
 
-## Learned (tune, run after the fact)
+## Learned (retro, run after the fact)
 
 Six conventions proposed from this wave's evidence, linked to it: write files with Edit/Write and
 not Bash (denied in 8 of 11 sessions), read the briefing first, run lint-imports and coverage before

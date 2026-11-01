@@ -24,9 +24,9 @@ for proposed ones). No agent can.
    `uv run autonome-context import-conventions --project <slug> --dir <folder> [--layer api ...]`
    (one convention per `*.md`, titled by its first heading).
 3. **Plans.** When the project has no convention (or nothing relevant) for a layer a plan touches,
-   compose proposes two to four in the plan; approving the plan makes them active before its tasks
-   play. A plan never replaces or loosens an existing one.
-4. **tune.** After each wave, it turns what repeated (reviewer findings, fixes, friction) into
+   the plan skill proposes two to four in the plan; approving the plan makes them active before its tasks
+   run. A plan never replaces or loosens an existing one.
+4. **Retro.** After each wave, it turns what repeated (reviewer findings, fixes, friction) into
    proposed conventions linked to their evidence; you adopt or reject them. It also measures the
    conventions you adopted (`convention_effects`: findings and friction before and after adoption),
    escalates the ones that do not hold to a gate or a rewrite, and gives each problem one remedy.
@@ -35,11 +35,11 @@ for proposed ones). No agent can.
 
 | Who | How | What it does with them |
 |---|---|---|
-| compose | `conventions_get` for the layers a plan touches | writes tasks that follow them; proposes the missing ones |
-| musician | the briefing injected at session start: the conventions of the task's layers | follows them while implementing |
+| plan | `conventions_get` for the layers a plan touches | writes tasks that follow them; proposes the missing ones |
+| implementer | the briefing injected at session start: the conventions of the task's layers | follows them while implementing |
 | reviewer | the same briefing, next to the diff | a **missing** finding against a named convention **blocks the merge**, whatever severity the model gave it |
-| rehearsal | `conventions_get`, `history_get` | revises a waiting plan that would break one |
-| tune | `insights_get` | proposes new ones from repeated findings; reads `convention_effects` to escalate the ones that do not hold |
+| preflight | `conventions_get`, `history_get` | revises a waiting plan that would break one |
+| retro | `insights_get` | proposes new ones from repeated findings; reads `convention_effects` to escalate the ones that do not hold |
 
 ## Conventions, gates, decisions: which one
 

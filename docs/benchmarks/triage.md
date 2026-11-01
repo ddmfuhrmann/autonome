@@ -49,7 +49,7 @@ deviation through, it is 20× faster, and its answers are stable. Next:
 1. A question for rule conflicts ("the task and a convention ask for different things, and the
    deviation follows one of them"): such a deviation goes to the human, since fixing the rule is
    theirs, instead of being rejected.
-2. Judge every decision the scribe records, not only those it marks as deviations: shortlink-v5's
+2. Judge every decision the handoff writer records, not only those it marks as deviations: shortlink-v5's
    594 weakened a test and was recorded as within the plan.
 3. Record Haiku's cost in the bench (done).
 
@@ -60,9 +60,9 @@ Haiku's cost will be reported then.
 Order: weakened test, rule conflict, other flags. Measured before planning (Jev, the 14 real states):
 false rejects 3 → 1, two deviations go to the human, the 3 true rejects are still undone.
 
-## Rehearsal revisions
+## Preflight revisions
 
-The runner also asks Jev about a revision the rehearsal proposes for a held plan: only the tasks that
+The runner also asks Jev about a revision the preflight proposes for a held plan: only the tasks that
 changed, original and revised side by side, with three questions (`drops_acceptance`,
 `adds_out_of_scope`, `changes_design`). At `reject_at` (0.7) or above on any of them the plan stays
 held for the human; otherwise the runner accepts the revision. Jev only: no Haiku fallback, since

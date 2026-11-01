@@ -9,7 +9,7 @@ model and effort. Scores are 0–1; cost is the SDK's estimate.
 - **reviewer/raw-500**: review shortlink-v2's `POST /links and GET /{code}` commit (`56acffe`) with
   the task's real briefing. 1.0 = blocks on the raw 500 after exhausted code retries, which an
   active convention forbids (the Haiku reviewer of the v2 run rated it low and let it merge).
-- **rehearsal/plan-16**: rehearse plan #16 against the repo after the quality-gates feature
+- **preflight/plan-16**: preflight plan #16 against the repo after the quality-gates feature
   (`96cac2b`). 1.0 = verdict revise, naming the import contract the plan's spec cannot pass.
 
 ## 2026-10-31
@@ -19,17 +19,17 @@ model and effort. Scores are 0–1; cost is the SDK's estimate.
 | reviewer/post-links | haiku:low | 4 | 1.00 every run | US$ 0.004–0.009 | 15–26 s |
 | reviewer/post-links | sonnet:medium | 1 | 1.00 | US$ 0.055 | 13 s |
 | reviewer/post-links | sonnet:high | 1 | 1.00 | US$ 0.098 | 22 s |
-| rehearsal/plan-16 | haiku:low | 4 | 1.00 every run | US$ 0.007–0.016 | 26–56 s |
-| rehearsal/plan-16 | sonnet:medium | 1 | 1.00 | US$ 0.201 | 27 s |
-| rehearsal/plan-16 | sonnet:high | 1 | 1.00 | US$ 0.185 | 59 s |
+| preflight/plan-16 | haiku:low | 4 | 1.00 every run | US$ 0.007–0.016 | 26–56 s |
+| preflight/plan-16 | sonnet:medium | 1 | 1.00 | US$ 0.201 | 27 s |
+| preflight/plan-16 | sonnet:high | 1 | 1.00 | US$ 0.185 | 59 s |
 
-Decision: Haiku with low effort is the default for reviewer and rehearsal, 6–20× cheaper with no
+Decision: Haiku with low effort is the default for reviewer and preflight, 6–20× cheaper with no
 loss on these cases. Caveat: two cases, both with the answer spelled out in the briefing or the
 gate rules. Add a harder case (a gap no convention names) before trusting it further; the
 hardening wave on shortlink is the field test. Raise a role in the gate config's `models` if it
 starts missing things.
 
-Not measured yet: musician (measure on a real wave), listener, tune, handoff and docs scribes.
+Not measured yet: implementer (measure on a real wave), tester, retro, handoff and docs writers.
 
 ## 2026-10-31, after shortlink v2
 
@@ -56,8 +56,8 @@ on the mismatch and a failed review.
 | reviewer/invented-api | haiku:low | 2 | 1.00 every run | US$ 0.007 | 16–22 s |
 | reviewer/invented-api | sonnet:medium | 2 | 1.00 every run | US$ 0.08–0.20 | 11–14 s |
 
-In the run both the musician and the Haiku reviewer missed it, but not for lack of model: the task
+In the run both the implementer and the Haiku reviewer missed it, but not for lack of model: the task
 briefing did not carry the plan's `context`, where the API shape was written. With the shape in hand
 Haiku finds it every time. Since 0.11.0 the briefing carries the plan's context (capped at 3,000
 characters). The human chose Sonnet medium as the reviewer's default; a project can still
-lower it to Haiku low in `models`. Rehearsal stays on Haiku low.
+lower it to Haiku low in `models`. Preflight stays on Haiku low.

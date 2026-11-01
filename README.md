@@ -1,6 +1,6 @@
 # autonome
 
-*autonomous + metronome* — an agent team for software projects that plays in time.
+An agent team for software projects: you plan, it builds, the gates decide.
 
 ## Why
 
@@ -11,22 +11,22 @@ the rest with two things: **deterministic gates** and **a memory that learns**.
 
 ## The idea
 
-An orchestra doesn't need the composer on stage.
+The human doesn't need to be in every loop.
 
-- **You compose.** You and a planning agent write the score: what, why, and what "done" means.
+- **You plan.** You and a planning agent write the plan: what, why, and what "done" means.
   It's the only conversation.
-- **The maestro conducts.** Each task runs in its own session, alone, until it lands on `main`.
-- **The metronome keeps time.** Linters, tests and static analysis decide pass or fail. An
-  agent's opinion never does. A failure gets an *encore* with the error in hand, and a repeated
+- **The runner runs it.** Each task runs in its own session, alone, until it lands on `main`.
+- **The gates decide.** Linters, tests and static analysis decide pass or fail. An
+  agent's opinion never does. A failure gets a *retry* with the error in hand, and a repeated
   failure stops instead of looping.
-- **Review goes forward.** Critical areas merge like the rest and come back to you as a *playback*:
-  you listen when you like, and anything off becomes a new task, never a block. (A *fermata*, which
-  stops before merge, is there for projects that want it.)
+- **Review goes forward.** Critical areas merge like the rest and come back to you as a *review
+  after merge*: you review when you like, and anything off becomes a new task, never a block. (A
+  *hold before merge*, which stops before merge, is there for projects that want it.)
 - **Every piece leaves notes.** A handoff written by a *different* agent records plan vs.
   implementation vs. gates, deviations, decisions and friction.
 - **You align by rules, not items.** Plans, conventions and gates are what you edit; choices a task
   makes off plan (deviations) are judged by the triage, not queued for you.
-- **The orchestra tunes itself.** Repeated friction becomes a better convention; a repeated
+- **The process improves itself.** After each wave, a *retro*: repeated friction becomes a better convention; a repeated
   review finding becomes a new gate. Every change to the process still needs your approval.
 
 ## Principles
@@ -49,14 +49,14 @@ An orchestra doesn't need the composer on stage.
 | Part | What it is |
 |---|---|
 | `context/` | **autonome-context**: the memory. Postgres + pgvector, vector search by default (full-text and an RRF hybrid on request), an MCP server for agents and a web UI for humans. It's also a lab for comparing chunking strategies and embedding models. |
-| `plugin/` | **autonome plugin** for Claude Code: the recommended process (compose, conduct, tune) as skills, agents and hooks. It's the context's first client, not its only one. |
+| `plugin/` | **autonome plugin** for Claude Code: the recommended process (plan, run, retro) as skills, agents and hooks. It's the context's first client, not its only one. |
 
 ## Documentation
 
 | Doc | Read it to… |
 |---|---|
-| [plugin/README.md](plugin/README.md) | understand the cycle step by step: compose, approve, conduct (rehearsal, review, soundcheck, playback), tune, cues, and what the metronome does |
-| [docs/configuration.md](docs/configuration.md) | set a project up and tune it: what activates it, every key of the gate config (gates, review, models, triage, fermata, playback, soundcheck, cues), the commands and environment variables, backup and restore |
+| [plugin/README.md](plugin/README.md) | understand the cycle step by step: plan, approve, run (preflight, review, smoke test, review after merge), retro, schedules, and what the gate hook does |
+| [docs/configuration.md](docs/configuration.md) | set a project up and adjust it: what activates it, every key of the gate config (gates, review, models, triage, hold_before_merge, review_after_merge, smoke_test, schedules), the commands and environment variables, backup and restore |
 | [docs/conventions.md](docs/conventions.md) | write the rules agents follow and the reviewer enforces: where they come from, who reads them, convention vs. gate vs. decision, how to write good ones |
 | [docs/operations.md](docs/operations.md) | know what to do when something stops: doctor failures, blocked tasks and their reasons, held plans, the review queue, why a run stopped, and cleaning up worktrees and branches |
 | [docs/reference.md](docs/reference.md) | build on the context: every MCP tool with its arguments and answer, the HTTP API the hooks and the runner use, and the UI routes |
@@ -86,11 +86,11 @@ claude plugin marketplace add ddmfuhrmann/autonome
 claude plugin install autonome@autonome
 ```
 
-The plugin registers the context's MCP server by itself. From any project, `/autonome:compose`
+The plugin registers the context's MCP server by itself. From any project, `/autonome:plan`
 starts a plan; see [plugin/README.md](plugin/README.md) for the rest.
 
-**3. Set your project up**: save a gate config in the UI, and tune gates, review, models, fermata,
-playback and the soundcheck as described in the [configuration guide](docs/configuration.md). How
+**3. Set your project up**: save a gate config in the UI, and adjust gates, review, models, hold before merge,
+review after merge and the smoke test as described in the [configuration guide](docs/configuration.md). How
 the memory stores, indexes and serves everything is in [docs/memory.md](docs/memory.md).
 Benchmarks of real runs are in [docs/benchmarks](docs/benchmarks).
 
@@ -100,20 +100,20 @@ Benchmarks of real runs are in [docs/benchmarks](docs/benchmarks).
 
 | Skill | When |
 |---|---|
-| `/autonome:compose` | plan a feature, a fix or a wave of features with the agent; ends in a draft you approve |
-| `/autonome:conduct` | play the approved tasks; when the run stops it tells you what merged and walks you through what waits |
+| `/autonome:plan` | plan a feature, a fix or a wave of features with the agent; ends in a draft you approve |
+| `/autonome:run` | run the approved tasks; when the run stops it tells you what merged and walks you through what waits |
 | `/autonome:watch` | follow a run from the session: notifications, and each waiting item discussed and decided in the chat |
-| `/autonome:tune` | see how the process is going and get proposed conventions and gate changes |
+| `/autonome:retro` | see how the process is going and get proposed conventions and gate changes |
 
 **In a terminal**, `plugin/bin/autonome` (also on the plugin's `bin/`), from the project's repo:
 
 ```bash
-autonome doctor  --project <slug>                 # is everything conduct needs in place?
-autonome conduct --project <slug>                 # play approved tasks until none is left
-                 [--watch [--every 60]]           #   keep waiting for new approved work
-                 [--push] [--model <m>] [--effort <e>] [--max-tasks <n>]
-autonome watch   --project <slug> [--once]        # a line per change; --once: the state and exit
-autonome cues    --project <slug> [--force]       # scheduled checks that queue maintenance tasks (cron)
+autonome doctor    --project <slug>               # is everything run needs in place?
+autonome run       --project <slug>               # run approved tasks until none is left
+                   [--watch [--every 60]]         #   keep waiting for new approved work
+                   [--push] [--model <m>] [--effort <e>] [--max-tasks <n>]
+autonome watch     --project <slug> [--once]      # a line per change; --once: the state and exit
+autonome schedules --project <slug> [--force]     # scheduled checks that queue maintenance tasks (cron)
 ```
 
 **Turn the triage on** (optional) so a classifier judges deviations instead of you:
@@ -126,7 +126,7 @@ autonome cues    --project <slug> [--force]       # scheduled checks that queue 
    chmod 600 ~/.autonome/secrets.env     # a more open file is ignored
    ```
 
-   (or export `TYPESAFE_API_KEY` where `conduct` runs)
+   (or export `TYPESAFE_API_KEY` where `run` runs)
 3. Add `triage: {model: jev-latest}` to the gate config.
 4. Run `autonome doctor --project <slug>` to check the key is found.
 
