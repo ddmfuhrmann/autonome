@@ -19,8 +19,8 @@ only wakes up on a new line, so following a run costs nothing while nothing happ
 
    | Tag | What | Do |
    |---|---|---|
-   | `needs-you` | something holds up the setlist: a blocked task, a plan held by rehearsal, a soundcheck that failed, a draft to approve | push notification, then bring it in (step 2) |
-   | `review` | to review when the user likes: playback, a proposed convention, a deviation decision only while the triage is off (with it on, the runner's classifier judges them) | one short line; gather them, never interrupt for each |
+   | `needs-you` | something holds up the queue: a blocked task, a plan held by preflight, a smoke test that failed, a draft to approve | push notification, then bring it in (step 2) |
+   | `review` | to review when the user likes: after-merge review, a proposed convention, a deviation decision only while the triage is off (with it on, the runner's classifier judges them) | one short line; gather them, never interrupt for each |
    | `info` | a task started or merged, a plan done, a wave finished | stay quiet; push a notification only when a wave finishes |
 
    Push notifications go through the PushNotification tool when the session has it: one short
@@ -36,7 +36,7 @@ only wakes up on a new line, so following a run costs nothing while nothing happ
    (`plan_draft` for a new plan, `convention_propose`, `decision_propose`, `backlog_item_update`), and
    say plainly what only the UI can do.
 
-4. **Resolve** with `approval_resolve` (`project`, `doc_id`, `action`, `reason` for a playback fix,
+4. **Resolve** with `approval_resolve` (`project`, `doc_id`, `action`, `reason` for an after-merge review fix,
    `note` with your reasoning). The user confirms in a dialog you cannot answer; a decline leaves the
    item waiting. Never resolve anything the user did not agree to in the chat first.
 

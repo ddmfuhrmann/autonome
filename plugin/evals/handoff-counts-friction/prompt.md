@@ -1,5 +1,5 @@
 ---
-description: A few shell commands were denied among many that ran. The scribe must say how many and which, not that the shell was unavailable.
+description: A few shell commands were denied among many that ran. The handoff writer must say how many and which, not that the shell was unavailable.
 tags: [handoff]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
@@ -14,7 +14,7 @@ The task it played:
 # Task #40: GET /links/{code}/stats (plan #17, feature click-stats)
 Return code, url, clicks and created_at for a link; 404 with a string detail for an unknown code.
 
-Gate runs recorded by the metronome (authoritative):
+Gate runs recorded by the gate hook (authoritative):
 - 14:02:10 ruff: passed (800 ms)
 - 14:02:41 pytest: passed (2300 ms)
 
