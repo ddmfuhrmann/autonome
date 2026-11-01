@@ -27,6 +27,21 @@ plugin/bin/autonome doctor --project <slug> --repo <path>
 
 `run` runs these checks itself and refuses to start while one fails.
 
+### Turning on auto permissions
+
+`permissions: auto` in the gate config lets the implementer's sessions run scripts, judged by the
+Agent SDK's classifier (see [configuration](configuration.md#permissions)). Before turning it on in
+a project:
+
+```bash
+plugin/bin/autonome doctor --project <slug> --repo <path>   # the implementer's model must support auto
+plugin/bin/autonome bench implementer/permissions            # costs tokens
+```
+
+The bench tries known cases (a scripted rename, a denied git write, a read of `~/.autonome`, an
+exfiltration attempt). Turn the key on only if it holds. Git history, `~/.autonome` and paths outside
+the worktree stay denied in both modes. To go back, set `permissions: allowlist`.
+
 ## A task is blocked
 
 The task's page shows the last run: the reason, the gate output, the reviewer's findings and the

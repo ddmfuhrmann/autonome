@@ -42,7 +42,9 @@ plugin/runner/  the runner (TypeScript, Claude Agent SDK): one session + worktre
 - The plugin's hooks use the Python standard library only and must never break the user's session.
   Shared code lives in `plugin/lib/autonome/`.
 - **Runner sessions are sandboxed by permission**: `dontAsk` with an allowlist (read/edit files,
-  the gates' own commands, `allowed_commands`, read-only git). Never `bypassPermissions`. Only the
+  the gates' own commands, `allowed_commands`, read-only git), or, when the project opts in
+  (`permissions: auto`), the Agent SDK's classifier; git history, `~/.autonome` and paths outside
+  the worktree stay denied by rules and the fsguard hook in both. Never `bypassPermissions`. Only the
   runner commits, and main only moves by fast-forward, never over uncommitted work.
 - **Waves**: several features planned in one plan session, each with a full plan, approved together; a plan
   waits for the plans it depends on, and the runner runs a preflight on it against main before its first task
