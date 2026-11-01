@@ -97,6 +97,35 @@ document.addEventListener("submit", async (ev) => {
   }
 });
 
+// <time data-fmt> shows the viewer's local time; the UTC text stays in the title. The server reads
+// the tz cookie to group by day, so it is written when missing or different (no reload).
+const TIME_FORMATS = {
+  when: { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" },
+  clock: { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" },
+  day: { month: "short", day: "2-digit" },
+};
+function formatTimes(root) {
+  for (const el of (root || document).querySelectorAll("time[data-fmt]")) {
+    const options = TIME_FORMATS[el.dataset.fmt];
+    const at = new Date(el.getAttribute("datetime"));
+    if (!options || isNaN(at)) continue;
+    try {
+      const text = new Intl.DateTimeFormat("en-US", options).format(at);
+      if (!el.title) el.title = el.textContent.trim();
+      el.textContent = text;
+    } catch { /* leave the server's text */ }
+  }
+}
+document.addEventListener("DOMContentLoaded", () => {
+  formatTimes(document);
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (tz && !document.cookie.split("; ").includes(`tz=${tz}`)) {
+      document.cookie = `tz=${tz}; path=/; max-age=31536000; samesite=lax`;
+    }
+  } catch { /* cookies blocked */ }
+});
+
 // Pages with a [data-refresh] element swap their [data-live] regions every few seconds.
 // A region is left alone while the human is deciding inside it (an open confirm, focus).
 (() => {
@@ -114,7 +143,7 @@ document.addEventListener("submit", async (ev) => {
       for (const el of document.querySelectorAll("[data-live]")) {
         if (el.querySelector("details[open]") || el.contains(document.activeElement)) continue;
         const fresh = next.getElementById(el.id);
-        if (fresh) el.replaceWith(fresh);
+        if (fresh) { el.replaceWith(fresh); formatTimes(fresh); }
       }
       last = Date.now();
       stamp?.classList.remove("live--off");

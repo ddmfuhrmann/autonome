@@ -245,6 +245,36 @@ def test_a_playing_task_shows_what_its_session_is_doing(client, project, run_db,
     assert '<time datetime="' in log and 'data-fmt="clock"' in log
 
 
+def test_base_defines_the_time_formatter_and_the_tz_cookie():
+    from pathlib import Path
+
+    base = (Path(web.__file__).parent / "templates" / "base.html").read_text()
+    assert "function formatTimes(root)" in base
+    assert "time[data-fmt]" in base and "document.cookie = `tz=${tz}; path=/; max-age=31536000; samesite=lax`" in base
+
+
+@pytest.mark.parametrize("path", [
+    "", "/setlist", "/approvals", "/documents", "/features", "/waves", "/insights",
+    "/conventions", "/config", "/search", "/lab", "/triage", "/features/links",
+])
+def test_every_page_carries_the_time_formatter_and_the_tz_cookie(client, project, path):
+    res = client.get(f"/ui/p/{project}{path}", follow_redirects=True)
+    assert res.status_code == 200
+    assert "formatTimes(" in res.text and "tz=${tz}" in res.text
+
+
+def test_a_task_page_carries_the_time_formatter_and_the_tz_cookie(client, project, blocked_task):
+    page = client.get(f"/ui/p/{project}/documents/{blocked_task}").text
+    assert "formatTimes(" in page and "tz=${tz}" in page
+
+
+def test_the_refresh_formats_times_in_the_swapped_region_only():
+    from pathlib import Path
+
+    base = (Path(web.__file__).parent / "templates" / "base.html").read_text()
+    assert "el.replaceWith(fresh); formatTimes(fresh);" in base
+
+
 @pytest.mark.parametrize("cookie", ["Mars/Olympus", "../../etc/passwd", "<script>", "A" * 300, ""])
 def test_the_documents_page_survives_a_bad_tz_cookie(client, project, cookie):
     client.cookies.set("tz", cookie)
