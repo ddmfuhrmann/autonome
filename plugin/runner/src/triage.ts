@@ -74,23 +74,42 @@ export async function advisory(finding: { kind?: string; file?: string; issue: s
 
 export const DOWNGRADE_NOTE = " (downgraded: its text says advisory)";
 
-interface Rated { kind?: string; severity: "high" | "medium" | "low"; convention?: string; file?: string; issue: string; downgraded?: boolean }
+interface Rated {
+  kind?: string; severity: "high" | "medium" | "low"; convention?: string; file?: string; issue: string;
+  downgraded?: boolean; advisory?: number; advisory_error?: string;
+}
 
 /** A high finding whose own text says it is advisory stops blocking. Only with Jev: a failed call
- * leaves the finding as it was, and a convention-required finding is never sent. */
+ * leaves the finding as it was, and a convention-required finding is never sent. Every finding it
+ * checks keeps Jev's answer (`advisory`) or the failure (`advisory_error`), kept or downgraded, so
+ * the record shows the check ran. */
 export async function downgradeAdvisory<F extends Rated>(findings: F[], cfg: Triage | null | undefined, key: string | undefined,
   ask: (f: F, key: string) => Promise<number> = advisory): Promise<F[]> {
   if (cfg?.model !== "jev-latest" || !key) return findings;
   return Promise.all(findings.map(async (f) => {
     if (f.severity !== "high" || isConventionRequired(f)) return f;
+    let p: number;
     try {
-      if (await ask(f, key) < cfg.reject_at) return f;
+      p = await ask(f, key);
     } catch (e) {
       console.error("triage: advisory check failed:", e);
-      return f;
+      return { ...f, advisory_error: String(e instanceof Error ? e.message : e).slice(0, 200) };
     }
-    return { ...f, severity: "medium" as const, issue: f.issue + DOWNGRADE_NOTE, downgraded: true };
+    if (p < cfg.reject_at) return { ...f, advisory: p };
+    return { ...f, severity: "medium" as const, issue: f.issue + DOWNGRADE_NOTE, downgraded: true, advisory: p };
   }));
+}
+
+/** One line for the live view on what the advisory check did in a review round, or null when it
+ * checked nothing. `skipped` says why it could not run although the triage asks for Jev. */
+export function advisoryLine(findings: Rated[], skipped?: string): string | null {
+  const checked = findings.filter((f) => f.advisory !== undefined || f.advisory_error !== undefined);
+  if (!checked.length) {
+    return skipped && findings.some((f) => f.severity === "high") ? `triage advisory: skipped, ${skipped}` : null;
+  }
+  const parts = checked.map((f) => f.advisory_error !== undefined ? "failed"
+    : `${f.advisory!.toFixed(2)}${f.downgraded ? " downgraded" : ""}`);
+  return `triage advisory: ${checked.length} high finding${checked.length > 1 ? "s" : ""} checked (${parts.join(", ")})`;
 }
 
 /** What `enforceConventions` raises, or a reviewer's own missing finding against a named convention. */

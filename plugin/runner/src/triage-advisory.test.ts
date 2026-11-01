@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Finding, Triage } from "./context.js";
-import { advisory, downgradeAdvisory, DOWNGRADE_NOTE } from "./triage.js";
+import { advisory, advisoryLine, downgradeAdvisory, DOWNGRADE_NOTE } from "./triage.js";
 import { enforceConventions } from "./review.js";
 
 const cfg: Triage = { model: "jev-latest", fallback: "haiku", reject_at: 0.7, max_rounds: 2 };
@@ -18,6 +18,28 @@ test("a high finding whose text says advisory is downgraded and the downgrade is
   assert.equal(out.severity, "medium");
   assert.equal(out.downgraded, true);
   assert.equal(out.issue, f228.issue + DOWNGRADE_NOTE);
+  assert.equal(out.advisory, 0.9);
+});
+
+test("a kept high finding still records Jev's answer, and a failed check records the failure", async () => {
+  silence();
+  const [kept] = await downgradeAdvisory([f228], cfg, "k", async () => 0.12);
+  assert.equal(kept.severity, "high");
+  assert.equal(kept.advisory, 0.12);
+  assert.equal(kept.downgraded, undefined);
+  const [failed] = await downgradeAdvisory([f228], cfg, "k", async () => { throw new Error("jev: HTTP 500"); });
+  assert.equal(failed.advisory, undefined);
+  assert.equal(failed.advisory_error, "jev: HTTP 500");
+});
+
+test("the advisory line says what was checked, or why it was skipped", () => {
+  const high: Finding = { kind: "missing", severity: "high", issue: "x" };
+  assert.equal(advisoryLine([high, { ...high, severity: "medium", downgraded: true, advisory: 0.81 }, { ...high, advisory_error: "boom" }]),
+    "triage advisory: 2 high findings checked (0.81 downgraded, failed)");
+  assert.equal(advisoryLine([{ ...high, advisory: 0.05 }]), "triage advisory: 1 high finding checked (0.05)");
+  assert.equal(advisoryLine([high]), null);
+  assert.equal(advisoryLine([high], "no Jev key"), "triage advisory: skipped, no Jev key");
+  assert.equal(advisoryLine([{ ...high, severity: "low" }], "no Jev key"), null);
 });
 
 test("below reject_at, or a non-high finding, stays as it was and is not sent for low ones", async () => {

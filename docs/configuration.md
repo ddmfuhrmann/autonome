@@ -155,6 +155,11 @@ conventions and gates instead.
   breaks storing a handoff.
 - **Rounds exhausted**: at `max_rounds` a rejection leaves the decision proposed, marked exhausted. It
   leaves the approvals queue and shows in insights and on the triage page.
+- **Reviewer findings**: with `model: jev-latest` and a key, each high finding the reviewer raises
+  (not one a convention requires) gets one Jev question: does its own text say it is advisory? At
+  `reject_at` or above it drops to medium (`downgraded`). Every checked finding keeps Jev's answer
+  (`advisory`) or the failure (`advisory_error`) in the run's review rounds, and each round with a
+  check adds a `triage advisory: …` line to the task's events (or `skipped, no Jev key`).
 - **The key**: `TYPESAFE_API_KEY` in the runner's environment, else in `~/.autonome/secrets.env`
   (mode `0600`; a more open file is ignored with a warning). It is never in the gate config, the
   context or the UI, and it is removed from the environment of agent sessions. `autonome doctor`
