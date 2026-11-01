@@ -142,6 +142,15 @@ def test_a_verdict_from_another_model_is_refused_with_jev_on(client, project, ru
     assert (after["status"], after["version"]) == ("held", before["version"])
 
 
+def test_a_verdict_names_the_jev_that_answered_and_is_kept_as_such(client, project, run_db, indexer, held):
+    # The runner sends the model Jev's API answered with (shortlink-v7's P771 got a 403 for `jev-1.14.0`).
+    enable(run_db, indexer, project, JEV)
+    plan_id, _ = held(t2={"spec": "do Stats 2 better"})
+    assert client.post(url(plan_id), json=verdict("accept", model="jev-1.14.0")).status_code == 200
+    plan = run_db(lambda c: store.get_document(c, plan_id))
+    assert plan["status"] == "approved" and plan["body"]["rehearsal"]["triage"]["model"] == "jev-1.14.0"
+
+
 def test_two_verdicts_at_once_let_only_one_through(client, project, run_db, indexer, held):
     from concurrent.futures import ThreadPoolExecutor
 

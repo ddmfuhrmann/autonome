@@ -1,6 +1,7 @@
 """HTTP API for hooks and the runner (the plugin's scripts are stdlib-only, so no MCP client)."""
 
 import json
+import re
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, StringConstraints, ValidationError
@@ -258,6 +259,9 @@ class RevisionVerdict(BaseModel):
     verdict: Literal["accept", "hold"]
 
 
+_JEV = re.compile(r"jev-(latest|\d+(\.\d+)*)")
+
+
 class _Refused(Exception):
     pass
 
@@ -280,7 +284,8 @@ async def post_rehearsal_triage(request: Request) -> JSONResponse:
                 if not plan or plan["type"] != "plan":
                     return _json({"error": "not a plan"}, 404)
                 cfg = (await gate_config_body(conn, plan["project"]))["config"]
-                if not cfg.get("triage") or cfg["triage"]["model"] != "jev-latest" or v.model != "jev-latest":
+                # The config asks for the alias; the verdict names the Jev that answered (`jev-1.14.0`).
+                if not cfg.get("triage") or cfg["triage"]["model"] != "jev-latest" or not _JEV.fullmatch(v.model):
                     raise _Refused("only jev-latest judges revisions")
                 r = plan["body"].get("rehearsal") or {}
                 if plan["status"] != "held" or not r.get("plan"):
