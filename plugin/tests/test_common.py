@@ -139,3 +139,12 @@ def test_no_handoff_is_written_for_a_project_not_set_up(tmp_path):
         assert not (home / "logs").exists()  # the scribe was never started
     finally:
         server.shutdown()
+
+
+def test_the_language_rule_follows_the_gate_config(monkeypatch):
+    from autonome import common
+
+    monkeypatch.setattr(common, "get_json", lambda path, timeout=5: {"config": {"language": "pt-BR"}})
+    assert "in pt-BR" in common.language_rule("p") and "JSON keys" in common.language_rule("p")
+    monkeypatch.setattr(common, "get_json", lambda path, timeout=5: {"config": {}})
+    assert common.language_rule("p") == ""

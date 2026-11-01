@@ -30,7 +30,7 @@ All take `project` (the project slug) unless noted. Ids are document ids.
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `plan_draft` | `project`, `plan` (title, goal, context, scope, out_of_scope, acceptance, risks, tasks, gates, conventions, discussion), `feature?`, `layers?`, `plan_id?` to revise a draft | `{plan_id, status: draft, approve_at}` |
+| `plan_draft` | `project`, `plan` (title, goal, context, scope, out_of_scope, acceptance, risks, tasks, gates, conventions, design, discussion, backlog_items), `feature?`, `layers?`, `plan_id?` to revise a draft | `{plan_id, status: draft, approve_at}` |
 | `wave_draft` | `project`, `wave` (title, goal, out_of_scope, features: [{plan_id, depends_on}], discussion), `wave_id?` | `{wave_id, status: draft, approve_at}` |
 | `plan_approve` / `wave_approve` | `project`, `plan_id` / `wave_id` | asks the human in a dialog the agent cannot answer; `{status: approved}` or `{status: draft, human: declined\|unavailable, approve_at}` |
 | `plan_get` | `plan_id` | the plan with its status and its tasks' statuses |
@@ -39,6 +39,10 @@ All take `project` (the project slug) unless noted. Ids are document ids.
 A task in `plan.tasks`: `title`, `spec`, `layers`, `acceptance`, `depends_on` (1-based positions).
 A gate in `plan.gates`: a gate (`name`, `run`, `mode`, `fast`, `when`, `timeout_s`) plus `with_task`.
 A convention in `plan.conventions`: `title`, `rule`, `why`, `layers`.
+
+A design choice in `plan.design`: `topic`, `options` (at least two, each `name` and `tradeoffs`),
+`chosen` (one of the option names) and `why`. The implementers' briefing carries the chosen option;
+going another way is a deviation. A rehearsal revision keeps the plan's design.
 
 ### Approvals
 
@@ -50,7 +54,9 @@ A convention in `plan.conventions`: `title`, `rule`, `why`, `layers`.
 ### Backlog
 
 The roadmap's waves, one document per wave; items have an `id` (e.g. `w1-ci`), `title`, `status`
-(`backlog`, `next`, `doing`, `done`), `note` and `prd`. Every change records `{at, by, item, field,
+(`backlog`, `next`, `doing`, `done`), `note` and `prd`. A plan that names items in `backlog_items`
+keeps them in step: approving it marks them `doing`, finishing it marks them `done` (by `plan #id`),
+abandoning it puts them back to `next`. Every change records `{at, by, item, field,
 old, new}` in the wave's `changes`, and search finds the item itself (one chunk per item).
 
 | Tool | Arguments | Returns |

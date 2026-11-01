@@ -305,6 +305,11 @@ async def decide(conn, indexer, doc: dict, to: str) -> str:
         await plans.approve_wave(conn, indexer, doc_id)
     elif doc["type"] == "decision" and doc["status"] == "proposed" and to == "rejected":
         await plans.reject_decision(conn, indexer, doc_id)
+    elif doc["type"] == "plan" and to == "abandoned":
+        async with conn.transaction():
+            await rules.transition(conn, doc_id, "abandoned", "human")
+            if doc["status"] != "draft":
+                await plans.mark_backlog(conn, doc, "next")
     elif doc["type"] == "convention" and doc["status"] == "proposed" and to == "active":
         async with conn.transaction():
             await rules.transition(conn, doc_id, "active", "human")

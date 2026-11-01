@@ -96,6 +96,16 @@ def role_model(project: str, role: str, default_model: str = "sonnet", default_e
             os.getenv(f"AUTONOME_{role.upper()}_EFFORT") or r.get("effort") or default_effort)
 
 
+def language_rule(project: str) -> str:
+    """The rule that keeps what agents write for people in the project's language; empty when none is set."""
+    try:
+        lang = ((get_json(f"/api/projects/{project}/gate-config") or {}).get("config") or {}).get("language")
+    except OSError:
+        return ""
+    return (f"Write everything meant for people (titles, summaries, notes, findings, docs) in {lang}. Keep code, "
+            "identifiers, file paths, commands, JSON keys and enum values as they are.") if lang else ""
+
+
 def project_active(cwd: str | Path) -> bool:
     """autonome only acts in projects set up for it: AUTONOME_PROJECT is set, the project has a gate
     config saved in the context (the setup step, in the UI), or an approved plan brings gates. Anywhere

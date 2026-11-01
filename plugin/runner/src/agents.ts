@@ -19,6 +19,8 @@ export interface Consult {
   tools?: string[];
   env?: Record<string, string>;
   maxTurns?: number;
+  /** The project's language rule (`languageRule`), appended to the role. */
+  language?: string;
   /** Every SDK message, for the live view. */
   onMessage?: (msg: unknown) => void;
 }
@@ -37,7 +39,7 @@ export async function consult<T>(c: Consult): Promise<{ answer: T; cost: number 
       allowedTools: [...READ_ONLY, ...(c.tools ?? [])],
       mcpServers: { autonome: { type: "http", url: `${CONTEXT_URL}/mcp` } },
       settingSources: ["project"],
-      systemPrompt: { type: "preset", preset: "claude_code", append: c.role },
+      systemPrompt: { type: "preset", preset: "claude_code", append: [c.role, c.language].filter(Boolean).join("\n\n") },
       outputFormat: { type: "json_schema", schema: c.schema },
       maxTurns: c.maxTurns ?? 40,
       env: { ...process.env, ...(c.env ?? {}) } as Record<string, string>,

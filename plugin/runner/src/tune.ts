@@ -2,7 +2,7 @@
 // and proposes four kinds of change: conventions and gates for the project, a plan for the debt still
 // open, process config, and notes about autonome itself. It only proposes; the human decides.
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import { context, roleModel, type Effort, type Plan } from "./context.js";
+import { context, languageRule, roleModel, type Effort, type Plan } from "./context.js";
 import { mainCheckout } from "./git.js";
 import { isUsageLimit } from "./limits.js";
 
@@ -57,7 +57,7 @@ async function runTune(wave: Plan, opts: TuneOptions): Promise<string> {
   const cfg = (await context.gateConfig(opts.project)).config;
   let summary = "";
   for await (const msg of query({
-    prompt: tunePrompt(wave, opts.project),
+    prompt: [tunePrompt(wave, opts.project), languageRule(cfg)].filter(Boolean).join("\n\n"),
     options: {
       cwd: mainCheckout(opts.repo) ?? opts.repo,
       ...roleModel(cfg, "tune", opts),

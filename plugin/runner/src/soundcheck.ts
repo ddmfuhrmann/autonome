@@ -46,7 +46,7 @@ function sh(cmd: string, cwd: string, env: Record<string, string>, timeoutS = 90
 }
 
 export async function soundcheck(
-  plan: Plan, cfg: Soundcheck, cwd: string, who: RoleModel | undefined, log: (line: string) => void,
+  plan: Plan, cfg: Soundcheck, cwd: string, who: RoleModel & { language?: string } | undefined, log: (line: string) => void,
   onMessage?: (msg: unknown) => void,
 ): Promise<SoundcheckResult> {
   const env = { AUTONOME_APP_URL: cfg.url };

@@ -90,6 +90,10 @@ playback: {features: []}   # merge, then the human reviews forward when they lik
 
 tune_after_wave: true      # when a wave finishes, propose conventions from its evidence
 
+# What agents write for people (plans, handoffs, review findings, rehearsal notes, docs), e.g. pt-BR.
+# Empty: English. Code, identifiers and commits follow the project.
+language: ""
+
 # Model and effort per agent role; roles left out keep these defaults.
 models:
   musician:  {model: sonnet, effort: medium}   # implements each task

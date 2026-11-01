@@ -325,3 +325,20 @@ def test_adopting_a_replacing_convention_archives_the_old_one_and_edits_keep_its
         return (await store.get_document(conn, new))["body"]
     b = run_db(body)
     assert b["rule"] == "commit package.json and the lockfile" and b["why"] == "vaadin" and b["replaces"] == old
+
+
+def test_a_draft_plan_shows_its_design_and_full_task_specs(client, project, run_db, indexer):
+    async def go(conn):
+        plan = await plans.draft(conn, indexer, project, "ledger", [], PlanBody(
+            title="Ledger", goal="g", tasks=[TaskSpec(title="Entries", spec="Adds entries.\n\n**Where**\n\n- `ledger.py`",
+                                                      acceptance=["amounts are positive"])],
+            design=[plans.DesignChoice(topic="Data access", chosen="Repository", why="queries in one place", options=[
+                plans.DesignOption(name="Repository", tradeoffs="one more class"),
+                plans.DesignOption(name="Inline SQL", tradeoffs="spreads")])]))
+        await conn.commit()
+        return plan
+
+    page = client.get(f"/ui/p/{project}/documents/{run_db(go)}").text
+    assert 'id="design"' in page and "Data access" in page and 'class="is-chosen"><strong>Repository' in page
+    assert "<strong>Where</strong>" in page and "<code>ledger.py</code>" in page
+    assert "<li>amounts are positive</li>" in page

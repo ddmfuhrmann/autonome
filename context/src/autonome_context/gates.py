@@ -106,6 +106,9 @@ class GateConfig(BaseModel):
     cues: list[Cue] = []
     review: Review = Review()
     tune_after_wave: bool = Field(default=True, description="propose conventions from each finished wave's evidence")
+    language: str = Field(
+        default="", description="language of what agents write for people (plans, handoffs, findings, docs), e.g. "
+                                "pt-BR; empty: English. Code, identifiers and commits follow the project")
     soundcheck: Soundcheck | None = None
     models: dict[str, RoleModel] = Field(
         default_factory=lambda: dict(DEFAULT_MODELS),
@@ -139,6 +142,7 @@ fermata: {features: []}     # stop before merge for the human (blocks the setlis
 playback: {features: []}    # merge, then the human reviews forward (never blocks)
 cues: []
 review: {enabled: true, max_rounds: 2}
+# language: pt-BR           # what agents write for people; code and commits follow the project
 # models: {musician: {model: sonnet, effort: medium}}   # per role; see DEFAULT_MODELS for the rest
 # soundcheck:                # try each finished feature in a running environment (fakes, never real services)
 #   up: docker compose -f infra/compose.yml up -d --wait

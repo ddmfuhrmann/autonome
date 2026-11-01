@@ -7,7 +7,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { consult } from "./agents.js";
-import { ContextError, context, roleModel, waitForContext, type Effort, type GateConfig, type Plan, type Rehearsal, type ReviewResult, type Run, type Task } from "./context.js";
+import { ContextError, context, languageRule, roleModel, waitForContext, type Effort, type GateConfig, type Plan, type Rehearsal, type ReviewResult, type Run, type Task } from "./context.js";
 import { doctor, report } from "./doctor.js";
 import { bashPrefixes, scopedFileCommands } from "./fsguard.js";
 import { encoreMessage, findingsForEncore, review } from "./review.js";
@@ -140,6 +140,7 @@ export async function rehearse(plan: Plan, opts: ConductOptions): Promise<Rehear
     cwd: mainCheckout(opts.repo) ?? opts.repo,
     ...roleModel(cfg, "rehearsal", opts),
     role: REHEARSAL_PROMPT,
+    language: languageRule(cfg),
     schema: PLAN_SCHEMA,
     prompt: rehearsalPrompt(plan, opts.project, gates),
     onMessage: live(opts, "rehearsal", { plan_id: plan.id }),
@@ -397,7 +398,8 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<Run | unde
       if (!cfg.review.enabled) return null;
       const briefing = (await context.briefing(opts.project, task.id)).text;
       stage(opts, { task_id: task.id }, `review, round ${round + 1}`);
-      const rv = await review(task, briefing, worktree, base, roleModel(cfg, "reviewer", opts),
+      const rv = await review(task, briefing, worktree, base,
+        { ...roleModel(cfg, "reviewer", opts), language: languageRule(cfg) },
         live(opts, "reviewer", { task_id: task.id }), run.review?.findings);
       run.review = rv.result;
       run.review_rounds = round + 1;
@@ -480,12 +482,13 @@ export function summary(played: Played[]): string {
 }
 
 async function soundcheckPlan(plan: Plan, opts: ConductOptions): Promise<void> {
-  const cfg = (await context.gateConfig(opts.project)).config.soundcheck;
+  const config = (await context.gateConfig(opts.project)).config;
+  const cfg = config.soundcheck;
   if (!cfg) return;
   opts.log(`plan #${plan.id} ${plan.body.title}: every task merged; soundcheck`);
   stage(opts, { plan_id: plan.id }, "soundcheck");
   const r = await soundcheck(plan, cfg, mainCheckout(opts.repo) ?? opts.repo,
-    roleModel((await context.gateConfig(opts.project)).config, "listener", opts), opts.log,
+    { ...roleModel(config, "listener", opts), language: languageRule(config) }, opts.log,
     live(opts, "listener", { plan_id: plan.id }));
   const { outcome } = await context.soundcheck(plan.id, r);
   opts.log(outcome === "done" ? `  passed; the feature is done`

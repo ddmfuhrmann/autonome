@@ -8,15 +8,17 @@ from typing import Literal
 
 import yaml
 from psycopg import AsyncConnection
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
-from . import rules, store
+from . import backlog, rules, store
 from .gates import Gate, GateConfig
 
 
 class TaskSpec(BaseModel):
     title: str
-    spec: str = Field(description="what to do, concretely enough to be done without asking")
+    spec: str = Field(description="what to do, concretely enough to be done without asking. Markdown, laid out "
+                                  "to be scanned, never one paragraph: a line on what changes, then **Where** "
+                                  "(files, endpoints, entities, as a list) and **How** (the steps, as a list)")
     layers: list[str] = []
     acceptance: list[str] = Field(default=[], description="verifiable criteria, ideally checked by gates")
     depends_on: list[int] = Field(default=[], description="1-based positions of earlier tasks in this plan")
@@ -35,6 +37,26 @@ class ProposedConvention(BaseModel):
     layers: list[str] = Field(default=[], description="the layers it applies to; empty for all")
 
 
+class DesignOption(BaseModel):
+    name: str = Field(description="short, e.g. 'repository per aggregate'")
+    tradeoffs: str = Field(description="what it costs and what it buys, in one or two lines")
+
+
+class DesignChoice(BaseModel):
+    """A choice of approach or pattern the plan makes up front, so the implementers do not make it."""
+
+    topic: str = Field(description="what is being decided, e.g. 'data access'")
+    options: list[DesignOption] = Field(min_length=2, description="the options weighed, the chosen one included")
+    chosen: str = Field(description="the name of the chosen option")
+    why: str = Field(description="why this one, for this project now")
+
+    @model_validator(mode="after")
+    def _chosen_is_an_option(self):
+        if self.chosen not in {o.name for o in self.options}:
+            raise ValueError(f"chosen {self.chosen!r} is not one of the options of {self.topic!r}")
+        return self
+
+
 class Turn(BaseModel):
     role: str
     text: str
@@ -42,8 +64,9 @@ class Turn(BaseModel):
 
 class PlanBody(BaseModel):
     title: str
-    goal: str
-    context: str = ""
+    goal: str = Field(description="one or two sentences: what changes, and for whom")
+    context: str = Field(default="", description="Markdown, laid out to be scanned: short sections under bold "
+                                                 "labels, lists over paragraphs")
     scope: list[str] = []
     out_of_scope: list[str] = []
     acceptance: list[str] = []
@@ -55,7 +78,26 @@ class PlanBody(BaseModel):
     conventions: list[ProposedConvention] = Field(
         default=[], description="rules for layers the project has none (or nothing relevant) for; approving "
                                 "the plan makes them active, before its tasks play")
+    design: list[DesignChoice] = Field(
+        default=[], description="choices of approach or pattern the plan makes, each with the options weighed; "
+                                "the tasks follow the chosen option, and going another way is a deviation")
     discussion: list[Turn] = Field(default=[], description="the questions and answers that shaped the plan")
+    backlog_items: list[str] = Field(
+        default=[], description="ids of the backlog items this plan delivers (e.g. w2-ledger); approving the plan "
+                                "marks them doing, finishing it marks them done, abandoning it puts them back to next")
+
+
+async def mark_backlog(conn: AsyncConnection, plan: dict, status: str) -> None:
+    """Keeps the backlog in step with the plans that deliver it. A plan that ends done closes its items;
+    one abandoned puts them back. An item already done stays done."""
+    for key in plan["body"].get("backlog_items") or []:
+        try:
+            doc, i = await backlog._locate(conn, plan["project"], key)
+        except rules.Forbidden:
+            continue  # removed from the backlog since the plan was written
+        if doc["body"]["items"][i].get("status") == "done" and status != "done":
+            continue
+        await backlog.update_item(conn, None, plan["project"], key, by=f"plan #{plan['id']}", status=status)
 
 
 class WaveFeature(BaseModel):
@@ -89,6 +131,8 @@ async def draft(
 ) -> int:
     """Creates a draft plan, or revises one that is still a draft."""
     data = body.model_dump(mode="json")
+    for key in body.backlog_items:
+        await backlog._locate(conn, project, key)  # an unknown id answers with close matches
     async with conn.transaction():
         if plan_id is None:
             return await store.create_document(conn, indexer, project=project, type="plan", body=data,
@@ -173,6 +217,7 @@ async def approve(conn: AsyncConnection, indexer: store.Indexer, plan_id: int) -
         if plan and plan["type"] == "plan" and (wave := await wave_of(conn, plan)):
             raise rules.Forbidden(f"plan {plan_id} belongs to wave #{wave['id']}; approve the wave")
         plan = await rules.transition(conn, plan_id, "approved", "human")
+        await mark_backlog(conn, plan, "doing")
         return await _queue_tasks(conn, indexer, plan, PlanBody.model_validate(plan["body"]),
                                   after_plans=[], wave_id=None)
 
@@ -215,6 +260,7 @@ async def approve_wave(conn: AsyncConnection, indexer: store.Indexer, wave_id: i
         queued: dict[int, list[int]] = {}
         for f in body.features:
             plan = await rules.transition(conn, f.plan_id, "approved", "human")
+            await mark_backlog(conn, plan, "doing")
             await store.link(conn, wave_id, f.plan_id, "has_plan")
             queued[f.plan_id] = await _queue_tasks(
                 conn, indexer, plan, PlanBody.model_validate(plan["body"]),
@@ -261,6 +307,9 @@ async def resolve_rehearsal(conn: AsyncConnection, indexer: store.Indexer, plan_
                 await rules.transition(conn, t["id"], "abandoned", "human")
         original = PlanBody.model_validate(plan["body"]).model_dump(mode="json")
         revised = PlanBody.model_validate(rehearsal["plan"])
+        # A revision changes the tasks, not what was decided: the backlog items and design stay with the plan.
+        revised.backlog_items = revised.backlog_items or original.get("backlog_items", [])
+        revised.design = revised.design or [DesignChoice.model_validate(d) for d in original.get("design", [])]
         await store.add_version(conn, indexer, plan_id, {
             **revised.model_dump(mode="json"),
             "rehearsal": {**rehearsal, "verdict": "revised", "plan": None, "original": original}})
@@ -273,6 +322,7 @@ async def finish_wave_if_complete(conn: AsyncConnection, plan_id: int) -> None:
     plan = await store.get_document(conn, plan_id)
     if not plan or plan["status"] != "done":
         return
+    await mark_backlog(conn, plan, "done")
     for w in await store.list_documents(conn, plan["project"], type="wave", status="approved", limit=200):
         ids = [f["plan_id"] for f in w["body"]["features"]]
         statuses = [(await store.get_document(conn, i))["status"] for i in ids] if plan_id in ids else []
@@ -377,6 +427,10 @@ def plan_summary(plan: dict) -> str:
     lines += [f"  {i}. {t.title}" for i, t in enumerate(b.tasks, start=1)]
     if b.out_of_scope:
         lines.append("Out of scope: " + "; ".join(b.out_of_scope))
+    if b.design:
+        lines.append("Design: " + "; ".join(
+            f"{d.topic}: {d.chosen} (over {', '.join(o.name for o in d.options if o.name != d.chosen)})"
+            for d in b.design))
     if b.conventions:
         lines.append("Adds conventions: " + "; ".join(
             f"{c.title} ({', '.join(c.layers) or 'all layers'}): {c.rule}" for c in b.conventions))

@@ -658,3 +658,10 @@ pre.mermaid { margin: 0; background: none; border: 0; overflow-x: auto; }
 .live-log .k-stage .x { font-weight: 600; }
 .live-log .k-error .x { color: var(--red-fg); font-family: var(--mono); }
 .live-log .k-result .x { color: var(--muted); }
+
+/* Plan design choices: the options weighed, the chosen one marked. */
+.design-options { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.design-options li { padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; }
+.design-options li.is-chosen { border-color: var(--brass-line); background: var(--brass-soft); }
+.task-spec > summary { cursor: pointer; }
+.task-spec[open] > summary { margin-bottom: 6px; }

@@ -62,7 +62,7 @@ export function earlierFindingsSection(previous: Finding[] | undefined): string 
     "new high findings: no new medium or low ones in this round, and never ask to undo what an earlier finding asked for.";
 }
 
-export async function review(task: Task, briefing: string, worktree: string, base: string, who: RoleModel,
+export async function review(task: Task, briefing: string, worktree: string, base: string, who: RoleModel & { language?: string },
   onMessage?: (msg: unknown) => void, previous?: Finding[]) {
   const diff = git(worktree, "diff", "--cached", base).slice(0, 80_000);
   const { answer, cost } = await consult<ReviewResult>({

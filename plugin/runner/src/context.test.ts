@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import { conduct } from "./conduct.js";
-import { ContextError, call } from "./context.js";
+import { ContextError, call, languageRule, type GateConfig } from "./context.js";
 import { git } from "./git.js";
 
 process.env.AUTONOME_CONTEXT_RETRY_MS = "1";
@@ -56,4 +56,10 @@ test("an infrastructure error hands the task back to pending and stops the condu
   await assert.rejects(conduct({ project: "p", repo, maxTasks: 5, push: false, log: () => {} }),
     (e: Error) => e instanceof ContextError && /500 on GET \/api\/projects\/p\/gate-config/.test(e.message));
   assert.deepEqual(transitions, ["pending"]);
+});
+
+test("the language rule names the configured language and is empty without one", () => {
+  const cfg = { language: "pt-BR" } as GateConfig["config"];
+  assert.match(languageRule(cfg), /in pt-BR\. Keep code, identifiers/);
+  assert.equal(languageRule({} as GateConfig["config"]), "");
 });

@@ -18,10 +18,11 @@ Rules:
 - gates: every check that ran (build, tests, linters, static analysis), whether it passed in the end,
   how many times it failed before passing (encores), and the root cause of the failures.
 - deviations: what was done that the plan did not foresee, or done differently.
-- decisions: only choices the plan and the task spec did not already make: an alternative weighed
+- decisions: only choices the plan (its `design` included) and the task spec did not already make: an alternative weighed
   (and why this one), an ambiguity resolved, a deviation taken on purpose. Doing what the spec says
   is not a decision ("added .mypy_cache to .gitignore" when the spec asked for it). Most sessions
-  have zero to two. Set `deviation` to true only when the choice departs from the plan or a
+  have zero to two. Set `deviation` to true only when the choice departs from the plan (an option
+  other than the one its `design` chose counts) or a
   convention: those wait for the human's review; the others are recorded as decisions in effect.
 - friction: where the agent got stuck, went in circles, lacked a convention, misread the plan, or needed
   the human to correct it. Be specific; this is how the process improves. Count, don't generalise:

@@ -68,6 +68,7 @@ export interface GateConfig {
     review: { enabled: boolean; max_rounds: number };
     tune_after_wave?: boolean;
     models?: Record<string, RoleModel>;
+    language?: string;
     soundcheck: Soundcheck | null;
   };
 }
@@ -80,6 +81,14 @@ export interface RoleModel {
 }
 
 /** Model and effort for a role: the command line overrides every role, then the gate config. */
+/** The rule that keeps what agents write for people in the project's language; empty when none is set. */
+export function languageRule(cfg: GateConfig["config"]): string {
+  return cfg.language
+    ? `Write everything meant for people (titles, specs, notes, findings, summaries, reports) in ${cfg.language}. ` +
+      "Keep code, identifiers, file paths, commands, JSON keys and enum values as they are."
+    : "";
+}
+
 export function roleModel(cfg: GateConfig["config"], role: string, override: { model?: string; effort?: Effort } = {}): RoleModel {
   const r = cfg.models?.[role] ?? { model: "sonnet", effort: "medium" as Effort };
   return { model: override.model ?? r.model, effort: override.effort ?? r.effort };

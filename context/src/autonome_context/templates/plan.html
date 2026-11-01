@@ -20,7 +20,7 @@
 {{ ui.decision(project, doc, actions) }}
 
 <nav class="tabs" aria-label="Plan sections">
-  <a href="#objective" aria-current="page">Overview</a><a href="#tasks">Tasks <span class="count-pill">{{ tasks|length or b.tasks|length }}</span></a>
+  <a href="#objective" aria-current="page">Overview</a>{% if b.design %}<a href="#design">Design <span class="count-pill">{{ b.design|length }}</span></a>{% endif %}<a href="#tasks">Tasks <span class="count-pill">{{ tasks|length or b.tasks|length }}</span></a>
   {% if b.rehearsal %}<a href="#rehearsal">Rehearsal</a>{% endif %}<a href="#soundchecks">Soundchecks <span class="count-pill">{{ sounds|length }}</span></a>
 </nav>
 
@@ -40,6 +40,22 @@
     </div>
   </section>
 
+  {% if b.design %}
+  <section class="card" id="design">
+    <div class="card__head"><h2 class="card__title">Design</h2><span class="push muted" style="font-size: 12px">the tasks follow the chosen option; another way is a deviation</span></div>
+    <div class="card__body stack">
+      {% for d in b.design %}
+      <div class="stack stack--sm">
+        <h3>{{ d.topic }}</h3>
+        <ul class="design-options">{% for o in d.options %}<li class="{{ 'is-chosen' if o.name == d.chosen }}"><strong>{{ o.name }}</strong>{% if o.name == d.chosen %} <span class="tag tag--feature">chosen</span>{% endif %}<div class="muted" style="font-size: 12px">{{ o.tradeoffs|mdi }}</div></li>{% endfor %}</ul>
+        <p style="font-size: 13px"><strong>Why:</strong> {{ d.why|mdi }}</p>
+      </div>
+      {% if not loop.last %}<hr>{% endif %}
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
   <section class="stack" id="tasks" aria-labelledby="tasks-h">
     <div class="section-head"><h2 id="tasks-h">Tasks</h2><span class="count">{{ tasks|length or b.tasks|length }}</span></div>
     <div class="table-wrap"><table class="table">
@@ -55,9 +71,9 @@
       {% else %}
       <thead><tr><th>#</th><th>Task</th><th>Depends on</th><th>Layer</th><th>Acceptance</th></tr></thead>
       <tbody>{% for t in b.tasks %}
-        <tr><td class="mono">{{ loop.index }}</td><td><strong>{{ t.title }}</strong><div class="muted wrap" style="font-size: 12px">{{ t.spec|truncate(240) }}</div></td>
+        <tr><td class="mono">{{ loop.index }}</td><td><details class="task-spec"><summary><strong>{{ t.title }}</strong></summary><div class="prose" style="font-size: 13px">{{ t.spec|md }}</div></details></td>
           <td class="mono">{{ t.depends_on|join(', ') or '—' }}</td><td>{% for l in t.layers %}<span class="tag">{{ l }}</span>{% endfor %}</td>
-          <td style="font-size: 12px">{{ t.acceptance|join('; ') }}</td></tr>
+          <td style="font-size: 12px"><ul class="checklist">{% for a in t.acceptance %}<li>{{ a|mdi }}</li>{% endfor %}</ul></td></tr>
       {% endfor %}</tbody>
       {% endif %}
     </table></div>
@@ -137,7 +153,7 @@
   {% endif %}
   {% if b.discussion %}
   <details class="card"><summary class="card__head"><span class="card__title">How it was composed</span><span class="push muted" style="font-size: 12px">{{ b.discussion|length }} turns</span></summary>
-    <div class="card__body">{% for t in b.discussion %}<p style="font-size: 13px"><strong>{{ t.role }}:</strong> {{ t.text }}</p>{% endfor %}</div>
+    <div class="card__body">{% for t in b.discussion %}<div class="prose" style="font-size: 13px"><strong>{{ t.role }}</strong>{{ t.text|md }}</div>{% endfor %}</div>
   </details>
   {% endif %}
 </aside>

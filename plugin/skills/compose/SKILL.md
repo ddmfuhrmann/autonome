@@ -1,6 +1,6 @@
 ---
 name: compose
-description: Write a plan (score) for a feature or change, or a wave of several features (a whole project or release), together with the user, grounded in the project's memory, and save it as a draft for the user to approve. Use when the user wants to plan, spec or start a feature, fix, refactor, a set of features or a new project, or invokes /autonome:compose. This is the only step of the autonome process where the human takes part; everything after approval runs without them.
+description: Write a plan (score) for a feature or change, or a wave of several features (a whole project or release), together with the user, grounded in the project's memory, and save it as a draft for the user to approve. Use when the user wants to plan, spec or start a feature, fix, refactor, a set of features or a new project, or invokes /autonome:compose, also when they have decided everything and only want the plan drafted. This is the only step of the autonome process where the human takes part; everything after approval runs without them.
 ---
 
 # compose: write the score
@@ -33,9 +33,14 @@ Before asking the user anything:
   that came up) and `backlog_item_remove` (dropped, with the reason). Say each change in one line.
 - `conventions_get` for the layers this will touch. A layer with none (or nothing relevant) gets a
   few short, checkable rules proposed in the first plan that touches it (section 3).
-- `gate_config_get`: the gates that will judge the work.
+- `gate_config_get`: the gates that will judge the work, and `language`: when it is set, write the
+  plan's text (title, goal, context, specs, acceptance, design, discussion) and your messages in it;
+  code, identifiers, paths, commands and JSON keys stay as they are.
 - Read the code the change will touch. If it is not in the working directory, say so in one line
   and go on from the memory; where the code lives is not a question to ask now.
+
+Make every one of these calls, `gate_config_get` included, even when the request looks clear or the
+user says not to ask anything: they are reads, not questions, and the plan depends on them.
 
 Tell the user, briefly, what you found that matters: a decision that constrains the idea, and the
 lessons from the same subject in two or three lines ("last time the limit returned 500 and was fixed
@@ -57,25 +62,64 @@ where the project keeps PRDs (CLAUDE.md says; `prd` may name the file; often `do
   and the sections, and tell them to review and commit it. Only then go on to the plan.
 
 Write the PRD in the language the project already uses for product documents: the existing PRDs or
-product docs, or what CLAUDE.md says; when there is nothing to go by, the language the user writes in.
-Never force one.
+product docs, or what CLAUDE.md says; then the gate config's `language`; when there is nothing to go
+by, the language the user writes in. Never force one.
 
 ## 2. Grill, one question at a time
 
 Ask only what changes the plan, each with your recommendation. **One question per message, and only
 one**: the message ends with that single question. Do not add a second one ("also, …?", "and where
-is …?"), not even a short practical one; keep it for a later message. Write the question once,
-as the last line; do not also put it in a heading and repeat it ("Which one do you want?"). Cover:
+is …?"), not even a short practical one, and no second request after it ("…, or tell me what it
+covers"); keep it for a later message. Write the question once, as the last line, with no label
+before it ("Question 1:", a bold heading) and no repeat after it ("Which one do you want?"). Cover:
 the goal and who it is for, what is explicitly out of scope, the acceptance criteria, risky edges
 (money, personal data, concurrency, migrations), and how the change is verified. Stop asking when the
 answers stop changing the plan. Never ask what you can read in the code or the memory. An edge case
 that is a product decision (section 3) is one of these questions, e.g. "should the shortener refuse
 internal hosts?".
 
+**Design choices come as options.** Before writing tasks, name the choices of approach or pattern the
+change needs and the code or the memory does not settle: how data is accessed, where a rule lives,
+sync or async, a new module or an existing one, a library or hand-written. Each one the project
+already settled (a convention, an accepted decision, the way the code does it today) is not a
+choice: follow it. For each open one, ask it as a question with 2-3 concrete options, your
+recommendation first, each with its trade-off in a line, then the question as the last line:
+
+> 1. Repository per aggregate (recommended): one place for queries; one more class per entity.
+> 2. Queries in the service: fewer files; SQL spreads as the feature grows.
+>
+> How should the ledger reach the database?
+
+Still one question per message. A choice small enough not to change any task is not worth asking.
+
 ## 3. Write the plan
 
 Tasks are the unit the runner plays: each one is one commit, done in one session, by an agent that
-only sees the task, the plan's goal and out-of-scope, and the conventions of its layers.
+only sees the task, the plan's goal, out-of-scope and design, and the conventions of its layers.
+
+**Write it to be read.** The user reads the plan in the UI before approving it, so lay every text out
+to be scanned, never a paragraph:
+
+- `goal`: one or two sentences, what changes and for whom.
+- `context`: short sections under bold labels (**Today**, **Lessons from earlier work**, **Constraints**),
+  lists over prose.
+- each task's `spec`, in Markdown:
+
+  ```
+  One line on what changes.
+
+  **Where**
+  - `app/ledger/repository.py`: new `LedgerRepository`
+  - `POST /ledger/entries`
+
+  **How**
+  - validate the amount (positive, at most 2 decimals) before saving
+  - ...
+  ```
+
+  The layout never replaces content the rules below ask for: a task that sets up tooling still
+  lists the files the tool generates and their `.gitignore` entries, and edges still go into
+  `acceptance`.
 
 - Small: about 30 minutes of agent work. Split anything bigger.
 - Self-contained `spec`: name the files, endpoints, entities, and behaviour. No "as discussed".
@@ -83,7 +127,13 @@ only sees the task, the plan's goal and out-of-scope, and the conventions of its
   "Works well" is not a criterion.
 - `layers` per task (domain, application, api, persistence, integration, ui, infra, test, docs).
 - `depends_on`: 1-based positions of earlier tasks this one needs.
+- `design`: each choice from section 2, with the `options` weighed (`name`, `tradeoffs`), the one
+  `chosen` and `why`. The tasks follow the chosen option; an implementer who goes another way records
+  a deviation, so the plan's choices never come back to the user as decisions during the run.
 - Record the questions and answers that shaped the plan in `discussion`.
+- `backlog_items`: the ids of the backlog items this plan delivers, when it comes from the backlog.
+  Approving the plan marks them doing and finishing it marks them done, so do not set those statuses
+  yourself; an item one plan only starts belongs to the plan that finishes it.
 
 **Lessons, before writing tasks.** Each pattern from `history_get` that applies becomes part of this
 plan: an acceptance criterion (a test for the case that went wrong), an out-of-scope line, a
@@ -99,7 +149,8 @@ work", each with what it became, so the reviewer can hold the code to them.
 - security: injection, open redirect, SSRF, data from another tenant or user.
 
 Each edge that applies goes into the task's `acceptance` as a test that must exist and pass, or into
-`out_of_scope` on purpose. One that is a product decision is asked first (section 2).
+`out_of_scope` on purpose; an edge settled only in `discussion` or `context` is not covered. Cover at
+least two beyond the ones the user named. One that is a product decision is asked first (section 2).
 
 **Gates.** Every acceptance criterion should be checked by a gate the project actually runs. Compare
 what the plan needs with `gate_config_get`: tests in a stack or folder no gate covers, a new language
@@ -128,6 +179,11 @@ constraints it declares; input validation rejects control characters; tests asse
 only coverage. Approving the plan makes them active before its tasks play. Never propose loosening
 or replacing an existing convention.
 
+A design choice that should hold beyond this plan also becomes a convention, even in a layer that has
+others: choosing a repository per aggregate gives "data access goes through the aggregate's
+repository; services never run SQL", with `why` naming the choice. That way the reviewer holds later
+work to it too. Skip it when an existing convention already says the same.
+
 **Challenge it before saving.** Read the plan as someone who must build it and look for:
 
 - a load-bearing assumption: what breaks if it is wrong ("assumes one wallet per account");
@@ -152,7 +208,7 @@ it again with the same `plan_id`; only drafts can change.
 ## 4. Hand it over
 
 Once the plan (or every plan and the wave) is saved, write the user a short summary, as a message of
-its own: goal, the tasks in order, what is out of scope, what the challenge changed or the simpler
+its own: goal, the design chosen (one line per choice), the tasks in order, what is out of scope, what the challenge changed or the simpler
 path you did not take, and the conventions and gates it adds, if any (approving the plan makes the
 conventions active and adds each gate once its setup task merges). The summary stays in the
 conversation whatever they answer. Then, in the same turn, call `plan_approve` (or `wave_approve` for
@@ -165,10 +221,12 @@ never approve anything yourself.
   link for the UI. Never say it is approved.
 
 Either way, your reply after the answer names each gate the plan adds and its command, if any: the
-dialog is gone by then, and they change the project's config.
+dialog is gone by then, and they change the project's config. For a wave, it also lists the features
+again, in play order, one line each.
 
-If an architectural or product decision came up, record it with `decision_propose` so the user
-accepts it in the UI.
+A design choice goes in the plan's `design`, not in a decision. If an architectural or product
+decision came up that reaches beyond this plan, record it with `decision_propose` so the user accepts
+it in the UI.
 
 ## 5. Waves
 
@@ -178,7 +236,8 @@ accepts it in the UI.
 - **Plan every feature fully now**, as in section 3, each with its own `feature` slug. A feature
   that builds on another names the other's files, entities and endpoints as that plan defines them.
   Gate setup (section 3) goes in the first feature that needs the gate.
-- Draft each plan with `plan_draft`, then group them with `wave_draft`: `title`, `goal`,
+- Draft each plan with `plan_draft`, then group them with `wave_draft`, using the `plan_id` each
+  `plan_draft` returned (do not look the drafts up again): `title`, `goal`,
   `out_of_scope`, and `features` in play order, each with its `plan_id` and `depends_on` (1-based
   positions of earlier features it needs). Record the wave-level questions in `discussion`.
 - Hand over the wave as in section 4: the features in order with their task counts and the gates

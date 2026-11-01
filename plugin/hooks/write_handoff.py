@@ -89,7 +89,7 @@ def write(condensed: str, cwd: str, facts: str) -> dict:
     out = subprocess.run(
         ["claude", "-p", "--model", model, "--effort", effort, "--output-format", "json",
          "--allowedTools", *READ_ONLY_TOOLS],
-        input=prompt() + "\n\n" + facts + "\n\n" + condensed,
+        input="\n\n".join(filter(None, [prompt(), common.language_rule(common.project_slug(cwd)), facts, condensed])),
         cwd=cwd, env=env, capture_output=True, text=True, timeout=600,
     )
     if out.returncode != 0:

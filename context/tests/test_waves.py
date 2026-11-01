@@ -172,3 +172,75 @@ def test_gates_waiting_for_their_setup_task_are_listed_as_pending(run_db, projec
     assert before["version"] is None and before["config"]["gates"] == []
     assert [(g["name"], g["task_id"]) for g in before["pending"]] == [("ruff-format", first), ("pytest", first)]
     assert [g["name"] for g in after["config"]["gates"]] == ["ruff-format", "pytest"] and after["pending"] == []
+
+
+def test_a_plan_keeps_the_backlog_items_it_delivers_in_step(run_db, project, indexer):
+    from autonome_context import backlog, web
+    async def setup(conn):
+        async with conn.transaction():
+            await store.create_document(conn, indexer, project=project, type="backlog", status="open", body={
+                "wave": 2, "title": "Wave 2", "items": [{"id": "w2-ledger", "title": "Ledger", "status": "next"},
+                                                         {"id": "w2-audit", "title": "Audit", "status": "next"}]})
+        with pytest.raises(rules.Forbidden, match="w2-ledger"):
+            await plans.draft(conn, indexer, project, "ledger", [], PlanBody(
+                title="Ledger", goal="g", tasks=[TaskSpec(title="t", spec="s")], backlog_items=["w2-ledgr"]))
+        done_plan = await plans.draft(conn, indexer, project, "ledger", [], PlanBody(
+            title="Ledger", goal="g", tasks=[TaskSpec(title="t", spec="s")], backlog_items=["w2-ledger"]))
+        dropped = await plans.draft(conn, indexer, project, "audit", [], PlanBody(
+            title="Audit", goal="g", tasks=[TaskSpec(title="t", spec="s")], backlog_items=["w2-audit"]))
+        [task] = await plans.approve(conn, indexer, done_plan)
+        await plans.approve(conn, indexer, dropped)
+        await conn.commit()
+        return done_plan, dropped, task
+
+    done_plan, dropped, task = run_db(setup)
+
+    async def status(conn):
+        return {i["id"]: i["status"] for w in await backlog.list_backlog(conn, project) for i in w["items"]}
+    assert run_db(status) == {"w2-ledger": "doing", "w2-audit": "doing"}
+
+    async def finish(conn):
+        await rules.transition(conn, task, "playing", "runner")
+        await rules.transition(conn, task, "done", "runner")
+        assert await store.finish_plan_if_complete(conn, done_plan)
+        await plans.finish_wave_if_complete(conn, done_plan)
+        await web.decide(conn, indexer, await store.get_document(conn, dropped), "abandoned")
+        await conn.commit()
+        return await backlog.item_history(conn, project, "w2-ledger")
+    history = run_db(finish)
+    assert run_db(status) == {"w2-ledger": "done", "w2-audit": "next"}
+    assert history[-1]["by"] == f"plan #{done_plan}" and history[-1]["new"] == "done"
+
+
+def test_a_design_choice_must_pick_one_of_its_options():
+    from autonome_context.plans import DesignChoice, DesignOption
+    options = [DesignOption(name="repository", tradeoffs="one place for queries"),
+               DesignOption(name="queries in the service", tradeoffs="fewer files")]
+    assert DesignChoice(topic="data access", options=options, chosen="repository", why="w").chosen == "repository"
+    with pytest.raises(ValueError, match="not one of the options"):
+        DesignChoice(topic="data access", options=options, chosen="active record", why="w")
+    with pytest.raises(ValueError):
+        DesignChoice(topic="data access", options=options[:1], chosen="repository", why="w")
+
+
+def test_the_design_reaches_the_briefing_the_summary_and_survives_a_revision(run_db, project, indexer):
+    from autonome_context.plans import DesignChoice, DesignOption
+    design = [DesignChoice(topic="data access", chosen="repository", why="queries in one place", options=[
+        DesignOption(name="repository", tradeoffs="one more class"), DesignOption(name="inline SQL", tradeoffs="spreads")])]
+
+    async def go(conn):
+        links, stats, wave = await two_feature_wave(conn, indexer, project)
+        await plans.draft(conn, indexer, project, "stats", [], body("Stats", design=design), plan_id=stats)
+        summary = plans.plan_summary(await store.get_document(conn, stats))
+        queued = await plans.approve_wave(conn, indexer, wave)
+        text = await briefing.build(conn, project, queued[stats][0])
+        await play(conn, queued[links][0])
+        await store.finish_plan_if_complete(conn, links)
+        await plans.rehearse(conn, indexer, stats, Rehearsal(verdict="revise", notes="n", plan=body("Stats v2")))
+        await plans.resolve_rehearsal(conn, indexer, stats, accept=True)
+        return summary, text, (await store.get_document(conn, stats))["body"]
+
+    summary, text, revised = run_db(go)
+    assert "Design: data access: repository (over inline SQL)" in summary
+    assert "## Design the plan chose" in text and "data access: repository. queries in one place" in text
+    assert revised["title"] == "Stats v2" and revised["design"][0]["chosen"] == "repository"

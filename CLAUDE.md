@@ -56,6 +56,12 @@ plugin/runner/  the maestro (TypeScript, Claude Agent SDK): one session + worktr
   off plan before on the same feature and related ones) and turn each lesson into acceptance, out of
   scope, a convention or a question; plans also walk each task's edge cases and propose the
   conventions and gates the project lacks.
+- **Plans decide up front.** Choices of approach or pattern go in the plan's `design` with the options
+  weighed (asked as options, recommendation first); the briefing carries the chosen one, going another
+  way is a deviation, and a choice that should outlive the plan also becomes a convention. Plans are
+  laid out to be read: short goal, Markdown specs with **Where** and **How**, never one paragraph.
+- **Language**: `language` in the gate config sets what agents write for people (plans, handoffs,
+  findings, notes, docs); code, identifiers and commits follow the project.
 - **Loops**: compose (human + agent, the only conversation) → conduct (one session per task) →
   tune (after each wave, automatically; reads `insights`, only proposes conventions and at most one
   plan) ← cues (scheduled checks that only queue tasks into a maintenance plan a human approved once).

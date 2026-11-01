@@ -327,55 +327,64 @@
       "name": "plan_draft",
       "description": "Save a draft plan for the human to approve in the UI. Agents cannot approve plans. Put the gates\nthe plan needs and the gate config lacks in `plan.gates`: approving the plan adds them.",
       "inputSchema": {
-        "properties": {
-          "project": {
-            "title": "Project",
-            "type": "string"
-          },
-          "plan": {
-            "$ref": "#/$defs/PlanBody"
-          },
-          "feature": {
-            "anyOf": [
-              {
+        "$defs": {
+          "DesignChoice": {
+            "description": "A choice of approach or pattern the plan makes up front, so the implementers do not make it.",
+            "properties": {
+              "topic": {
+                "description": "what is being decided, e.g. 'data access'",
+                "title": "Topic",
                 "type": "string"
               },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "description": "kebab-case feature slug",
-            "title": "Feature"
-          },
-          "layers": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "title": "Layers",
-            "type": "array"
-          },
-          "plan_id": {
-            "anyOf": [
-              {
-                "type": "integer"
+              "options": {
+                "description": "the options weighed, the chosen one included",
+                "items": {
+                  "$ref": "#/$defs/DesignOption"
+                },
+                "minItems": 2,
+                "title": "Options",
+                "type": "array"
               },
-              {
-                "type": "null"
+              "chosen": {
+                "description": "the name of the chosen option",
+                "title": "Chosen",
+                "type": "string"
+              },
+              "why": {
+                "description": "why this one, for this project now",
+                "title": "Why",
+                "type": "string"
               }
+            },
+            "required": [
+              "topic",
+              "options",
+              "chosen",
+              "why"
             ],
-            "default": null,
-            "description": "revise this draft instead of creating a new one",
-            "title": "Plan Id"
-          }
-        },
-        "required": [
-          "project",
-          "plan"
-        ],
-        "type": "object",
-        "$defs": {
+            "title": "DesignChoice",
+            "type": "object"
+          },
+          "DesignOption": {
+            "properties": {
+              "name": {
+                "description": "short, e.g. 'repository per aggregate'",
+                "title": "Name",
+                "type": "string"
+              },
+              "tradeoffs": {
+                "description": "what it costs and what it buys, in one or two lines",
+                "title": "Tradeoffs",
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "tradeoffs"
+            ],
+            "title": "DesignOption",
+            "type": "object"
+          },
           "PlanBody": {
             "properties": {
               "title": {
@@ -383,11 +392,13 @@
                 "type": "string"
               },
               "goal": {
+                "description": "one or two sentences: what changes, and for whom",
                 "title": "Goal",
                 "type": "string"
               },
               "context": {
                 "default": "",
+                "description": "Markdown, laid out to be scanned: short sections under bold labels, lists over paragraphs",
                 "title": "Context",
                 "type": "string"
               },
@@ -448,6 +459,15 @@
                 "title": "Conventions",
                 "type": "array"
               },
+              "design": {
+                "default": [],
+                "description": "choices of approach or pattern the plan makes, each with the options weighed; the tasks follow the chosen option, and going another way is a deviation",
+                "items": {
+                  "$ref": "#/$defs/DesignChoice"
+                },
+                "title": "Design",
+                "type": "array"
+              },
               "discussion": {
                 "default": [],
                 "description": "the questions and answers that shaped the plan",
@@ -455,6 +475,15 @@
                   "$ref": "#/$defs/Turn"
                 },
                 "title": "Discussion",
+                "type": "array"
+              },
+              "backlog_items": {
+                "default": [],
+                "description": "ids of the backlog items this plan delivers (e.g. w2-ledger); approving the plan marks them doing, finishing it marks them done, abandoning it puts them back to next",
+                "items": {
+                  "type": "string"
+                },
+                "title": "Backlog Items",
                 "type": "array"
               }
             },
@@ -567,7 +596,7 @@
                 "type": "string"
               },
               "spec": {
-                "description": "what to do, concretely enough to be done without asking",
+                "description": "what to do, concretely enough to be done without asking. Markdown, laid out to be scanned, never one paragraph: a line on what changes, then **Where** (files, endpoints, entities, as a list) and **How** (the steps, as a list)",
                 "title": "Spec",
                 "type": "string"
               },
@@ -624,7 +653,55 @@
             "type": "object"
           }
         },
-        "title": "plan_draftArguments"
+        "properties": {
+          "project": {
+            "title": "Project",
+            "type": "string"
+          },
+          "plan": {
+            "$ref": "#/$defs/PlanBody"
+          },
+          "feature": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "kebab-case feature slug",
+            "title": "Feature"
+          },
+          "layers": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Layers",
+            "type": "array"
+          },
+          "plan_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "revise this draft instead of creating a new one",
+            "title": "Plan Id"
+          }
+        },
+        "required": [
+          "project",
+          "plan"
+        ],
+        "title": "plan_draftArguments",
+        "type": "object"
       }
     },
     {
