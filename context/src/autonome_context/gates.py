@@ -132,6 +132,10 @@ class GateConfig(_Strict):
     language: str = Field(
         default="", description="language of what agents write for people (plans, handoffs, findings, docs), e.g. "
                                 "pt-BR; empty: English. Code, identifiers and commits follow the project")
+    permissions: Literal["allowlist", "auto"] = Field(
+        default="allowlist",
+        description="how implementer sessions are allowed to act: allowlist (only listed commands) or auto "
+                    "(the Agent SDK's classifier judges each call; hard limits stay)")
     smoke_test: SmokeTest | None = None
     triage: Triage | None = None
     models: dict[str, RoleModel] = Field(
@@ -169,6 +173,7 @@ review_after_merge: {features: []}    # merge, then the human reviews forward (n
 schedules: []
 review: {enabled: true, max_rounds: 2}
 # language: pt-BR           # what agents write for people; code and commits follow the project
+# permissions: allowlist   # or auto: a classifier judges each command of the implementer
 # models: {implementer: {model: sonnet, effort: medium, fallback: haiku}}   # per role; see DEFAULT_MODELS
 # triage:                    # a classifier judges deviation decisions (the Jev key stays in the runner's environment)
 #   model: jev-latest        # jev-latest | haiku | off

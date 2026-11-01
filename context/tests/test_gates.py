@@ -50,6 +50,19 @@ def test_the_old_names_are_rejected_like_any_unknown_key(old):
         GateConfig.from_yaml(old)
 
 
+def test_permissions_default_to_allowlist_and_auto_round_trips():
+    assert GateConfig.from_yaml("gates: []").permissions == "allowlist"
+    cfg = GateConfig.from_yaml("permissions: auto")
+    assert cfg.permissions == "auto"
+    assert GateConfig.from_yaml(cfg.to_yaml()).permissions == "auto"
+
+
+@pytest.mark.parametrize("value", ["yolo", "bypassPermissions"])
+def test_unknown_permissions_are_rejected(value):
+    with pytest.raises(ValidationError):
+        GateConfig.from_yaml(f"permissions: {value}")
+
+
 def test_the_default_models_are_the_product_roles():
     assert set(DEFAULT_MODELS) == {"implementer", "reviewer", "preflight", "tester", "retro", "handoff", "docs"}
     assert set(GateConfig().models) == set(DEFAULT_MODELS)
