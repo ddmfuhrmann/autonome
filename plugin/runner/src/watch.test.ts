@@ -22,6 +22,23 @@ test("new waiting items say whether they block, with the blocked reason", () => 
   assert.deepEqual(changes(next, next), []);
 });
 
+test("with the triage on, only a deviation it could not settle is reported", () => {
+  const next: State = { ...empty, triage: true, waiting: [
+    { kind: "decision", id: 1, title: "judged soon", blocks: false, deviation: true },
+    { kind: "decision", id: 2, title: "gave up", blocks: false, deviation: true, exhausted: true },
+    { kind: "decision", id: 3, title: "plain choice", blocks: false },
+  ] };
+  assert.deepEqual(changes(empty, next), [
+    "review #2 deviation the triage could not settle: gave up",
+    "review #3 decision to review: plain choice",
+  ]);
+});
+
+test("with the triage off, a deviation is a decision to review", () => {
+  const next: State = { ...empty, waiting: [{ kind: "decision", id: 1, title: "d", blocks: false, deviation: true }] };
+  assert.deepEqual(changes(empty, next), ["review #1 decision to review: d"]);
+});
+
 test("the summary counts tasks and what waits", () => {
   const s: State = { ...empty, tasks: [{ id: 1, title: "A", status: "done" }],
     waiting: [{ kind: "plans", id: 5, title: "P", blocks: true }] };

@@ -26,7 +26,7 @@ export function drifted(features: Feature[]): string[] {
     .map((f) => f.slug);
 }
 
-async function runCue(cue: Cue, cwd: string, opts: CueOptions): Promise<string> {
+export async function runCue(cue: Cue, cwd: string, opts: CueOptions): Promise<string> {
   const source = `cue:${cue.name}`;
   if (cue.kind === "command") {
     if (!cue.run) return "no command";

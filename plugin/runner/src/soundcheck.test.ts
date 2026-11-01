@@ -34,6 +34,22 @@ test("an environment that does not start blocks with nothing to fix, and is stil
   assert.equal(readFileSync(join(dir, "state"), "utf8"), "down\n");
 });
 
+test("the Jev key does not reach the soundcheck commands", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "soundcheck-"));
+  const was = process.env.TYPESAFE_API_KEY;
+  process.env.TYPESAFE_API_KEY = "secret";
+  try {
+    const r = await soundcheck(plan, {
+      ...base, up: 'test -z "$TYPESAFE_API_KEY"', down: 'test -z "$TYPESAFE_API_KEY"', seed: 'test -z "$TYPESAFE_API_KEY"',
+      checks: [{ name: "env", run: 'test -z "$TYPESAFE_API_KEY"', timeout_s: 10 }],
+    }, dir, undefined, () => {});
+    assert.equal(r.passed, true, r.report);
+  } finally {
+    if (was === undefined) delete process.env.TYPESAFE_API_KEY;
+    else process.env.TYPESAFE_API_KEY = was;
+  }
+});
+
 test("only high findings go back to the musician", () => {
   const text = findingsForEncore({ verdict: "fail", findings: [
     { severity: "high", file: "a.py", issue: "redirects to any scheme, including javascript:" },

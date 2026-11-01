@@ -6,7 +6,20 @@ export interface State {
   tasks: { id: number; title: string; status: string; reason?: string }[];
   plans: { id: number; title: string; status: string }[];
   waves: { id: number; title: string; status: string }[];
-  waiting: { kind: string; id: number; title: string; blocks: boolean }[];
+  waiting: { kind: string; id: number; title: string; blocks: boolean; deviation?: boolean; exhausted?: boolean }[];
+  /** The triage is on: it judges deviations, so only the ones it gave up on wait for the human. */
+  triage?: boolean;
+}
+
+type Waiting = State["waiting"][number];
+
+/** The line for a waiting item, or null when the human has nothing to do with it. */
+function waitingLine(i: Waiting, s: State): string | null {
+  const tag = i.blocks ? "needs-you" : "review";
+  if (i.kind === "decision" && i.deviation && s.triage) {
+    return i.exhausted ? `${tag} #${i.id} deviation the triage could not settle: ${i.title}` : null;
+  }
+  return `${tag} #${i.id} ${WAITING[i.kind] ?? i.kind}: ${i.title}`;
 }
 
 const WAITING: Record<string, string> = {
@@ -40,9 +53,10 @@ export function changes(prev: State, next: State): string[] {
   const seen = new Set(prev.waiting.map((i) => `${i.kind}:${i.id}`));
   for (const i of next.waiting) {
     if (seen.has(`${i.kind}:${i.id}`)) continue;
+    const line = waitingLine(i, next);
+    if (!line) continue;
     const reason = i.kind === "blocked" ? next.tasks.find((t) => t.id === i.id)?.reason : "";
-    out.push(`${i.blocks ? "needs-you" : "review"} #${i.id} ${WAITING[i.kind] ?? i.kind}: ${i.title}`
-      + (reason ? ` (${reason.split("\n")[0].slice(0, 160)})` : ""));
+    out.push(line + (reason ? ` (${reason.split("\n")[0].slice(0, 160)})` : ""));
   }
   return out;
 }
@@ -60,7 +74,10 @@ export async function watch(opts: { project: string; every: number; once?: boole
   const get = () => call<State>(`/api/projects/${opts.project}/state`);
   let prev = await get();
   opts.log(summary(prev));
-  for (const i of prev.waiting) opts.log(`${i.blocks ? "needs-you" : "review"} #${i.id} ${WAITING[i.kind] ?? i.kind}: ${i.title}`);
+  for (const i of prev.waiting) {
+    const line = waitingLine(i, prev);
+    if (line) opts.log(line);
+  }
   if (opts.once) return;
   for (;;) {
     await new Promise((r) => setTimeout(r, opts.every * 1000));

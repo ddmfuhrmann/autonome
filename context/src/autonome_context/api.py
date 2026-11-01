@@ -365,7 +365,7 @@ async def get_events(request: Request) -> JSONResponse:
 async def project_state(request: Request) -> JSONResponse:
     """A compact snapshot for watchers (`autonome watch`): every task and plan with its status, the
     waves, and what waits on the human, split into what blocks and what can wait."""
-    from .web import BLOCKING, _queue  # the same queue the Approvals page shows
+    from .web import BLOCKING, _queue, _triage_on  # the same queue the Approvals page shows
 
     project = request.path_params["project"]
     pool, _ = await services.get()
@@ -374,6 +374,10 @@ async def project_state(request: Request) -> JSONResponse:
         plans_ = await store.list_documents(conn, project, type="plan", limit=300)
         waves = await store.list_documents(conn, project, type="wave", limit=50)
         queue = await _queue(conn, project)
+        triage = await _triage_on(conn, project)
+        if triage:  # the queue leaves deviations to the classifier; the ones it gave up on still need a human
+            queue += [{"kind": "decision", "doc": d} for d in await store.list_documents(conn, project, type="decision", status="proposed")
+                      if d["body"].get("deviation") and d["body"].get("triage_exhausted")]
     last = lambda t: (t["body"].get("runs") or [{}])[-1]
     return _json({
         "tasks": [{"id": t["id"], "title": t["body"]["title"], "status": t["status"], "feature": t["feature"],
@@ -383,7 +387,10 @@ async def project_state(request: Request) -> JSONResponse:
                   for p in plans_],
         "waves": [{"id": w["id"], "title": w["body"].get("title"), "status": w["status"]} for w in waves],
         "waiting": [{"kind": i["kind"], "id": i["doc"]["id"], "title": i["doc"]["body"].get("title")
-                     or i["doc"]["body"].get("summary", "")[:80], "blocks": i["kind"] in BLOCKING} for i in queue],
+                     or i["doc"]["body"].get("summary", "")[:80], "blocks": i["kind"] in BLOCKING,
+                     "deviation": bool(i["doc"]["body"].get("deviation")),
+                     "exhausted": bool(i["doc"]["body"].get("triage_exhausted"))} for i in queue],
+        "triage": triage,
     })
 
 

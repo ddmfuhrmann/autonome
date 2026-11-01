@@ -160,6 +160,43 @@ def test_reject_at_the_last_round_keeps_it_proposed_and_marks_it_exhausted(clien
     assert run_db(lambda c: store.list_documents(c, project, type="task")) == []
 
 
+def test_the_state_snapshot_reports_only_the_deviation_the_triage_gave_up_on(client, project, run_db, indexer, deviation):
+    doc_id = deviation()
+    s = client.get(f"/api/projects/{project}/state").json()
+    assert s["triage"] is False
+    assert [(i["id"], i["deviation"], i["exhausted"]) for i in s["waiting"]] == [(doc_id, True, False)]
+
+    enable(run_db, indexer, project)
+    s = client.get(f"/api/projects/{project}/state").json()
+    assert s["triage"] is True and s["waiting"] == []  # unjudged: the classifier's, not the human's
+
+    decisions = lambda: [i for i in client.get(f"/api/projects/{project}/state").json()["waiting"] if i["kind"] == "decision"]
+    client.post(f"/api/decisions/{doc_id}/triage", json=verdict("reject", round=1))  # judged and rejected
+    assert decisions() == []  # (its undo task puts the maintenance plan in the queue, which is not a decision)
+
+    second = deviation_two(run_db, indexer, project)
+    client.post(f"/api/decisions/{second}/triage", json=verdict("reject", round=2))
+    assert [(i["id"], i["deviation"], i["exhausted"], i["blocks"]) for i in decisions()] == [(second, True, True, False)]
+
+
+def test_the_state_snapshot_says_triage_is_off_for_model_off(client, project, run_db, indexer):
+    assert client.get(f"/api/projects/{project}/state").json()["triage"] is False
+    enable(run_db, indexer, project, "triage: {model: off}\n")
+    assert client.get(f"/api/projects/{project}/state").json()["triage"] is False
+
+
+def deviation_two(run_db, indexer, project):
+    from autonome_context.handoff import Decision
+
+    async def go(conn):
+        await store.put_handoff(conn, indexer, make_handoff(project, feature="links", session_id="s2", decisions=[
+            Decision(title="Another one", rationale="r", deviation=True)]), None)
+        await conn.commit()
+        return next(d["id"] for d in await store.list_documents(conn, project, type="decision")
+                    if d["body"]["title"] == "Another one")
+    return run_db(go)
+
+
 def test_malformed_input_is_a_422_and_changes_nothing(client, project, run_db, indexer, deviation):
     enable(run_db, indexer, project)
     doc_id = deviation()

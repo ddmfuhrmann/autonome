@@ -35,6 +35,13 @@ test("commit subjects lowercase a plain first word and keep acronyms and names a
   assert.equal(subject("GET /links/{code}/stats"), "feat(links): GET /links/{code}/stats");
 });
 
+test("a title whose type word is followed by punctuation keeps the word", () => {
+  const subject = (title: string) => commitMessage({ id: 1, feature: "triage", body: { title, plan_id: 1 } }).split("\n")[0];
+  assert.equal(subject("Docs, README, CLAUDE.md and version"), "docs(triage): docs, README, CLAUDE.md and version");
+  assert.equal(subject("Docs"), "docs(triage): docs");
+  assert.equal(subject("Docs: README and version"), "docs(triage): README and version");
+});
+
 test("commit message follows conventional commits with plan and task trailers", () => {
   const msg = commitMessage({ id: 7, feature: "wallet", body: { title: "Fix: Rounding of fees", plan_id: 3 } });
   assert.match(msg, /^fix\(wallet\): rounding of fees\n\nPlan: #3\nTask: #7\n/);

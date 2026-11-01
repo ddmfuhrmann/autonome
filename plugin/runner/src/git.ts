@@ -45,7 +45,9 @@ export function fastForwardMain(repo: string, branch: string, main = "main"): { 
 export function commitMessage(task: { id: number; feature: string | null; body: { title: string; plan_id: number } }): string {
   const title = task.body.title.trim();
   const type = /^(fix|refactor|test|docs|build|ci|chore|perf)\b/i.exec(title)?.[1]?.toLowerCase() ?? "feat";
-  const summary = title.replace(/^(fix|refactor|test|docs|build|ci|chore|perf)\b[:\s-]*/i, "");
+  const stripped = title.replace(/^(fix|refactor|test|docs|build|ci|chore|perf)\b[:\s-]*/i, "");
+  // "Docs, README and version": without the type word it would start with punctuation, so keep it whole.
+  const summary = /^[\p{L}\p{N}]/u.test(stripped) ? stripped : title;
   // "Count clicks" -> "count clicks", but an acronym or a name keeps its case: "POST", "SQLite".
   const firstWord = summary.split(/\s/)[0];
   const lower = firstWord.slice(1) === firstWord.slice(1).toLowerCase();
