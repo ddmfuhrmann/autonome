@@ -92,6 +92,19 @@ export interface TriageItem {
   state: Record<string, unknown>;
 }
 
+/** An accepted decision waiting to be screened. */
+export interface ScreenItem {
+  decision_id: number;
+  state: Record<string, unknown>;
+}
+
+export interface ScreeningBody {
+  backend: string;
+  model: string;
+  is_deviation: number;
+  reject_at: number;
+}
+
 /** What the context stores of a verdict: answers are short noul strings, the state a JSON string. */
 export interface TriageVerdictBody {
   backend: string;
@@ -272,8 +285,11 @@ export const context = {
       method: "POST",
       body: JSON.stringify({ to, run }),
     }),
-  triageState: async (project: string) =>
-    (await call<{ deviations: TriageItem[] }>(`/api/projects/${project}/triage`)).deviations,
+  triageState: (project: string) =>
+    call<{ deviations: TriageItem[]; screen?: ScreenItem[] }>(`/api/projects/${project}/triage`),
+  triageScreen: (decisionId: number, s: ScreeningBody) =>
+    call<{ status: string; deviation: boolean }>(`/api/decisions/${decisionId}/screen`, {
+      method: "POST", body: JSON.stringify(s) }),
   triageVerdict: (decisionId: number, v: TriageVerdictBody) =>
     call<{ status: string; triage_exhausted?: boolean }>(`/api/decisions/${decisionId}/triage`, {
       method: "POST", body: JSON.stringify(v) }),

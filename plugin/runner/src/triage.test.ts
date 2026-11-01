@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import type { consult } from "./agents.js";
 import type { Triage } from "./context.js";
-import { type Answers, haiku, jev, judge, pingJev, QUESTIONS, verdict } from "./triage.js";
+import { type Answers, haiku, jev, judge, pingJev, QUESTIONS, SCREEN_QUESTION, screen, screenJev, verdict } from "./triage.js";
 
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; });
@@ -47,6 +47,20 @@ test("both failing throws, never accepts", async () => {
     jev: async () => { throw new Error("down"); },
     haiku: async () => { throw new Error("bad"); },
   }), /triage failed/);
+});
+
+test("screen: jev, then haiku, never a default", async () => {
+  const s = await screen(state, cfg, { screenJev: async () => { throw new Error("down"); }, screenHaiku: async () => 0.8 });
+  assert.deepEqual([s.backend, s.model, s.isDeviation], ["haiku", "haiku", 0.8]);
+  await assert.rejects(screen(state, cfg, { screenJev: async () => { throw new Error("down"); } }), /screening failed/);
+});
+
+test("screenJev sends the existing request shape with one noul and rejects a malformed answer", async () => {
+  const asked: { nouls: { name: string; question: string }[] }[] = [];
+  const p = await screenJev(state, "k", async (_s, nouls) => { asked.push({ nouls }); return { is_deviation: 0.9 }; });
+  assert.equal(p, 0.9);
+  assert.deepEqual(asked[0].nouls, [{ name: "is_deviation", question: SCREEN_QUESTION }]);
+  await assert.rejects(screenJev(state, "k", async () => ({})), /is_deviation/);
 });
 
 test("both off throws", async () => {

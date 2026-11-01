@@ -12,6 +12,11 @@ export const QUESTIONS = {
   narrower: "The `deviation` keeps the change smaller than the task asked for, with the same result.",
 } as const;
 
+/** The screening question: asked of every decision recorded as within the plan. */
+export const SCREEN_QUESTION =
+  "The `deviation` goes against the task, the plan or a convention in the state, or weakens a test, check or gate.";
+const SCREEN_NAME = "is_deviation";
+
 export type QuestionName = keyof typeof QUESTIONS;
 export type Answers = Record<QuestionName, number>;
 export type Verdict = "accept" | "reject";
@@ -177,9 +182,76 @@ export interface Judgment {
   verdict: Verdict;
 }
 
+export type ScreenBackend = (state: Record<string, unknown>) => Promise<number>;
+
 export interface Backends {
   jev?: Backend;
   haiku?: Backend;
+  /** The one-question screening, through the same models; tests inject fakes. */
+  screenJev?: ScreenBackend;
+  screenHaiku?: ScreenBackend;
+}
+
+function probability(raw: unknown, from: string): number {
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0 || raw > 1) {
+    throw new Error(`${from}: answer "${SCREEN_NAME}" is missing or outside 0..1`);
+  }
+  return raw;
+}
+
+/** Jev's probability that the decision is a deviation. Throws on a failed or malformed call. */
+export async function screenJev(state: Record<string, unknown>, key: string, ask: typeof askJev = askJev): Promise<number> {
+  const raw = await ask(state, [{ name: SCREEN_NAME, question: SCREEN_QUESTION }], key);
+  return probability((raw as Record<string, unknown> | null | undefined)?.[SCREEN_NAME], "jev");
+}
+
+const SCREEN_SCHEMA = {
+  type: "object",
+  properties: { [SCREEN_NAME]: { type: "number", minimum: 0, maximum: 1 } },
+  required: [SCREEN_NAME],
+} as const;
+
+/** Haiku's probability that the decision is a deviation. `ask` is the Agent SDK session. */
+export async function screenHaiku(state: Record<string, unknown>, ask: typeof consult = consult,
+  effort: Effort = "low"): Promise<number> {
+  const { answer } = await ask<Record<string, unknown>>({
+    cwd: process.cwd(),
+    model: "haiku",
+    effort,
+    role: HAIKU_ROLE,
+    schema: SCREEN_SCHEMA,
+    maxTurns: 3,
+    prompt: [
+      "State:", "```json", JSON.stringify(state, null, 2), "```", "",
+      "Statements:", `- ${SCREEN_NAME}: ${SCREEN_QUESTION}`,
+    ].join("\n"),
+  });
+  return probability(answer?.[SCREEN_NAME], "haiku");
+}
+
+export interface Screening {
+  backend: "jev" | "haiku";
+  model: string;
+  isDeviation: number;
+}
+
+/** Same order as `judge`: the configured model, then the fallback. Throws when both fail or are off. */
+export async function screen(state: Record<string, unknown>, cfg: Triage, backends: Backends): Promise<Screening> {
+  const order = [cfg.model, cfg.fallback].filter((m) => m !== "off");
+  if (!order.length) throw new Error("triage is off");
+  const errors: string[] = [];
+  for (const model of order) {
+    const backend = model === "haiku" ? "haiku" : "jev";
+    const call = backend === "haiku" ? backends.screenHaiku : backends.screenJev;
+    try {
+      if (!call) throw new Error(`no ${backend} backend`);
+      return { backend, model, isDeviation: await call(state) };
+    } catch (e) {
+      console.error(`triage: screening with ${model} failed:`, e);
+      errors.push(`${model}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  throw new Error(`screening failed (${errors.join("; ")})`);
 }
 
 /** Tries the configured model, then the fallback. Throws when both fail or both are off: a failed
