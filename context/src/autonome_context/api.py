@@ -246,6 +246,85 @@ async def post_triage(request: Request) -> JSONResponse:
     return _json({"status": "rejected" if v.verdict == "reject" else "accepted"})
 
 
+async def _decision_task(conn, decision_id: int) -> dict | None:
+    """The task whose session made this decision: decision <-records- handoff -reports-> task."""
+    for h in (l for l in await store.links_of(conn, decision_id) if l["kind"] == "records" and l["direction"] == "in"):
+        for t in await store.links_of(conn, h["id"]):
+            if t["kind"] == "reports" and t["direction"] == "out" and t["type"] == "task":
+                return await store.get_document(conn, t["id"])
+    return None
+
+
+async def _triage_round(conn, task: dict | None) -> int:
+    """0, or 1 + the round of decision Y when the task is the undo of Y (`source` is `decision:Y`)."""
+    seen: set[int] = set()
+    rounds = 0
+    while task and str(task["body"].get("source", "")).startswith("decision:"):
+        try:
+            y = int(task["body"]["source"].split(":", 1)[1])
+        except ValueError:
+            break
+        if y in seen:
+            break
+        seen.add(y)
+        rounds += 1
+        task = await _decision_task(conn, y)
+    return rounds
+
+
+async def _triage_state(conn, d: dict, task: dict | None) -> dict:
+    """What the classifier is shown; parts that do not exist are left out, never sent empty."""
+    def pick(body: dict, keys: tuple[str, ...]) -> dict:
+        return {k: body[k] for k in keys if body.get(k)}
+
+    state: dict = {}
+    if deviation := pick(d["body"], ("title", "decision")):
+        state["deviation"] = deviation
+    if task:
+        tb = task["body"]
+        if task_part := pick(tb, ("title", "spec", "acceptance")):
+            state["task"] = task_part
+        plan = await store.get_document(conn, tb["plan_id"]) if tb.get("plan_id") else None
+        if plan and (plan_part := pick(plan["body"], ("goal", "out_of_scope"))):
+            state["plan"] = plan_part
+        runs = sorted(await store.gate_runs(conn, task_id=task["id"]), key=lambda r: r["id"])
+        # The task's last run: the newest session's gates, the latest result of each.
+        last: dict[str, bool] = {}
+        for r in (r for r in runs if runs and r["session_id"] == runs[-1]["session_id"]):
+            last[r["gate"]] = r["passed"]
+        if last:
+            state["gates"] = [{"name": n, "passed": p} for n, p in last.items()]
+        findings = ((tb.get("runs") or [{}])[-1].get("review") or {}).get("findings") or []
+        if findings:
+            state["review"] = [{"severity": f.get("severity"), "kind": f.get("kind"), "issue": f.get("issue")}
+                               for f in findings]
+    convs = await store.conventions_for(conn, d["project"], d["layers"])
+    if convs:
+        state["conventions"] = [{"title": c["body"].get("title"), "rule": c["body"].get("rule")} for c in convs]
+    return state
+
+
+async def get_triage(request: Request) -> JSONResponse:
+    """Deviations the runner's classifier has yet to judge at their current round, oldest first."""
+    project = request.path_params["project"]
+    pool, _ = await services.get()
+    out = []
+    async with pool.connection() as conn:
+        decisions = await store.list_documents(conn, project, type="decision", status="proposed", limit=None,
+                                               oldest_first=True)
+        for d in decisions:
+            if not d["body"].get("deviation") or d["body"].get("triage_exhausted"):
+                continue
+            task = await _decision_task(conn, d["id"])
+            round_ = await _triage_round(conn, task)
+            if any(e.get("round") == round_ for e in d["body"].get("triage_history", [])):
+                continue
+            out.append({"decision_id": d["id"], "round": round_, "state": await _triage_state(conn, d, task)})
+            if len(out) == 50:
+                break
+    return _json(out)
+
+
 async def untuned_waves(request: Request) -> JSONResponse:
     """Finished waves the tune loop has not looked at yet."""
     pool, _ = await services.get()
@@ -323,6 +402,7 @@ def routes() -> list:
         Route("/api/plans/{doc_id:int}/rehearsal", post_rehearsal, methods=["POST"]),
         Route("/api/plans/{doc_id:int}/soundcheck", post_soundcheck, methods=["POST"]),
         Route("/api/projects/{project}/waves/untuned", untuned_waves),
+        Route("/api/projects/{project}/triage", get_triage),
         Route("/api/decisions/{doc_id:int}/triage", post_triage, methods=["POST"]),
         Route("/api/waves/{doc_id:int}/tuned", wave_tuned, methods=["POST"]),
         Route("/api/projects/{project}/briefing", get_briefing),

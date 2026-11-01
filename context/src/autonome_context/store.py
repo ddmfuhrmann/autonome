@@ -179,7 +179,8 @@ async def list_documents(
     type: str | None = None,
     status: str | None = None,
     feature: str | None = None,
-    limit: int = 200,
+    limit: int | None = 200,
+    oldest_first: bool = False,
 ) -> list[dict]:
     async with conn.cursor(row_factory=dict_row) as cur:
         await cur.execute(
@@ -188,7 +189,8 @@ async def list_documents(
                   and (%(type)s::text is null or d.type = %(type)s)
                   and (%(status)s::text is null or d.status = %(status)s)
                   and (%(feature)s::text is null or f.slug = %(feature)s)
-                order by d.created_at desc limit %(limit)s""",
+                order by d.created_at """ + ("asc, d.id asc" if oldest_first else "desc")
+            + " limit %(limit)s",
             {"project": project, "type": type, "status": status, "feature": feature, "limit": limit},
         )
         return await cur.fetchall()

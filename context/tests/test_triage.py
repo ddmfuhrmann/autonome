@@ -128,6 +128,93 @@ def test_a_second_verdict_on_a_decided_deviation_is_refused_not_a_500(client, pr
     assert client.post(f"/api/decisions/{doc_id}/triage", json=verdict("accept")).status_code == 403
 
 
+def seed(run_db, indexer, project, *, session="s-1", title="Dict", source=None, with_task=True):
+    """A handoff with one deviation, reporting a task of a plan. Returns (decision id, task id)."""
+    from autonome_context.handoff import Decision
+
+    async def go(conn):
+        task_id = None
+        if with_task:
+            plan_id = await store.create_document(conn, indexer, project=project, type="plan", status="approved",
+                feature="links", body={"title": "P", "goal": "Short links", "out_of_scope": ["analytics"], "tasks": []})
+            body = {"title": "Task " + title, "spec": "do it", "acceptance": ["works"], "plan_id": plan_id,
+                    "runs": [{"review": {"findings": [{"severity": "medium", "kind": "style", "issue": "naming"}]}}]}
+            if source:
+                body["source"] = source
+            task_id = await store.create_document(conn, indexer, project=project, type="task", status="playing",
+                                                  feature="links", layers=["api"], body=body)
+        h = await store.put_handoff(conn, indexer, make_handoff(project, feature="links", layers=["api"],
+            session_id=session, decisions=[Decision(title=title, rationale="faster", deviation=True)]), None)
+        if task_id:
+            await store.link(conn, h, task_id, "reports")
+            # An earlier round's failure of a gate the last run did not repeat must not show up.
+            await store.record_gate_runs(conn, project, "old-" + session, [
+                {"gate": "lint", "passed": False, "duration_ms": 1}], task_id=task_id)
+            await store.record_gate_runs(conn, project, session, [
+                {"gate": "pytest", "passed": False, "duration_ms": 1}, {"gate": "pytest", "passed": True, "duration_ms": 1},
+                {"gate": "ruff", "passed": True, "duration_ms": 1}], task_id=task_id)
+        await store.create_document(conn, indexer, project=project, type="convention", status="active",
+                                    layers=["api"], body={"title": "Models", "rule": "use response models"})
+        await conn.commit()
+        d = next(d for d in await store.list_documents(conn, project, type="decision") if d["body"]["title"] == title)
+        return d["id"], task_id
+    return run_db(go)
+
+
+def pending(client, project):
+    return client.get(f"/api/projects/{project}/triage").json()
+
+
+def test_state_of_a_deviation_with_a_plan_has_every_field(client, project, run_db, indexer):
+    decision, _ = seed(run_db, indexer, project)
+    [item] = pending(client, project)
+    assert (item["decision_id"], item["round"]) == (decision, 0)
+    s = item["state"]
+    assert s["deviation"] == {"title": "Dict", "decision": "faster"}
+    assert s["task"] == {"title": "Task Dict", "spec": "do it", "acceptance": ["works"]}
+    assert s["plan"] == {"goal": "Short links", "out_of_scope": ["analytics"]}
+    assert s["conventions"] == [{"title": "Models", "rule": "use response models"}]
+    assert sorted((g["name"], g["passed"]) for g in s["gates"]) == [("pytest", True), ("ruff", True)]
+    assert s["review"] == [{"severity": "medium", "kind": "style", "issue": "naming"}]
+
+
+def test_a_decision_with_no_task_returns_only_deviation_and_conventions(client, project, run_db, indexer):
+    seed(run_db, indexer, project, with_task=False)
+    [item] = pending(client, project)
+    assert sorted(item["state"]) == ["conventions", "deviation"]
+
+
+def test_empty_parts_are_left_out_not_sent_empty(client, project, run_db, indexer):
+    _, task_id = seed(run_db, indexer, project)
+
+    async def blank(conn):
+        t = await store.get_document(conn, task_id)
+        await store.add_version(conn, None, task_id, {"plan_id": t["body"]["plan_id"]})
+        await conn.commit()
+    run_db(blank)
+    [item] = pending(client, project)
+    assert "task" not in item["state"] and "deviation" in item["state"]
+
+
+def test_an_undo_tasks_deviation_is_one_round_later(client, project, run_db, indexer):
+    first, _ = seed(run_db, indexer, project, title="First")
+    second, _ = seed(run_db, indexer, project, session="s-2", title="Second", source=f"decision:{first}")
+    third, _ = seed(run_db, indexer, project, session="s-3", title="Third", source=f"decision:{second}")
+    assert {i["decision_id"]: i["round"] for i in pending(client, project)} == {first: 0, second: 1, third: 2}
+
+
+def test_decided_exhausted_and_already_judged_decisions_are_not_returned(client, project, run_db, indexer):
+    enable(run_db, indexer, project)
+    accepted, _ = seed(run_db, indexer, project, session="a", title="A")
+    rejected, _ = seed(run_db, indexer, project, session="b", title="B")
+    exhausted, _ = seed(run_db, indexer, project, session="c", title="C")
+    judged, _ = seed(run_db, indexer, project, session="d", title="D")
+    assert client.post(f"/api/decisions/{accepted}/triage", json=verdict("accept")).status_code == 200
+    assert client.post(f"/api/decisions/{rejected}/triage", json=verdict("reject")).status_code == 200
+    assert client.post(f"/api/decisions/{exhausted}/triage", json=verdict("reject", round=2)).status_code == 200
+    assert [i["decision_id"] for i in pending(client, project)] == [judged]
+
+
 def test_the_human_path_is_unchanged(client, project, run_db, indexer, deviation):
     enable(run_db, indexer, project)
     doc_id = deviation()
