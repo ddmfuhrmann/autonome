@@ -200,8 +200,13 @@ async def _side(conn, project: str) -> dict:
     waves = await store.list_documents(conn, project, type="wave", status="approved", limit=5)
     queue = await _queue(conn, project)
     waiting = [i for i in queue if i["kind"] in BLOCKING]
+    handoffs, last_handoff, last_activity = await (await conn.execute(
+        "select count(*) filter (where d.type = 'handoff'), max(d.created_at) filter (where d.type = 'handoff'),"
+        " max(d.created_at) from document d join project p on p.id = d.project_id where p.slug = %s",
+        (project,))).fetchone()
     return {"waiting": len(waiting), "to_hear": sum(i["kind"] == "playback" for i in queue), "playing": status["playing"],
-            "on_hold": status["on_hold"], "pending": status["pending"], "wave": waves[0] if waves else None}
+            "on_hold": status["on_hold"], "pending": status["pending"], "wave": waves[0] if waves else None,
+            "handoffs": handoffs, "last_handoff": last_handoff, "last_activity": last_activity}
 
 
 async def render(request: Request, name: str, **ctx) -> Response:
@@ -412,7 +417,8 @@ def _stages(run: dict | None, status: str) -> list[tuple[str, str]]:
 async def home(request: Request) -> Response:
     pool, _ = await services.get()
     async with pool.connection() as conn:
-        projects = await store.list_projects(conn)
+        projects = [{"slug": p, **await _side(conn, p)} for p in await store.list_projects(conn)]
+    projects.sort(key=lambda p: p["last_activity"] or datetime.min.replace(tzinfo=UTC), reverse=True)
     return await render(request, "home.html", projects=projects)
 
 
@@ -470,11 +476,24 @@ async def lab_page(request: Request) -> Response:
             for name, strategy in STRATEGIES.items():
                 compare[name] = await _readable(conn, await store.search(conn, q, project, strategy, indexer.embedder, k=5))
         questions = await evaluation.questions(conn, project)
-        runs = await evaluation.runs(conn, project)
+        runs = await evaluation.runs(conn, project, limit=500)
     strategies = [{"name": n, "params": s.params, "chunks": counts.get(n, 0)} for n, s in STRATEGIES.items()]
     best = {m: max((r[m] for r in runs), default=None) for m in ("recall", "mrr", "ndcg")}
+    # The leaderboard: the latest run of each strategy × mode, and the one before it for the delta.
+    latest: dict[tuple, dict] = {}
+    previous: dict[tuple, dict] = {}
+    for r in runs:  # newest first
+        key = (r["strategy"], r["mode"])
+        (previous if key in latest else latest).setdefault(key, r)
+    board = {n: sorted((r for (s, _), r in latest.items() if s == n), key=lambda r: MODES.index(r["mode"]))
+             for n in STRATEGIES if any(s == n for s, _ in latest)}
+    top = max(latest.values(), key=lambda r: r["ndcg"], default=None)
+    asked = next((x for x in questions if q and x["question"].strip().lower() == q.lower()), None)
     return await render(request, "lab.html", q=q, strategies=strategies, compare=compare,
-                        questions=questions, runs=runs, best=best)
+                        questions=questions, runs=runs, best=best, board=board, top=top,
+                        top_before=previous.get((top["strategy"], top["mode"])) if top else None,
+                        default=latest.get((DEFAULT_STRATEGY, MODES[0])), default_strategy=DEFAULT_STRATEGY,
+                        default_mode=MODES[0], asked=asked)
 
 
 async def lab_eval(request: Request) -> Response:

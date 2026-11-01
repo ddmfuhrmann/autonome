@@ -2,65 +2,108 @@
 {% import "_ui.html" as ui %}
 {% block title %}Lab{% endblock %}
 {% block main %}
-<div class="page-head">
-  <div class="page-head__text"><h1>Lab</h1><p class="page-head__meta">Chunking strategies on the eval set · {{ questions|length }} questions</p></div>
-  <div class="page-head__actions">
+{% set by_source = questions|groupby('source') %}
+<header class="page-head">
+  <div class="page-head__text"><h1>Lab</h1><p class="subtitle">Which chunking strategy answers this project's questions best, on an eval set of {{ questions|length }} question{{ 's' if questions|length != 1 }}.</p></div>
+</header>
+
+{% if top %}
+<div class="verdict">
+  <div class="verdict__item"><span class="label">Best right now</span>
+    <span class="verdict__v">{{ top.strategy }} <small>· {{ top.mode|label|lower }}</small></span>
+    <span class="stat__label">nDCG {{ '%.3f'|format(top.ndcg) }}{% if top_before %}{% set d = top.ndcg - top_before.ndcg %} · <span style="color: var(--{{ 'ok' if d >= 0 else 'stop' }})">{{ '%+.3f'|format(d) }}</span> vs the previous run{% endif %}</span></div>
+  <div class="verdict__item"><span class="label">Search uses</span>
+    <span class="verdict__v">{{ default_strategy }} <small>· {{ default_mode }}</small></span>
+    <span class="stat__label">{% if default %}nDCG {{ '%.3f'|format(default.ndcg) }}{% else %}not evaluated yet{% endif %} · the default for agents and this UI</span></div>
+  <div class="verdict__item"><span class="label">Last evaluation</span>
+    <span class="verdict__v">{{ runs[0].created_at|ago }}</span>
+    <span class="stat__label">{{ runs[0].n_questions }} questions · k = {{ runs[0].k }} · {{ board.values()|map('length')|sum }} configurations</span></div>
+</div>
+{% endif %}
+
+<section>
+  <div class="section-head">
+    <h2>nDCG by strategy and mode</h2><span class="spacer"></span>
     <form class="row" method="post" action="/ui/p/{{ project }}/lab/eval">
-      <label class="muted" for="k" style="font-size: 12px">k</label><input class="input" style="width: 64px" type="number" name="k" id="k" value="5" min="1" max="20">
-      <button class="btn btn--primary" type="submit" {{ 'disabled' if not questions }}>Run every strategy × mode</button>
+      <label class="label" for="k">k</label><input class="input" style="width: 64px; padding: 6px 8px" type="number" name="k" id="k" value="{{ runs[0].k if runs else 5 }}" min="1" max="20">
+      <button class="btn btn--sm" type="submit" {{ 'disabled' if not questions }}>{{ 'Run again' if runs else 'Run every strategy × mode' }}</button>
     </form>
   </div>
-</div>
-<section class="stack">
-  <div class="section-head"><h2>Strategies</h2><span class="count">{{ strategies|length }}</span></div>
-  <div class="table-wrap"><table class="table">
-    <thead><tr><th>Name</th><th>Params</th><th class="num">Chunks</th></tr></thead>
-    <tbody>{% for s in strategies %}<tr><td>{{ s.name }}</td><td><code>{{ s.params|tojson }}</code></td><td class="num">{{ s.chunks }}</td></tr>{% endfor %}</tbody>
-  </table></div>
-</section>
-<section class="stack">
-  <div class="section-head"><h2>Evaluation runs</h2><span class="count">{{ runs|length }}</span></div>
-  <div class="table-wrap"><table class="table">
-    <thead><tr><th>When</th><th>Strategy</th><th>Embedding</th><th>Mode</th><th class="num">k</th><th class="num">n</th><th class="num">Recall@k</th><th class="num">MRR</th><th class="num">nDCG</th></tr></thead>
-    <tbody>{% for r in runs %}
-    <tr><td class="mono muted" style="font-size: 12px">{{ r.created_at|when }}</td><td>{{ r.strategy }}</td><td class="mono">{{ r.embed_model }}</td><td>{{ r.mode|label }}</td>
-      <td class="num">{{ r.k }}</td><td class="num">{{ r.n_questions }}</td>
-      {% for m in ['recall', 'mrr', 'ndcg'] %}<td class="num{{ ' best' if r[m] == best[m] }}">{{ '%.3f'|format(r[m]) }}</td>{% endfor %}</tr>
-    {% else %}<tr><td colspan="9" class="empty">No runs yet. Generate questions with <code>autonome-context eval-generate --project {{ project }}</code> or add one below.</td></tr>{% endfor %}</tbody>
-  </table></div>
-</section>
-<section class="card">
-  <div class="card__head"><h2 class="card__title">Compare</h2><span class="push muted" style="font-size: 12px">same question, every strategy</span></div>
-  <div class="card__body">
-    <form class="row" method="get">
-      <label class="sr-only" for="cmp-q">Question</label>
-      <input class="input" style="flex: 1 1 360px" type="search" name="q" id="cmp-q" value="{{ q }}" placeholder="Same question, every strategy">
-      <button class="btn" type="submit">Compare</button>
-    </form>
-    {% if q %}
-    <div class="grid grid--{{ [compare|length, 3]|min }}">
-      {% for name, hits in compare.items() %}
-      <div class="card"><div class="card__head"><h3 class="card__title">{{ name }}</h3></div>
-        <div class="card__body">{% for h in hits %}{% include "_hit.html" %}{% else %}<p class="empty">Nothing found.</p>{% endfor %}</div></div>
+  {% if board %}
+  <div>
+    {% for name, rows in board.items() %}{% set s = strategies|selectattr('name', 'equalto', name)|first %}
+    <div class="board-group">
+      <div class="board-group__head"><b>{{ name }}</b>{% if name == default_strategy %}<span class="faint" style="font-size: 12px">default</span>{% endif %}
+        <span class="footnote">{{ '{:,}'.format(s.chunks).replace(',', ' ') if s else '?' }} chunks · {{ rows[0].embed_model }}{% if s %} · <span class="mono" style="font-size: 12px">{{ s.params|tojson }}</span>{% endif %}</span></div>
+      {% for r in rows %}
+      <div class="board-row"><span class="muted">{{ r.mode|label|lower }}</span>
+        <span class="bar bar--tall"><span class="bar__track"><span class="bar__fill" style="width: {{ (r.ndcg * 100)|round }}%"></span></span></span>
+        <b>{{ '%.3f'|format(r.ndcg) }}</b><span class="m">{{ '%.3f'|format(r.recall) }}</span><span class="m">{{ '%.3f'|format(r.mrr) }}</span></div>
       {% endfor %}
     </div>
-    {% endif %}
+    {% endfor %}
+    <div class="board-row board-row--head"><span></span><span></span><span>nDCG</span><span>recall</span><span>MRR</span></div>
   </div>
+  <details><summary class="more" style="cursor: pointer; list-style: none">History: {{ runs|length }} run{{ 's' if runs|length != 1 }} since {{ runs[-1].created_at|when }}</summary>
+    <div class="table-wrap" style="padding-top: 12px"><table class="table" style="font-size: 13px">
+      <thead><tr><th>When</th><th>Strategy</th><th>Embedding</th><th>Mode</th><th class="num">k</th><th class="num">n</th><th class="num">Recall@k</th><th class="num">MRR</th><th class="num">nDCG</th></tr></thead>
+      <tbody>{% for r in runs %}
+      <tr><td class="muted">{{ r.created_at|when }}</td><td>{{ r.strategy }}</td><td class="mono muted">{{ r.embed_model }}</td><td>{{ r.mode|label|lower }}</td>
+        <td class="num">{{ r.k }}</td><td class="num">{{ r.n_questions }}</td>
+        {% for m in ['recall', 'mrr', 'ndcg'] %}<td class="num{{ ' best' if r[m] == best[m] }}">{{ '%.3f'|format(r[m]) }}</td>{% endfor %}</tr>
+      {% endfor %}</tbody>
+    </table></div>
+  </details>
+  {% else %}
+  <p class="empty">No runs yet. Generate questions with <span class="mono">autonome-context eval-generate --project {{ project }}</span> or add one below, then run every strategy × mode.</p>
+  {% endif %}
 </section>
-<section class="card">
-  <div class="card__head"><h2 class="card__title">Questions</h2><span class="push count-pill">{{ questions|length }}</span></div>
-  <div class="card__body">
-    <form class="row" method="post" action="/ui/p/{{ project }}/lab/questions">
-      <label class="sr-only" for="question">Question</label><input class="input" style="flex: 1 1 360px" type="text" name="question" id="question" placeholder="Question">
-      <label class="sr-only" for="expected">Expected document ids</label><input class="input" type="text" name="expected" id="expected" placeholder="expected doc ids, e.g. 3 7">
-      <button class="btn" type="submit">Add</button>
-    </form>
+
+<section>
+  <h2>Ask all {{ strategies|length }}</h2>
+  <form class="searchline" method="get">
+    <label class="sr-only" for="cmp-q">Same question, every strategy</label>
+    <input class="input input--lg" type="search" name="q" id="cmp-q" value="{{ q }}" placeholder="Same question, every strategy">
+    <button class="btn" type="submit">Compare</button>
+  </form>
+  {% if q %}
+  {% set expected = asked.expected_document_ids if asked else [] %}
+  {% if asked %}<p class="footnote">Question #{{ asked.id }} in the eval set. Expected: {% for d in expected %}<a class="mono" href="/ui/p/{{ project }}/documents/{{ d }}">#{{ d }}</a> {% endfor %}· hits in <span style="color: var(--ok)">green</span>.</p>{% endif %}
+  <div class="cmpgrid" style="padding-top: 12px">
+    {% for name, hits in compare.items() %}
+    <div class="section">
+      <h3 class="row" style="font-size: 15px">{{ name }}{% if asked %}<span class="faint" style="font-weight: 400; font-size: 12px">{{ hits|selectattr('document_id', 'in', expected)|list|length }} of {{ expected|length }}</span>{% endif %}</h3>
+      <div class="entries">
+        {% for h in hits %}
+        <a class="entry entry--dense{{ ' hit-ok' if h.document_id in expected }}" style="--cols: minmax(0, 1fr)" href="/ui/p/{{ project }}/documents/{{ h.document_id }}">
+          <span class="entry__main"><span class="entry__title" style="font-size: 14px"><span class="id">{{ h.document_id|ref(h.type) }}</span> {{ h.type }} · {{ '%.2f'|format(h.score) }}</span>
+            <span class="entry__meta">{{ (h.title or h.snippet or h.text)|truncate(110) }}</span></span>
+        </a>
+        {% else %}<p class="empty">Nothing found.</p>{% endfor %}
+      </div>
+    </div>
+    {% endfor %}
   </div>
-  <div class="card__body card__body--flush" style="overflow-x: auto"><table class="table">
-    <thead><tr><th>#</th><th>Question</th><th>Expected</th><th>Source</th></tr></thead>
-    <tbody>{% for qq in questions %}<tr><td class="mono">{{ qq.id }}</td><td>{{ qq.question }}</td>
-      <td class="mono">{% for d in qq.expected_document_ids %}<a href="/ui/p/{{ project }}/documents/{{ d }}">#{{ d }}</a> {% endfor %}</td>
-      <td><span class="tag">{{ qq.source }}</span></td></tr>{% else %}<tr><td colspan="4" class="empty">No questions yet.</td></tr>{% endfor %}</tbody>
-  </table></div>
+  {% endif %}
+</section>
+
+<section>
+  <h2>Eval set <span class="n">{{ questions|length }} question{{ 's' if questions|length != 1 }}{% for src, qs in by_source %} · {{ qs|length }} {{ src }}{% endfor %}</span></h2>
+  <form class="field-row" method="post" action="/ui/p/{{ project }}/lab/questions" style="padding-top: 6px">
+    <label class="sr-only" for="question">Question</label><input class="input" style="flex: 1 1 360px" type="text" name="question" id="question" placeholder="Add a question">
+    <label class="sr-only" for="expected">Expected document ids</label><input class="input" style="width: 200px" type="text" name="expected" id="expected" placeholder="expected ids, e.g. 3 7">
+    <button class="btn" type="submit">Add</button>
+  </form>
+  <p class="footnote">Generate more with <span class="mono">autonome-context eval-generate --project {{ project }}</span></p>
+  {% if questions %}
+  <details><summary class="more" style="cursor: pointer; list-style: none">See all {{ questions|length }} questions</summary>
+    <div class="table-wrap" style="padding-top: 12px"><table class="table" style="font-size: 13px">
+      <thead><tr><th>#</th><th>Question</th><th>Expected</th><th>Source</th></tr></thead>
+      <tbody>{% for qq in questions %}<tr><td class="mono muted">{{ qq.id }}</td><td><a href="?q={{ qq.question|urlencode }}">{{ qq.question }}</a></td>
+        <td class="mono">{% for d in qq.expected_document_ids %}<a href="/ui/p/{{ project }}/documents/{{ d }}">#{{ d }}</a> {% endfor %}</td>
+        <td class="muted">{{ qq.source }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </details>
+  {% endif %}
 </section>
 {% endblock %}

@@ -1,27 +1,41 @@
 {% extends "base.html" %}
 {% import "_ui.html" as ui %}
 {% block title %}{{ feature }}{% endblock %}
-{% block crumbs %}<a href="/ui/p/{{ project }}/features">Features</a><span class="sep">/</span><span aria-current="page">{{ feature }}</span>{% endblock %}
+{% block crumbs %}<a href="/ui/p/{{ project }}/features">Features</a>{% endblock %}
 {% block main %}
-<div class="page-head"><div class="page-head__text"><div class="page-head__title"><h1>{{ feature }}</h1></div></div></div>
-<div class="grid grid--main-aside">
-  <div class="stack">
-    {% if doc %}{% include "_doc.html" %}
-    {% else %}<p class="empty">No living doc for this feature yet. It is written after the next delivery.</p>{% endif %}
+{% set handoffs = timeline|selectattr('type', 'equalto', 'handoff')|list %}
+{% set scored = handoffs|map(attribute='body')|map(attribute='adherence_score')|select('number')|list %}
+{% macro tline(d) %}
+{% set word = 'merged' if d.type == 'task' and d.status == 'done' else ('blocked' if d.status == 'blocked' else d.type) %}
+<a class="tline" href="/ui/p/{{ project }}/documents/{{ d.id }}">
+  <span class="tline__t" title="{{ d.created_at|when }}">{{ (d.created_at|ago).replace(' ago', '') }}</span>
+  <span><span class="tline__k{{ ' is-' ~ word if word in ('task', 'merged', 'blocked') }}">{{ word }}</span> {{ d|ref }}
+    {%- if d.type == 'handoff' %}{% if d.body.adherence_score is not none %} · adherence {{ '%.2f'|format(d.body.adherence_score) }}{% endif %}
+    {%- else %} {{ (d.body.title or d.body.summary or '')|truncate(70) }}{% if d.status and d.type != 'task' %} · {{ d.status|label|lower }}{% endif %}{% endif %}</span>
+</a>
+{% endmacro %}
+<header class="page-head">
+  <div class="page-head__text">
+    <h1>{{ feature }}</h1>
+    <p class="subtitle">{% if doc %}Living doc v{{ doc.version }} · updated {{ doc.updated_at|ago }}{% if doc.commit_sha %} at <span class="mono" style="font-size: 14px">{{ doc.commit_sha[:8] }}</span>{% endif %}{% else %}No living doc yet{% endif %} · {{ handoffs|length }} handoff{{ 's' if handoffs|length != 1 }}{% if scored %} · adherence {{ '%.2f'|format(scored|sum / scored|length) }}{% endif %}</p>
   </div>
-  <aside class="card">
-    <div class="card__head"><h2 class="card__title">Timeline</h2></div>
-    <div class="card__body">
-      <ol class="timeline">
-        {% for d in timeline %}
-        <li class="tl"><span class="tl__node">{{ ui.icon_st(d.status or 'done') }}</span>
-          <div class="tl__body">
-            <div class="tl__head"><a href="/ui/p/{{ project }}/documents/{{ d.id }}"><strong>{{ d|ref }}</strong> {{ (d.body.title or d.body.summary or d.type)|truncate(80) }}</a></div>
-            <span class="tl__time">{{ d.type }} · {{ d.created_at|ago }}{% if d.type == 'handoff' and d.body.adherence_score is not none %} · adherence {{ '%.2f'|format(d.body.adherence_score) }}{% endif %}</span>
-          </div></li>
-        {% else %}<li class="empty">Nothing yet.</li>{% endfor %}
-      </ol>
-    </div>
+</header>
+<div class="twocol">
+  <article>
+    {% if doc %}{% with meta = false %}{% include "_doc.html" %}{% endwith %}
+    {% else %}<p class="empty">No living doc for this feature yet. It is written after the next delivery.</p>{% endif %}
+  </article>
+  <aside aria-labelledby="tl-h">
+    <section>
+      <h2 id="tl-h">Timeline</h2>
+      <div class="entries">
+        {% for d in timeline[:12] %}{{ tline(d) }}{% else %}<p class="empty">Nothing yet.</p>{% endfor %}
+      </div>
+      {% if timeline|length > 12 %}
+      <details><summary class="more" style="cursor: pointer; list-style: none">{{ timeline|length - 12 }} earlier entries</summary>
+        <div class="entries">{% for d in timeline[12:] %}{{ tline(d) }}{% endfor %}</div></details>
+      {% endif %}
+    </section>
   </aside>
 </div>
 {% endblock %}

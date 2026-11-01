@@ -2,46 +2,78 @@
 {% import "_ui.html" as ui %}
 {% block title %}Conventions{% endblock %}
 {% block main %}
-<div class="page-head">
-  <div class="page-head__text"><h1>Conventions</h1><p class="page-head__meta">Rules the agents read, per layer. Injected into sessions for the layers a task touches. Every edit is a new version.</p></div>
-  <div class="page-head__actions"><a class="btn" href="#new">Add rule</a></div>
-</div>
-{% for c in proposed %}
-<div class="card card--attn"><div class="card__body"><div class="row">{{ ui.st('proposed', sm=true) }}<span style="font-size: 13px">“{{ c.body.title }}”{% if c.layers %} · {{ c.layers|join(', ') }}{% endif %}</span><span class="spacer"></span><a class="btn btn--sm" href="/ui/p/{{ project }}/approvals?kind=convention">Review</a></div></div></div>
-{% endfor %}
+{% set active = conventions|selectattr('status', 'equalto', 'active')|list %}
+{% set archived = conventions|rejectattr('status', 'equalto', 'active')|list %}
+{# One convention: a row with Edit and Archive; Edit opens the form in place. #}
+{% macro conv(c) %}
+<details class="conv">
+  <summary class="entry{{ ' entry--quiet' if c.status != 'active' }}">
+    <span class="entry__main">
+      <a class="entry__title" href="/ui/p/{{ project }}/documents/{{ c.id }}">{{ c.body.title }}</a>
+      <span class="entry__meta">{{ c|ref }} · {{ ('layers ' ~ c.layers|join(', ')) if c.layers else 'all layers' }} · v{{ c.version }} · edited {{ c.updated_at|ago }}{% if c.status not in ('active', 'archived') %} · {{ c.status }}{% endif %}<span class="conv__editing"> · <span class="accent">editing</span></span></span>
+    </span>
+    <span class="row" style="gap: 4px">
+      {% if c.status == 'active' %}<span class="btn btn--link conv__edit">Edit</span>{% endif %}
+      <form method="post" action="/ui/p/{{ project }}/conventions/{{ c.id }}"><button class="btn btn--ghost btn--sm" name="archive" value="1" type="submit">{{ 'Archive' if c.status == 'active' else 'Reactivate' }}</button></form>
+    </span>
+  </summary>
+  {% if c.status == 'active' %}
+  <form class="stack stack--sm conv__form" method="post" action="/ui/p/{{ project }}/conventions/{{ c.id }}">
+    <div class="prose prose--sm" style="color: var(--muted)">{{ c.body.rule|md }}</div>
+    <label class="label" for="title-{{ c.id }}">Title</label><input class="input" type="text" name="title" id="title-{{ c.id }}" value="{{ c.body.title }}">
+    <label class="label" for="rule-{{ c.id }}">Rule</label><textarea class="textarea" name="rule" id="rule-{{ c.id }}" rows="7">{{ c.body.rule }}</textarea>
+    <div class="row"><button class="btn btn--primary" type="submit">Save as v{{ c.version + 1 }}</button></div>
+  </form>
+  {% endif %}
+</details>
+{% endmacro %}
+
+<header class="page-head">
+  <div class="page-head__text"><h1>Conventions</h1>
+    <p class="subtitle">How code is written here, per layer. Injected into agent sessions for the layers a task touches. Only editable here; every edit is a new version.</p></div>
+</header>
+
 {% if layers %}
-<nav class="tabs" aria-label="Layers">
-  <a href="?"{% if not layer %} aria-current="page"{% endif %}>All <span class="count-pill">{{ total }}</span></a>
-  {% for l, n in layers.items()|sort %}<a href="?layer={{ l }}"{% if layer == l %} aria-current="page"{% endif %}>{{ l }} <span class="count-pill">{{ n }}</span></a>{% endfor %}
+<nav class="filters" aria-label="Layers">
+  <a href="?"{% if not layer %} aria-current="page"{% endif %}>All<span class="count-pill">{{ total }}</span></a>
+  {% for l, n in layers.items()|sort %}<a href="?layer={{ l }}"{% if layer == l %} aria-current="page"{% endif %}>{{ l }}<span class="count-pill">{{ n }}</span></a>{% endfor %}
 </nav>
 {% endif %}
-<ul class="findings">
-  {% for c in conventions %}
-  <li class="finding{{ ' is-resolved' if c.status == 'archived' }}">
-    <span class="tag">{{ c|ref }}</span>
-    <div class="stack stack--sm">
-      <strong>{{ c.body.title }}</strong>
-      <div class="prose" style="font-size: 13px">{{ c.body.rule|md }}</div>
-      <span class="muted" style="font-size: 12px">{{ c.layers|join(', ') or 'all layers' }} · version {{ c.version }} · {{ c.updated_at|ago }}{% if c.status != 'active' %} · {{ c.status }}{% endif %}</span>
-      <details>
-        <summary class="btn btn--sm btn--ghost">Edit</summary>
-        <form class="stack stack--sm" method="post" action="/ui/p/{{ project }}/conventions/{{ c.id }}" style="margin-top: 8px">
-          <label class="sr-only" for="title-{{ c.id }}">Title</label><input class="input" type="text" name="title" id="title-{{ c.id }}" value="{{ c.body.title }}">
-          <label class="sr-only" for="rule-{{ c.id }}">Rule</label><textarea class="textarea" name="rule" id="rule-{{ c.id }}" style="min-height: 160px">{{ c.body.rule }}</textarea>
-          <div class="row"><button class="btn btn--primary btn--sm" type="submit">Save version</button>
-            <button class="btn btn--sm" name="archive" value="1" type="submit">{{ 'Archive' if c.status == 'active' else 'Reactivate' }}</button></div>
-        </form>
-      </details>
+
+{% if proposed %}
+<section>
+  <h2 class="is-warn">Proposed, waiting for your review <span class="n">{{ proposed|length }}</span></h2>
+  <div class="entries">
+    {% for c in proposed %}
+    <a class="entry" href="/ui/p/{{ project }}/approvals?kind=convention">
+      <span class="entry__main"><span class="entry__title">{{ c.body.title }}</span><span class="entry__meta">{{ c|ref }}{% if c.layers %} · layers {{ c.layers|join(', ') }}{% endif %}</span></span>
+      <span class="entry__side accent">Review</span>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section>
+  <h2>Active <span class="n">{{ active|length }}</span></h2>
+  <div class="entries">{% for c in active %}{{ conv(c) }}{% else %}<p class="empty">No conventions yet.</p>{% endfor %}</div>
+</section>
+
+{% if archived %}
+<section>
+  <h2>Archived <span class="n">{{ archived|length }}</span></h2>
+  <div class="entries">{% for c in archived %}{{ conv(c) }}{% endfor %}</div>
+</section>
+{% endif %}
+
+<form class="section" method="post" id="new">
+  <h2>New convention</h2>
+  <div class="stack stack--sm" style="padding-top: 6px">
+    <div class="grid" style="grid-template-columns: minmax(0, 1fr) 240px; gap: 8px">
+      <label class="sr-only" for="new-title">Title</label><input class="input" type="text" name="title" id="new-title" placeholder="Title, e.g. Money and rounding">
+      <label class="sr-only" for="new-layers">Layers</label><input class="input" type="text" name="layers" id="new-layers" placeholder="layers, comma separated; empty = all">
     </div>
-  </li>
-  {% else %}<li class="empty">No conventions yet.</li>{% endfor %}
-</ul>
-<form class="card" method="post" id="new">
-  <div class="card__head"><h2 class="card__title">New convention</h2></div>
-  <div class="card__body">
-    <label class="sr-only" for="new-title">Title</label><input class="input" type="text" name="title" id="new-title" placeholder="Title, e.g. Money and rounding">
-    <label class="sr-only" for="new-layers">Layers</label><input class="input" type="text" name="layers" id="new-layers" placeholder="layers, comma separated; empty = all">
-    <label class="sr-only" for="new-rule">Rule</label><textarea class="textarea" name="rule" id="new-rule" style="min-height: 160px" placeholder="The rule, in markdown"></textarea>
+    <label class="sr-only" for="new-rule">Rule</label><textarea class="textarea" name="rule" id="new-rule" rows="5" placeholder="The rule, in markdown"></textarea>
     <div><button class="btn btn--primary" type="submit">Add</button></div>
   </div>
 </form>

@@ -4,78 +4,128 @@
 {% block topbar %}<span class="live" aria-live="polite">Live</span>{% endblock %}
 {% block main %}
 {% set done_ids = status_of|dictsort|selectattr(1, "equalto", "done")|map(attribute=0)|list %}
+{% macro plan_of(t) %}{% if t.body.plan_id in plans %}plan {{ plans[t.body.plan_id]|ref }}{% endif %}{% endmacro %}
+{% macro more(status) %}{% if totals[status] > columns[status]|length %}<a class="more" href="/ui/p/{{ project }}/documents?type=task&status={{ status }}">{{ totals[status] - columns[status]|length }} more</a>{% endif %}{% endmacro %}
 <div class="stack stack--lg" data-refresh="5">
-<div class="page-head" id="setlist-head" data-live>
+<header class="page-head" id="setlist-head" data-live>
   <div class="page-head__text">
-    <div class="page-head__title"><h1>Setlist</h1>{% if playing %}{{ ui.st('playing', live=true) }}{% endif %}</div>
-    <div class="page-head__meta">
-      {% if wave %}<a href="/ui/p/{{ project }}/documents/{{ wave.id }}">{{ wave|ref }} · {{ wave.body.title }}</a>{% endif %}
-      <span>{{ progress.done }} of {{ progress.total }} tasks done</span>
-      <span class="mono num">{{ progress.tokens|tokens }} tokens · {{ progress.cost|money }}</span>
-    </div>
+    <h1>Setlist</h1>
+    <p class="subtitle">
+      <span>{{ progress.total }} tasks in the set · {{ progress.done }} done · {{ playing|length }} playing · {{ totals.on_hold }} held{% if totals.blocked %} · {{ totals.blocked }} blocked{% endif %}</span>
+      <span class="num">{{ progress.tokens|tokens }} tokens · {{ progress.cost|money }}</span>
+    </p>
+    {% if wave %}<p class="footnote">Conducting <a href="/ui/p/{{ project }}/documents/{{ wave.id }}">{{ wave|ref }} · {{ wave.body.title }}</a>{% if side.waiting %} · <a class="accent" href="/ui/p/{{ project }}/approvals">{{ side.waiting }} waiting on you</a>{% endif %}</p>
+    {% elif side.waiting %}<p class="footnote"><a class="accent" href="/ui/p/{{ project }}/approvals">{{ side.waiting }} waiting on you</a></p>{% endif %}
   </div>
-  <div class="page-head__actions">
-    {% if side.waiting %}<a class="btn" href="/ui/p/{{ project }}/approvals">{{ side.waiting }} waiting on you</a>{% endif %}
-  </div>
-</div>
+</header>
 
-<section class="stack" aria-labelledby="now-h" id="now" data-live>
-  <div class="section-head">{% if playing %}{{ ui.eq() }}{% endif %}<h2 id="now-h">Now playing</h2><span class="count">{{ playing|length }}</span></div>
+<section aria-labelledby="now-h" id="now" data-live>
+  <h2 id="now-h" class="{{ 'is-accent' if playing }}">Playing now</h2>
   {% if playing %}
-  <div class="now">
-    {% for t in playing %}{% set run = (t.body.runs or [none])[-1] %}
-    <article class="now__card">
-      <div class="now__top"><span class="id">{{ t|ref }}</span>{{ ui.tags(t) }}{% if t.body.runs %}{{ ui.st('encore', sm=true, text='Attempt ' ~ (t.body.runs|length + 1)) }}{% endif %}</div>
-      <a class="now__title" href="/ui/p/{{ project }}/documents/{{ t.id }}">{{ t.body.title }}</a>
-      <p class="now__step">{% if t.body.plan_id in plans %}{{ plans[t.body.plan_id]|ref }} · {{ plans[t.body.plan_id].body.title }}{% endif %}</p>
-      {% set ev = now_doing.get(t.id) %}{% if ev %}
-      <a class="now__doing" href="/ui/p/{{ project }}/documents/{{ t.id }}#live"><span class="now__role">{{ ev.role }}</span>
-        <span class="now__what{{ ' is-error' if ev.kind == 'error' }}">{{ ev.text|truncate(120) }}</span><span class="muted">{{ ev.at|ago }}</span></a>
-      {% endif %}
-      <div class="now__metrics">
-        <div class="now__metric"><span class="label">Since</span><b>{{ t.updated_at|ago }}</b></div>
-        {% if t.body.fermata %}<div class="now__metric"><span class="label">Ends at</span><b>fermata</b></div>{% endif %}
+  <div class="entries">
+    {% for t in playing %}
+    <div class="entry entry--big">
+      <div class="entry__main">
+        <a class="entry__title" href="/ui/p/{{ project }}/documents/{{ t.id }}"><span class="dot" aria-hidden="true"></span>{{ t.body.title }}</a>
+        <span class="entry__meta">{{ t|ref }}{% if t.feature %} · {{ t.feature }}{% endif %}{% if t.body.plan_id in plans %} · {{ plans[t.body.plan_id]|ref }} {{ plans[t.body.plan_id].body.title }}{% endif %} · since {{ t.updated_at|ago }}{% if t.body.runs %} · attempt {{ t.body.runs|length + 1 }}{% endif %}{% if t.body.fermata %} · ends at the fermata{% endif %}</span>
+        {% set ev = now_doing.get(t.id) %}{% if ev %}
+        <a class="now__doing" href="/ui/p/{{ project }}/documents/{{ t.id }}#live"><span class="now__role">{{ ev.role }}</span>
+          <span class="now__what{{ ' is-error' if ev.kind == 'error' }}">{{ ev.text|truncate(120) }}</span><span class="faint">{{ ev.at|ago }}</span></a>
+        {% endif %}
       </div>
-    </article>
+      <a class="entry__side accent" href="/ui/p/{{ project }}/documents/{{ t.id }}#live">View run</a>
+    </div>
     {% endfor %}
   </div>
   {% else %}
-  <p class="empty">Nothing is playing. Start the maestro with <code>autonome conduct --project {{ project }}</code>.</p>
+  <p class="empty">Nothing is playing.</p>
   {% endif %}
 </section>
 
-<section class="stack" aria-labelledby="board-h" id="board" data-live>
-  <div class="section-head"><h2 id="board-h">Board</h2><span class="count">{{ progress.total }} tasks · {{ plans|length }} plans</span></div>
-  <div class="board">
-    {% for status, tasks in columns.items() %}
-    <section class="board__col" aria-label="{{ status|label }}">
-      <div class="board__head">{{ ui.st(status) }}<span class="count-pill">{{ totals[status] }}</span></div>
-      <ul class="board__list">
-        {% for t in tasks %}{% set run = (t.body.runs or [none])[-1] %}
-        <li><a class="tcard{{ ' tcard--live' if status == 'playing' }}{{ ' tcard--done' if status == 'done' }}" href="/ui/p/{{ project }}/documents/{{ t.id }}">
-          <div class="tcard__top"><span class="id">{{ t|ref }}</span>
-            {% if status == 'playing' %}{{ ui.eq() }}{% endif %}
-            {% if status == 'on_hold' %}{{ ui.st('fermata', sm=true) }}{% endif %}
-            {% if status == 'blocked' and run %}{{ ui.st('failed', sm=true, text=(run.reason or run.outcome or 'blocked').split(':')[0]|truncate(16, true, '')) }}{% endif %}
-          </div>
-          <span class="tcard__title">{{ t.body.title }}</span>
-          {% if status == 'blocked' and run and run.reason %}<p class="tcard__reason">{{ run.reason|truncate(140) }}</p>{% endif %}
-          {% if status == 'on_hold' %}<p class="tcard__reason tcard__reason--hold">Gates passed{{ ', review clean' if run and run.review and run.review.verdict == 'pass' }}. Needs your eyes on the diff.</p>{% endif %}
-          <div class="tcard__meta">
-            {% if status != 'playing' %}{% if t.feature %}<span class="tag tag--feature">{{ t.feature }}</span>{% endif %}{% endif %}
-            {% set deps = t.body.depends_on|reject('in', done_ids)|list if t.body.depends_on else [] %}{% if status == 'pending' and deps %}<span>after {% for d in deps %}{{ d|ref('task') }}{{ ', ' if not loop.last }}{% endfor %}</span>{% endif %}
-            {% set waits = t.body.after_plans|reject('in', done_ids)|list if t.body.after_plans else [] %}{% if status == 'pending' and waits %}<span>waits {% for p in waits %}{{ p|ref('plan') }}{{ ', ' if not loop.last }}{% endfor %}</span>{% endif %}
-            {% if status in ('on_hold', 'released') %}<span>{{ t.updated_at|ago }}</span>{% endif %}
-            {% if status == 'done' and run %}<span class="mono">{{ (run.tokens or 0)|tokens }}</span><span>· {{ run.cost_usd|money }}</span>{% endif %}
-            {% if status == 'blocked' and t.body.runs %}<span>{{ t.body.runs|length }} run{{ 's' if t.body.runs|length > 1 }}</span>{% endif %}
-          </div>
-        </a></li>
-        {% else %}<li class="empty">—</li>{% endfor %}
-      </ul>
-      {% if totals[status] > tasks|length %}<a class="board__more" href="/ui/p/{{ project }}/documents?type=task&status={{ status }}">+ {{ totals[status] - tasks|length }} more</a>{% endif %}
-    </section>
+<div class="stack stack--lg" id="board" data-live>
+{% if columns.released %}
+<section aria-labelledby="released-h">
+  <h2 id="released-h">Released, merging next <span class="n">{{ totals.released }}</span></h2>
+  <div class="entries">
+    {% for t in columns.released %}
+    <a class="entry" style="--cols: 32px minmax(0, 1fr) auto" href="/ui/p/{{ project }}/documents/{{ t.id }}">
+      <span class="entry__n">→</span>
+      <span class="entry__main"><span class="entry__title">{{ t.body.title }}</span><span class="entry__meta">{{ t|ref }}{% if t.feature %} · {{ t.feature }}{% endif %}{% if t.body.plan_id in plans %} · {{ plan_of(t) }}{% endif %} · released {{ t.updated_at|ago }}</span></span>
+      {{ ui.st('released') }}
+    </a>
     {% endfor %}
   </div>
 </section>
+{% endif %}
+
+<section aria-labelledby="next-h">
+  <h2 id="next-h">Up next <span class="n">{{ totals.pending }}</span></h2>
+  {% if columns.pending %}
+  <div class="entries">
+    {% for t in columns.pending %}
+    {% set deps = t.body.depends_on|reject('in', done_ids)|list if t.body.depends_on else [] %}
+    {% set waits = t.body.after_plans|reject('in', done_ids)|list if t.body.after_plans else [] %}
+    <a class="entry" style="--cols: 32px minmax(0, 1fr) auto" href="/ui/p/{{ project }}/documents/{{ t.id }}">
+      <span class="entry__n">{{ loop.index }}</span>
+      <span class="entry__main"><span class="entry__title">{{ t.body.title }}</span>
+        <span class="entry__meta">{{ t|ref }}{% if t.feature %} · {{ t.feature }}{% endif %}{% if t.body.plan_id in plans %} · {{ plan_of(t) }}{% endif %}{% if deps %} · after {% for d in deps %}{{ d|ref('task') }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}{% if waits %} · waits for {% for p in waits %}{{ p|ref('plan') }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}</span></span>
+      <span class="entry__side">{{ 'waiting' if deps or waits else 'queued' }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {{ more('pending') }}
+  {% else %}<p class="empty">Nothing queued.</p>{% endif %}
+</section>
+
+{% if columns.on_hold %}
+<section aria-labelledby="held-h">
+  <h2 id="held-h" class="is-warn">Held, needs you <span class="n">{{ totals.on_hold }}</span></h2>
+  <div class="entries">
+    {% for t in columns.on_hold %}{% set run = (t.body.runs or [none])[-1] %}
+    <a class="entry" style="--cols: 32px minmax(0, 1fr) auto" href="/ui/p/{{ project }}/documents/{{ t.id }}">
+      <span class="entry__n">—</span>
+      <span class="entry__main"><span class="entry__title">{{ t.body.title }}</span>
+        <span class="entry__meta">{{ t|ref }}{% if t.feature %} · {{ t.feature }}{% endif %} · gates passed{{ ', review clean' if run and run.review and run.review.verdict == 'pass' }}; needs your eyes on the diff · {{ t.updated_at|ago }}</span></span>
+      {{ ui.st('fermata') }}
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if columns.blocked %}
+<section aria-labelledby="blocked-h">
+  <h2 id="blocked-h" class="is-stop">Blocked <span class="n">{{ totals.blocked }}</span></h2>
+  <div class="entries">
+    {% for t in columns.blocked %}{% set run = (t.body.runs or [none])[-1] %}
+    <a class="entry" style="--cols: 32px minmax(0, 1fr) auto" href="/ui/p/{{ project }}/documents/{{ t.id }}">
+      <span class="entry__n">—</span>
+      <span class="entry__main"><span class="entry__title">{{ t.body.title }}</span>
+        <span class="entry__meta">{{ t|ref }}{% if t.feature %} · {{ t.feature }}{% endif %}{% if run and run.reason %} · {{ run.reason|truncate(140) }}{% endif %}{% if t.body.runs %} · {{ t.body.runs|length }} run{{ 's' if t.body.runs|length > 1 }}{% endif %}</span></span>
+      {{ ui.st('blocked', text=(run.reason or run.outcome or 'blocked').split(':')[0]|truncate(24, true, '') if run else 'blocked') }}
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section aria-labelledby="done-h">
+  <h2 id="done-h">Merged <span class="n">{{ totals.done }}</span></h2>
+  {% if columns.done %}
+  <div class="entries">
+    {% for t in columns.done %}{% set run = (t.body.runs or [none])[-1] %}
+    <a class="entry entry--dense entry--quiet" style="--cols: 32px minmax(0, 1fr) auto" href="/ui/p/{{ project }}/documents/{{ t.id }}">
+      <span class="entry__n" style="color: var(--ok)">✓</span>
+      <span class="entry__title">{{ t.body.title }} <span class="faint">· {{ t|ref }}{% if t.feature %} · {{ t.feature }}{% endif %}{% if run %} · {{ (run.tokens or 0)|tokens }} · {{ run.cost_usd|money }}{% endif %}</span></span>
+      <span class="entry__side">{{ t.updated_at|ago }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {{ more('done') }}
+  {% else %}<p class="empty">Nothing merged yet.</p>{% endif %}
+</section>
+</div>
+
+<p class="footnote">{{ plans|length }} plans in this project. Start the maestro with <span class="mono">autonome conduct --project {{ project }}</span></p>
 </div>
 {% endblock %}
