@@ -4,6 +4,7 @@
 import { spawnSync } from "node:child_process";
 import { consult } from "./agents.js";
 import { isUsageLimit } from "./limits.js";
+import { sessionEnv } from "./secrets.js";
 import type { Plan, RoleModel, Soundcheck, SoundcheckResult } from "./context.js";
 
 const LISTENER_PROMPT = `You are the listener of the autonome process. A feature was just merged, and the app
@@ -40,7 +41,7 @@ const SCHEMA = {
 } as const;
 
 function sh(cmd: string, cwd: string, env: Record<string, string>, timeoutS = 900) {
-  const r = spawnSync("sh", ["-c", cmd], { cwd, env: { ...process.env, ...env }, encoding: "utf8", timeout: timeoutS * 1000 });
+  const r = spawnSync("sh", ["-c", cmd], { cwd, env: sessionEnv(env), encoding: "utf8", timeout: timeoutS * 1000 });
   const output = `${r.stdout ?? ""}${r.stderr ?? ""}`.slice(-4000);
   return { ok: r.status === 0, output: r.error ? `${String(r.error)}\n${output}` : output };
 }

@@ -1,8 +1,10 @@
 // Git plumbing for the runner: one worktree per task, rebase onto main, fast-forward main.
 import { execFileSync } from "node:child_process";
+import { sessionEnv } from "./secrets.js";
 
 export function git(cwd: string, ...args: string[]): string {
-  return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  // Git runs the repo's hooks: they get no Jev key.
+  return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: sessionEnv() }).trim();
 }
 
 export function tryGit(cwd: string, ...args: string[]): { ok: boolean; out: string } {

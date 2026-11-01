@@ -82,6 +82,23 @@ export interface Triage {
   max_rounds: number;
 }
 
+/** A deviation waiting for the classifier, at its current round. */
+export interface TriageItem {
+  decision_id: number;
+  round: number;
+  state: Record<string, unknown>;
+}
+
+/** What the context stores of a verdict: answers are short noul strings, the state a JSON string. */
+export interface TriageVerdictBody {
+  backend: string;
+  model: string;
+  state: string;
+  answers: Record<string, string>;
+  verdict: "accept" | "reject";
+  round: number;
+}
+
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 
 export interface RoleModel {
@@ -234,6 +251,10 @@ export const context = {
       method: "POST",
       body: JSON.stringify({ to, run }),
     }),
+  triageState: (project: string) => call<TriageItem[]>(`/api/projects/${project}/triage`),
+  triageVerdict: (decisionId: number, v: TriageVerdictBody) =>
+    call<{ status: string; triage_exhausted?: boolean }>(`/api/decisions/${decisionId}/triage`, {
+      method: "POST", body: JSON.stringify(v) }),
   untunedWaves: (project: string) => call<Plan[]>(`/api/projects/${project}/waves/untuned`),
   waveTuned: (waveId: number, summary: string) =>
     call<{ ok: boolean }>(`/api/waves/${waveId}/tuned`, { method: "POST", body: JSON.stringify({ summary }) }),

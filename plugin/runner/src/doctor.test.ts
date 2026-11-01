@@ -91,6 +91,31 @@ test("greenfield: a pending gate's repo-local command is created by its setup ta
   assert.equal(c.ok, true, c.detail);
 });
 
+test("jev-latest without a key warns, does not fail, and never prints a key", async () => {
+  const saved = { key: process.env.TYPESAFE_API_KEY, home: process.env.AUTONOME_HOME };
+  delete process.env.TYPESAFE_API_KEY;
+  process.env.AUTONOME_HOME = mkdtempSync(join(tmpdir(), "autonome-doctor-home-"));
+  try {
+    contextWith({ version: 1, config: { gates: [{ name: "lint", run: "git status" }],
+      triage: { model: "jev-latest", fallback: "haiku", reject_at: 0.7, max_rounds: 2 } }, pending: [] });
+    const checks = await doctor("p", repo());
+    assert.ok(checks.every((c) => c.ok), report(checks));
+    const t = checks.find((c) => c.name === "triage")!;
+    assert.equal(t.warn, true);
+    assert.match(t.detail, /no Jev key.*haiku judges instead/);
+
+    process.env.TYPESAFE_API_KEY = "sk-very-secret";
+    const found = (await doctor("p", repo())).find((c) => c.name === "triage")!;
+    assert.equal(found.ok, true);
+    assert.match(found.detail, /Jev key found \(environment\)/);
+    assert.ok(!found.detail.includes("sk-very-secret"));
+  } finally {
+    for (const [k, v] of [["TYPESAFE_API_KEY", saved.key], ["AUTONOME_HOME", saved.home]] as const) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
+});
+
 test("a configured gate's repo-local command must exist", async () => {
   const c = await gatesCheck({ version: 1, config: { gates: [{ name: "build", run: "./gradlew build" }] }, pending: [] });
   assert.equal(c.ok, false);

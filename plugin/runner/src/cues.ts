@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { AUTONOME_HOME, PLUGIN_ROOT, updateDocs } from "./conduct.js";
 import { context, type Cue, type Feature } from "./context.js";
 import { mainCheckout } from "./git.js";
+import { sessionEnv } from "./secrets.js";
 
 export interface CueOptions {
   project: string;
@@ -29,7 +30,7 @@ async function runCue(cue: Cue, cwd: string, opts: CueOptions): Promise<string> 
   const source = `cue:${cue.name}`;
   if (cue.kind === "command") {
     if (!cue.run) return "no command";
-    const r = spawnSync(cue.run, { shell: true, cwd, encoding: "utf8", timeout: 900_000 });
+    const r = spawnSync(cue.run, { shell: true, cwd, encoding: "utf8", timeout: 900_000, env: sessionEnv() });
     const out = `${r.stdout}${r.stderr}`;
     if (r.status === 0 && !r.stdout.trim()) return "clean";
     const q = await context.enqueue(opts.project, {
@@ -40,7 +41,7 @@ async function runCue(cue: Cue, cwd: string, opts: CueOptions): Promise<string> 
     return q.duplicate ? `already queued as #${q.task_id}` : `queued #${q.task_id} (maintenance plan is ${q.plan_status})`;
   }
   if (cue.kind === "main-red") {
-    const r = spawnSync(join(PLUGIN_ROOT, "bin", "autonome-gates"), ["--all-files", "--json"], { cwd, encoding: "utf8" });
+    const r = spawnSync(join(PLUGIN_ROOT, "bin", "autonome-gates"), ["--all-files", "--json"], { cwd, encoding: "utf8", env: sessionEnv() });
     const out = JSON.parse(r.stdout || "{}") as { passed?: boolean; outcomes?: { gate: string; passed: boolean; output: string }[] };
     if (out.passed) return "main is green";
     const failed = out.outcomes?.find((o) => !o.passed);

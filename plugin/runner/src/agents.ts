@@ -1,6 +1,7 @@
 // Read-only agents the maestro consults: they look, never change the code, and answer as JSON.
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { CONTEXT_URL, type Effort } from "./context.js";
+import { sessionEnv } from "./secrets.js";
 
 const READ_ONLY = [
   "Read", "Glob", "Grep",
@@ -42,7 +43,7 @@ export async function consult<T>(c: Consult): Promise<{ answer: T; cost: number 
       systemPrompt: { type: "preset", preset: "claude_code", append: [c.role, c.language].filter(Boolean).join("\n\n") },
       outputFormat: { type: "json_schema", schema: c.schema },
       maxTurns: c.maxTurns ?? 40,
-      env: { ...process.env, ...(c.env ?? {}) } as Record<string, string>,
+      env: sessionEnv(c.env),
     },
   })) {
     c.onMessage?.(msg);

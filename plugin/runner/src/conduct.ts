@@ -12,6 +12,8 @@ import { doctor, report } from "./doctor.js";
 import { bashPrefixes, scopedFileCommands } from "./fsguard.js";
 import { encoreMessage, findingsForEncore, review } from "./review.js";
 import { soundcheck } from "./soundcheck.js";
+import { sessionEnv } from "./secrets.js";
+import { triagePending } from "./triage-run.js";
 import { isUsageLimit, UsageLimitError, untilReset } from "./limits.js";
 import { tuneFinishedWaves } from "./tune.js";
 import { EventStream, fromMessage } from "./events.js";
@@ -160,7 +162,7 @@ function now(): string {
 
 function gates(cwd: string, base: string): { passed: boolean; summary: string } {
   const r = spawnSync(join(PLUGIN_ROOT, "bin", "autonome-gates"), ["--json", "--base", base], {
-    cwd, encoding: "utf8", env: { ...process.env, AUTONOME_BASE_SHA: base },
+    cwd, encoding: "utf8", env: sessionEnv({ AUTONOME_BASE_SHA: base }),
   });
   try {
     const out = JSON.parse(r.stdout) as { passed: boolean; outcomes: { gate: string; passed: boolean; output: string }[] };
@@ -194,7 +196,7 @@ function writeHandoff(sessionId: string, cwd: string, taskId: number, project: s
   const payload = join(dir, `conduct-${sessionId}.json`);
   writeFileSync(payload, JSON.stringify({ session_id: sessionId, transcript_path: transcript, cwd, task_id: taskId }));
   const r = spawnSync("python3", [join(PLUGIN_ROOT, "hooks", "write_handoff.py"), payload], {
-    cwd, encoding: "utf8", env: { ...process.env, AUTONOME_PROJECT: project } });
+    cwd, encoding: "utf8", env: sessionEnv({ AUTONOME_PROJECT: project }) });
   log(r.status === 0 ? `  handoff written` : `  handoff failed: ${r.stderr.slice(-500)}`);
 }
 
@@ -223,14 +225,13 @@ async function play(task: Task, worktree: string, base: string, opts: ConductOpt
         settingSources: ["project"],
         plugins: [{ type: "local", path: PLUGIN_ROOT }],
         systemPrompt: { type: "preset", preset: "claude_code", append: MUSICIAN_PROMPT },
-        env: {
-          ...process.env,
+        env: sessionEnv({
           AUTONOME_CONDUCT: "1",
           AUTONOME_TASK_ID: String(task.id),
           AUTONOME_BASE_SHA: base,
           AUTONOME_PROJECT: opts.project,
           PATH: `${join(PLUGIN_ROOT, "bin")}:${process.env.PATH}`,
-        } as Record<string, string>,
+        }),
       },
     })) {
       if (msg.type === "system" && msg.subtype === "init") sessionId = msg.session_id;
@@ -260,7 +261,7 @@ async function play(task: Task, worktree: string, base: string, opts: ConductOpt
  * merge; the doc-drift cue picks the feature up later. */
 export function updateDocs(repo: string, project: string, args: string[], log: ConductOptions["log"]): void {
   const cwd = mainCheckout(repo) ?? repo;
-  const r = spawnSync(join(PLUGIN_ROOT, "bin", "autonome-docs"), ["--project", project, ...args], { cwd, encoding: "utf8" });
+  const r = spawnSync(join(PLUGIN_ROOT, "bin", "autonome-docs"), ["--project", project, ...args], { cwd, encoding: "utf8", env: sessionEnv() });
   log(r.status === 0 ? `  docs: ${r.stdout.trim()}` : `  docs update failed: ${r.stderr.slice(-400)}`);
 }
 
@@ -429,9 +430,12 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<Run | unde
     }
     throw e;
   }
-  if (result.sessionId) writeHandoff(result.sessionId, worktree, task.id, opts.project, log);
+  if (result.sessionId) {
+    writeHandoff(result.sessionId, worktree, task.id, opts.project, log);
+    await triagePending(opts.project, cfg, opts);
+  }
   if (failure) return block(failure);
-  execFileSync("git", ["commit", "-q", "-F", "-"], { cwd: worktree, input: commitMessage(task) });
+  execFileSync("git", ["commit", "-q", "-F", "-"], { cwd: worktree, input: commitMessage(task), env: sessionEnv() });
 
   run.duration_s = Math.round((Date.now() - started) / 1000);
   if (task.body.fermata) {
@@ -503,13 +507,21 @@ export async function conduct(opts: ConductOptions): Promise<number> {
   if (git(opts.repo, "rev-parse", "--show-toplevel") !== resolve(opts.repo)) {
     throw new Error(`${opts.repo} is not the root of a git repository`);
   }
-  const failing = (await doctor(opts.project, opts.repo)).filter((c) => !c.ok);
+  const checks = await doctor(opts.project, opts.repo);
+  const failing = checks.filter((c) => !c.ok);
   if (failing.length) throw new Error(`autonome doctor found problems; not starting:\n${report(failing)}`);
+  const warned = checks.filter((c) => c.warn);
+  if (warned.length) opts.log(report(warned));
   await replayJournal(opts);
   let played = 0;
   let sinceOverview = 0;
   const tally: Played[] = [];
   opts.events ??= new EventStream(opts.project);
+  try {
+    await triagePending(opts.project, (await context.gateConfig(opts.project)).config, opts);
+  } catch (e) {
+    opts.log(`triage: skipped at start: ${String(e)}`); // never the task's fault; the next run retries
+  }
   try {
     return await playAll();
   } finally {

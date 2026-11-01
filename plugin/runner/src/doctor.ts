@@ -2,11 +2,14 @@
 import { spawnSync } from "node:child_process";
 import { CONTEXT_URL, call, type GateConfig } from "./context.js";
 import { git, mainCheckout } from "./git.js";
+import { findJevKey, secretsFile, sessionEnv } from "./secrets.js";
 
 export interface Check {
   name: string;
   ok: boolean;
   detail: string;
+  /** Passes, but worth saying out loud. */
+  warn?: boolean;
 }
 
 const OLLAMA_URL = process.env.OLLAMA_URL ?? "http://127.0.0.1:11434";
@@ -51,7 +54,7 @@ export async function doctor(project: string, repo: string): Promise<Check[]> {
     const local = (cmd: string) => cmd.includes("/") && !cmd.startsWith("/");
     const commands = [...configured.map(head), ...pending.map(head).filter((cmd) => !local(cmd))];
     const missing = [...new Set(commands)]
-      .filter((cmd) => cmd && spawnSync("sh", ["-c", `command -v ${JSON.stringify(cmd)}`], { cwd: repo }).status !== 0);
+      .filter((cmd) => cmd && spawnSync("sh", ["-c", `command -v ${JSON.stringify(cmd)}`], { cwd: repo, env: sessionEnv() }).status !== 0);
     add("gates", all.length > 0 && missing.length === 0,
       all.length === 0 ? "no gates configured → add them in the UI (Config)"
         : missing.length ? `not found in ${repo}: ${missing.join(", ")} → install them or fix the gate command`
@@ -59,6 +62,18 @@ export async function doctor(project: string, repo: string): Promise<Check[]> {
               (pending.length ? `; ${pending.length} more pending from approved plans` : "")
             : `no gates yet; ${pending.length} pending from approved plans (${pending.map((g) => g.name).join(", ")}),` +
               " they join when their setup task merges");
+  }
+
+  const triage = got?.config.triage;
+  if (triage?.model === "jev-latest") {
+    const found = findJevKey();
+    const fallback = triage.fallback === "off" ? "deviations stay proposed" : `${triage.fallback} judges instead`;
+    if (found.key) add("triage", true, `Jev key found (${found.source})`);
+    else {
+      add("triage", true, `warning: no Jev key in TYPESAFE_API_KEY or ${secretsFile()}` +
+        (found.warning ? ` (${found.warning})` : "") + `; ${fallback}`);
+      checks[checks.length - 1].warn = true;
+    }
   }
 
   const main = mainCheckout(repo);

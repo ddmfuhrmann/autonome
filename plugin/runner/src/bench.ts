@@ -10,6 +10,7 @@ import { PLAN_SCHEMA, REHEARSAL_PROMPT, rehearsalPrompt } from "./conduct.js";
 import type { Effort, Plan, Rehearsal, RoleModel } from "./context.js";
 import { git } from "./git.js";
 import { review } from "./review.js";
+import { sessionEnv } from "./secrets.js";
 
 const BENCH = resolve(dirname(fileURLToPath(import.meta.url)), "../bench");
 const SHORTLINK = process.env.SHORTLINK_REPO ?? join(homedir(), "git", "shortlink");
@@ -30,7 +31,7 @@ function checkout(base: string, commit?: string, repo = SHORTLINK): { dir: strin
   const dir = join(mkdtempSync(join(tmpdir(), "autonome-bench-")), "shortlink");
   git(repo, "worktree", "add", "-q", "--detach", dir, base);
   if (commit) {
-    execFileSync("git", ["checkout", "-q", commit, "--", "."], { cwd: dir });
+    execFileSync("git", ["checkout", "-q", commit, "--", "."], { cwd: dir, env: sessionEnv() });
     git(dir, "add", "-A");
   }
   return { dir, done: () => { git(repo, "worktree", "remove", "--force", dir); rmSync(dirname(dir), { recursive: true, force: true }); } };

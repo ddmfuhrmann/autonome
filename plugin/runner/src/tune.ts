@@ -5,6 +5,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import { context, languageRule, roleModel, type Effort, type Plan } from "./context.js";
 import { mainCheckout } from "./git.js";
 import { isUsageLimit } from "./limits.js";
+import { sessionEnv } from "./secrets.js";
 
 export interface TuneOptions {
   project: string;
@@ -67,7 +68,7 @@ async function runTune(wave: Plan, opts: TuneOptions): Promise<string> {
       settingSources: ["project"],
       plugins: [{ type: "local", path: PLUGIN_ROOT }],
       // Not a work session: no handoff of its own, no metronome.
-      env: { ...process.env, AUTONOME_HANDOFF_CHILD: "1", AUTONOME_PROJECT: opts.project } as Record<string, string>,
+      env: sessionEnv({ AUTONOME_HANDOFF_CHILD: "1", AUTONOME_PROJECT: opts.project }),
       maxTurns: 60,
     },
   })) {
