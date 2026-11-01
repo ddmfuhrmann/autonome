@@ -266,7 +266,8 @@ def actions(doc: dict, in_wave: dict | None = None) -> list[dict]:
     for to in tos:
         key = (type_, status, to)
         out.append({"to": to, "label": ACTION_LABELS.get(key) or VERBS.get(to) or label(to),
-                    "effect": EFFECTS.get(key, ""),
+                    "effect": EFFECTS.get(key, "") + (f" It archives #{doc['body']['replaces']}, which it replaces."
+                                                      if key == ("convention", "proposed", "active") and doc["body"].get("replaces") else ""),
                     "style": "danger" if to in DANGER else "approve" if to in APPROVE else ""})
     # One recommended choice: the first approving one, else the first non-destructive one.
     for a in [a for a in out if a["style"] == "approve"][1:]:
@@ -277,6 +278,15 @@ def actions(doc: dict, in_wave: dict | None = None) -> list[dict]:
                 a["style"] = "primary"
                 break
     return out
+
+
+async def _retire_replaced(conn, convention: dict) -> None:
+    """Adopting a convention that replaces another archives the old one: two active rules that
+    contradict each other leave every agent guessing which one holds."""
+    old_id = convention["body"].get("replaces")
+    old = await store.get_document(conn, int(old_id)) if old_id else None
+    if old and old["type"] == "convention" and old["project"] == convention["project"] and old["status"] == "active":
+        await store.set_status(conn, old["id"], "archived")
 
 
 async def decide(conn, indexer, doc: dict, to: str) -> str:
@@ -295,6 +305,10 @@ async def decide(conn, indexer, doc: dict, to: str) -> str:
         await plans.approve_wave(conn, indexer, doc_id)
     elif doc["type"] == "decision" and doc["status"] == "proposed" and to == "rejected":
         await plans.reject_decision(conn, indexer, doc_id)
+    elif doc["type"] == "convention" and doc["status"] == "proposed" and to == "active":
+        async with conn.transaction():
+            await rules.transition(conn, doc_id, "active", "human")
+            await _retire_replaced(conn, doc)
     else:
         await rules.transition(conn, doc_id, to, "human")
     return (await store.get_document(conn, doc_id))["status"]
@@ -747,7 +761,8 @@ async def convention_edit(request: Request) -> Response:
             await store.set_status(conn, doc_id, "archived" if doc["status"] == "active" else "active")
         else:
             async with conn.transaction():
-                await store.add_version(conn, indexer, doc_id, {"title": str(form["title"]).strip(),
+                # Only title and rule are edited here; why, replaces and evidence stay.
+                await store.add_version(conn, indexer, doc_id, {**doc["body"], "title": str(form["title"]).strip(),
                                                                 "rule": str(form["rule"]).strip()})
     return RedirectResponse(f"/ui/p/{project}/conventions", status_code=303)
 

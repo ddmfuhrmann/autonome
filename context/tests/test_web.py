@@ -300,3 +300,28 @@ def test_insights_count_review_rounds_as_encores_and_show_the_debt(client, proje
     assert data["spent"]["cost_usd"] == 0.5 and data["spent"]["costliest"][0]["review_rounds"] == 3
     assert data["loose_ends"][0]["loose_ends"] == ["review, medium missing: weak test"]
     assert data["heavy_conventions"][0]["title"] == "Huge"
+
+
+def test_adopting_a_replacing_convention_archives_the_old_one_and_edits_keep_its_why(client, project, run_db, indexer):
+    async def go(conn):
+        async with conn.transaction():
+            old = await store.create_document(conn, indexer, project=project, type="convention",
+                                              body={"title": "Old", "rule": "never commit package.json", "why": "w"},
+                                              status="active")
+            new = await store.create_document(conn, indexer, project=project, type="convention",
+                                              body={"title": "New", "rule": "commit package.json", "why": "vaadin",
+                                                    "replaces": old}, status="proposed")
+        return old, new
+    old, new = run_db(go)
+    page = client.get(f"/ui/p/{project}/approvals").text
+    assert f"Replaces <a href=\"/ui/p/{project}/documents/{old}\">#{old}</a>" in page
+    r = client.post(f"/ui/p/{project}/documents/{new}/transition", data={"to": "active"}, headers=FETCH)
+    assert r.status_code == 200 and r.json()["status"] == "active"
+    assert status(run_db, old) == "archived"
+
+    client.post(f"/ui/p/{project}/conventions/{new}", data={"title": "New", "rule": "commit package.json and the lockfile"})
+
+    async def body(conn):
+        return (await store.get_document(conn, new))["body"]
+    b = run_db(body)
+    assert b["rule"] == "commit package.json and the lockfile" and b["why"] == "vaadin" and b["replaces"] == old

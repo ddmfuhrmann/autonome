@@ -79,6 +79,7 @@
     {% elif d.type == 'decision' %}
       {% set why = d.body.decision or d.body.rationale or d.body.why %}{% if why %}<p class="muted">{{ why|truncate(400) }}</p>{% endif %}
     {% elif d.type == 'convention' %}
+      {% if d.body.replaces %}<p class="muted" style="font-size: 13px">Replaces <a href="/ui/p/{{ project }}/documents/{{ d.body.replaces }}">#{{ d.body.replaces }}</a>: adopting it archives that one.</p>{% endif %}
       <div class="prose">{{ d.body.rule|md }}</div>
     {% endif %}
 
