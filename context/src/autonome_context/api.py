@@ -176,7 +176,7 @@ async def get_insights(request: Request) -> JSONResponse:
 
 
 async def post_task(request: Request) -> JSONResponse:
-    """Cues queue work here; it lands in the maintenance plan, which a human approves once."""
+    """Schedules queue work here; it lands in the maintenance plan, which a human approves once."""
     body = await request.json()
     pool, indexer = await services.get()
     async with pool.connection() as conn:

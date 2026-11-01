@@ -698,7 +698,7 @@ async def pending_gates(conn: AsyncConnection, project: str) -> list[dict]:
 async def finish_plan_if_complete(conn: AsyncConnection, plan_id: int) -> bool:
     plan = await get_document(conn, plan_id)
     if plan and plan["body"].get("kind") == "maintenance":
-        return False  # the standing plan cues add to; it ends only when a human abandons it
+        return False  # the standing plan schedules add to; it ends only when a human abandons it
     open_tasks = await (await conn.execute(
         """select count(*) from link l join document t on t.id = l.to_id
            where l.from_id = %s and l.kind = 'has_task' and t.status not in ('done', 'abandoned')""",
@@ -766,9 +766,9 @@ async def features(conn: AsyncConnection, project: str) -> list[dict]:
 
 MAINTENANCE_PLAN = {
     "kind": "maintenance",
-    "title": "Maintenance (cues)",
-    "goal": "Tasks found by scheduled checks (cues): dependency updates, a red main, drift. Approving this"
-            " plan once lets cues queue work here; abandon it to stop them.",
+    "title": "Maintenance (schedules)",
+    "goal": "Tasks found by scheduled checks (schedules): dependency updates, a red main, drift. Approving this"
+            " plan once lets schedules queue work here; abandon it to stop them.",
     "out_of_scope": ["anything not described in the task itself"],
     "tasks": [],
 }

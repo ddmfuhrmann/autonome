@@ -131,10 +131,10 @@ def test_insights_cluster_repeated_friction_and_count_gate_failures(run_db, proj
     assert i["repeated_failures"][0]["sessions"] == 2
 
 
-def test_cues_queue_into_one_maintenance_plan_that_a_human_approves_once(run_db, project, indexer):
+def test_schedules_queue_into_one_maintenance_plan_that_a_human_approves_once(run_db, project, indexer):
     async def go(conn):
-        a = await store.enqueue_task(conn, indexer, project, title="Fix main", spec="test is red", source="cue:main-red")
-        dup = await store.enqueue_task(conn, indexer, project, title="Fix main", spec="still red", source="cue:main-red")
+        a = await store.enqueue_task(conn, indexer, project, title="Fix main", spec="test is red", source="schedule:main-red")
+        dup = await store.enqueue_task(conn, indexer, project, title="Fix main", spec="still red", source="schedule:main-red")
         claim_before = await store.next_task(conn, project)
         await plans.approve(conn, indexer, a["plan_id"])
         task = await store.next_task(conn, project)
@@ -146,7 +146,7 @@ def test_cues_queue_into_one_maintenance_plan_that_a_human_approves_once(run_db,
     a, dup, claim_before, task, finished = run_db(go)
     assert a["plan_status"] == "draft" and dup["duplicate"] and dup["task_id"] == a["task_id"]
     assert claim_before is None and task["id"] == a["task_id"]
-    assert not finished  # the maintenance plan stays open for the next cue
+    assert not finished  # the maintenance plan stays open for the next schedule
 
 
 def test_insights_keep_the_reviewers_advisory_findings_for_the_retro_loop(run_db, project, indexer):
