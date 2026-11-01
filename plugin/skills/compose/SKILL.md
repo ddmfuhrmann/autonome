@@ -128,15 +128,35 @@ constraints it declares; input validation rejects control characters; tests asse
 only coverage. Approving the plan makes them active before its tasks play. Never propose loosening
 or replacing an existing convention.
 
+**Challenge it before saving.** Read the plan as someone who must build it and look for:
+
+- a load-bearing assumption: what breaks if it is wrong ("assumes one wallet per account");
+- hidden scope: what a developer would naturally add that no task or out-of-scope line mentions
+  (this endpoint implies auth; this job implies a schedule and a lock);
+- a layer, abstraction or tool no task needs yet (an event bus for one consumer, a generic base class
+  for one entity);
+- a path with fewer moving parts that reaches the same acceptance, even if you keep yours.
+
+Fix what you find in the plan itself (a task, an acceptance line, an out-of-scope line), or make it a
+question for the user (section 2) when it is theirs to decide. Do not run it as a separate
+conversation. When the user asked for the heavier path, keep it if they decided it, but name the
+simpler one concretely in the hand-over ("calling EmailSender from the use case would do for one
+consumer; kept the bus because you want more subscribers"), so they choose knowingly. Record what the
+challenge found, and the simpler path, as an assistant turn in the plan's `discussion`, so the
+reviewer and the rehearsal see it too. The challenge is a step inside drafting, never the end of your
+turn: carry on to `plan_draft` (and, for a wave, `wave_draft`) and the hand-over.
+
 Call `plan_draft` with `project`, `feature` (kebab-case slug), `layers` and the plan. To revise, call
 it again with the same `plan_id`; only drafts can change.
 
 ## 4. Hand it over
 
-First write the user a short summary, as a message of its own: goal, the tasks in order, what is
-out of scope, and the conventions and gates it adds, if any (approving the plan makes the
+Once the plan (or every plan and the wave) is saved, write the user a short summary, as a message of
+its own: goal, the tasks in order, what is out of scope, what the challenge changed or the simpler
+path you did not take, and the conventions and gates it adds, if any (approving the plan makes the
 conventions active and adds each gate once its setup task merges). The summary stays in the
-conversation whatever they answer. Then call `plan_approve` (or `wave_approve` for a wave). It asks
+conversation whatever they answer. Then, in the same turn, call `plan_approve` (or `wave_approve` for
+a wave). It asks
 the user directly, in a dialog their client shows with the stored plan; you cannot answer it, and you
 never approve anything yourself.
 
