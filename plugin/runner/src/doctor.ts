@@ -46,9 +46,9 @@ export async function doctor(project: string, repo: string): Promise<Check[]> {
     const pending = got.pending ?? [];
     const all = [...configured, ...pending];
     const head = (g: { run: string }) => g.run.trim().replace(/^!\s*/, "").split(/\s+/)[0];
-    // A pending gate's repo-local command (./gradlew, ./scripts/x) is what its setup task creates;
+    // A pending gate's repo-local command (./gradlew, scripts/x.sh) is what its setup task creates;
     // only tools it expects on the host can be missing now.
-    const local = (cmd: string) => cmd.startsWith("./");
+    const local = (cmd: string) => cmd.includes("/") && !cmd.startsWith("/");
     const commands = [...configured.map(head), ...pending.map(head).filter((cmd) => !local(cmd))];
     const missing = [...new Set(commands)]
       .filter((cmd) => cmd && spawnSync("sh", ["-c", `command -v ${JSON.stringify(cmd)}`], { cwd: repo }).status !== 0);

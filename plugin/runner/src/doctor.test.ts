@@ -86,7 +86,8 @@ test("greenfield: a pending gate whose command is not installed fails like a con
 
 test("greenfield: a pending gate's repo-local command is created by its setup task, so it is not required yet", async () => {
   const c = await gatesCheck({ version: null, config: { gates: [] }, pending: [
-    { name: "build", run: "./gradlew build", task_id: 291, plan_id: 278 }] });
+    { name: "build", run: "./gradlew build", task_id: 291, plan_id: 278 },
+    { name: "secrets", run: "scripts/check-secrets.sh", task_id: 392, plan_id: 390 }] });
   assert.equal(c.ok, true, c.detail);
 });
 
