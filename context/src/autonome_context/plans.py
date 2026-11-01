@@ -113,7 +113,7 @@ class WaveBody(BaseModel):
     discussion: list[Turn] = Field(default=[], description="the questions and answers that shaped the wave")
 
 
-class Rehearsal(BaseModel):
+class Preflight(BaseModel):
     """The runner's check of a wave plan against the code as it is when its turn comes."""
 
     verdict: Literal["ready", "revise"]
@@ -179,7 +179,7 @@ async def _queue_tasks(
     after_plans: list[int], wave_id: int | None,
 ) -> list[int]:
     gate_doc = await store.latest_of_type(conn, plan["project"], "gate_config")
-    fermata, playback = await store.review_flags(conn, plan["project"], plan["feature"])
+    hold_before_merge, after_merge = await store.review_flags(conn, plan["project"], plan["feature"])
     gates = [g.model_dump(mode="json") for g in body.gates]
     await apply_gates(conn, indexer, plan["project"], [g for g in gates if not g["with_task"]])
     await apply_conventions(conn, indexer, plan["project"], body.conventions)
@@ -187,7 +187,7 @@ async def _queue_tasks(
     for seq, t in enumerate(body.tasks, start=1):
         task = {"title": t.title, "spec": t.spec, "acceptance": t.acceptance, "plan_id": plan["id"],
                 "seq": seq, "depends_on": [task_ids[i - 1] for i in t.depends_on if 0 < i < seq],
-                "fermata": fermata, "playback": playback}
+                "hold_before_merge": hold_before_merge, "after_merge": after_merge}
         if after_plans:
             task["after_plans"] = after_plans
         if wave_id:
@@ -252,7 +252,7 @@ async def draft_wave(
 
 async def approve_wave(conn: AsyncConnection, indexer: store.Indexer, wave_id: int) -> dict[int, list[int]]:
     """Human-only. Approves the wave and every plan in it. A plan waits for the plans of the features it
-    depends on to be done, and is rehearsed against the code before it plays."""
+    depends on to be done, and is checked in preflight against the code before it plays."""
     async with conn.transaction():
         wave = await rules.transition(conn, wave_id, "approved", "human")
         body = WaveBody.model_validate(wave["body"])
@@ -268,13 +268,13 @@ async def approve_wave(conn: AsyncConnection, indexer: store.Indexer, wave_id: i
     return queued
 
 
-def needs_rehearsal(task: dict, plan: dict) -> bool:
+def needs_preflight(task: dict, plan: dict) -> bool:
     """A wave plan that waited for other features is checked against the code before its first task."""
     return bool(task["body"].get("after_plans")) and "preflight" not in plan["body"]
 
 
-async def rehearse(conn: AsyncConnection, indexer: store.Indexer, plan_id: int, r: Rehearsal) -> str:
-    """Runner. Records the rehearsal; a plan that needs revising is held until the human decides."""
+async def preflight(conn: AsyncConnection, indexer: store.Indexer, plan_id: int, r: Preflight) -> str:
+    """Runner. Records the preflight; a plan that needs revising is held until the human decides."""
     async with conn.transaction():
         plan = await store.get_document(conn, plan_id)
         if not plan or plan["type"] != "plan" or plan["status"] != "approved":
@@ -289,16 +289,16 @@ async def rehearse(conn: AsyncConnection, indexer: store.Indexer, plan_id: int, 
     return "ready"
 
 
-async def resolve_rehearsal(conn: AsyncConnection, indexer: store.Indexer, plan_id: int, accept: bool,
+async def resolve_preflight(conn: AsyncConnection, indexer: store.Indexer, plan_id: int, accept: bool,
                             actor: rules.Actor = "human") -> None:
     """Accepts the revised plan (its tasks replace the unplayed old ones) or keeps the original. The human,
     or the runner carrying a triage verdict."""
     async with conn.transaction():
         plan = await rules.transition(conn, plan_id, "approved", actor)
-        rehearsal = plan["body"].get("preflight", {})
-        if not accept or not rehearsal.get("plan"):
+        preflight = plan["body"].get("preflight", {})
+        if not accept or not preflight.get("plan"):
             await store.add_version(conn, indexer, plan_id, {
-                **plan["body"], "preflight": {**rehearsal, "verdict": "kept", "plan": None}})
+                **plan["body"], "preflight": {**preflight, "verdict": "kept", "plan": None}})
             return
         old = [await store.get_document(conn, l["id"]) for l in await store.links_of(conn, plan_id)
                if l["kind"] == "has_task" and l["direction"] == "out"]
@@ -308,13 +308,13 @@ async def resolve_rehearsal(conn: AsyncConnection, indexer: store.Indexer, plan_
             if t["status"] == "pending":  # replaced by the revision, whoever accepted it
                 await rules.transition(conn, t["id"], "abandoned", "human")
         original = PlanBody.model_validate(plan["body"]).model_dump(mode="json")
-        revised = PlanBody.model_validate(rehearsal["plan"])
+        revised = PlanBody.model_validate(preflight["plan"])
         # A revision changes the tasks, not what was decided: the backlog items and design stay with the plan.
         revised.backlog_items = revised.backlog_items or original.get("backlog_items", [])
         revised.design = revised.design or [DesignChoice.model_validate(d) for d in original.get("design", [])]
         await store.add_version(conn, indexer, plan_id, {
             **revised.model_dump(mode="json"),
-            "preflight": {**rehearsal, "verdict": "revised", "plan": None, "original": original}})
+            "preflight": {**preflight, "verdict": "revised", "plan": None, "original": original}})
         first = old[0]["body"] if old else {}
         await _queue_tasks(conn, indexer, plan, revised,
                            after_plans=first.get("after_plans", []), wave_id=first.get("wave_id"))
@@ -344,7 +344,7 @@ class CheckRun(BaseModel):
     output: str = ""
 
 
-class SoundcheckResult(BaseModel):
+class SmokeTestResult(BaseModel):
     """The runner's try of a finished feature in a running environment."""
 
     passed: bool
@@ -354,33 +354,33 @@ class SoundcheckResult(BaseModel):
 
 
 def _rounds(plan: dict) -> list[dict]:
-    """Soundchecks since the last human retry."""
-    runs = plan["body"].get("soundchecks", [])
+    """Smoke tests since the last human retry."""
+    runs = plan["body"].get("smoke_tests", [])
     since = max((i for i, r in enumerate(runs) if r.get("retry")), default=-1)
     return [r for r in runs[since + 1:] if not r.get("retry")]
 
 
-async def soundcheck_due(conn: AsyncConnection, project: str) -> dict | None:
-    """The oldest approved plan whose tasks are all finished but whose feature has not passed a soundcheck."""
+async def smoke_test_due(conn: AsyncConnection, project: str) -> dict | None:
+    """The oldest approved plan whose tasks are all finished but whose feature has not passed a smoke_test."""
     for plan in reversed(await store.list_documents(conn, project, type="plan", status="approved", limit=200)):
         if plan["body"].get("kind") == "maintenance":
             continue
         tasks = [l for l in await store.links_of(conn, plan["id"]) if l["kind"] == "has_task" and l["direction"] == "out"]
         if tasks and all(t["status"] in ("done", "abandoned") for t in tasks) \
-                and any(t["status"] == "done" for t in tasks) and await store.awaits_soundcheck(conn, plan):
+                and any(t["status"] == "done" for t in tasks) and await store.awaits_smoke_test(conn, plan):
             return plan
     return None
 
 
-async def record_soundcheck(conn: AsyncConnection, indexer: store.Indexer, plan_id: int, r: SoundcheckResult) -> str:
+async def record_smoke_test(conn: AsyncConnection, indexer: store.Indexer, plan_id: int, r: SmokeTestResult) -> str:
     """Runner. A pass finishes the plan; a failure queues fix tasks in it, or blocks it once the fix rounds
     are spent (or there is nothing concrete to fix)."""
     async with conn.transaction():
         plan = await store.get_document(conn, plan_id)
         if not plan or plan["type"] != "plan" or plan["status"] != "approved":
             raise rules.Forbidden(f"plan {plan_id} is not an approved plan")
-        runs = plan["body"].get("soundchecks", []) + [{"at": _now(), **r.model_dump(mode="json")}]
-        await store.add_version(conn, indexer, plan_id, {**plan["body"], "soundchecks": runs})
+        runs = plan["body"].get("smoke_tests", []) + [{"at": _now(), **r.model_dump(mode="json")}]
+        await store.add_version(conn, indexer, plan_id, {**plan["body"], "smoke_tests": runs})
         plan = await store.get_document(conn, plan_id)
         if r.passed:
             await store.finish_plan_if_complete(conn, plan_id)
@@ -399,19 +399,19 @@ async def record_soundcheck(conn: AsyncConnection, indexer: store.Indexer, plan_
                 conn, indexer, project=plan["project"], type="task", status="pending", feature=plan["feature"],
                 layers=last["layers"],
                 body={"title": fix.title, "spec": fix.spec, "acceptance": fix.acceptance, "plan_id": plan_id,
-                      "seq": last["body"]["seq"] + i, "depends_on": [], "fermata": last["body"].get("fermata", False),
-                      "playback": last["body"].get("playback", False),
-                      "source": "soundcheck"} | ({"wave_id": last["body"]["wave_id"]} if last["body"].get("wave_id") else {}))
+                      "seq": last["body"]["seq"] + i, "depends_on": [], "hold_before_merge": last["body"].get("hold_before_merge", False),
+                      "after_merge": last["body"].get("after_merge", False),
+                      "source": "smoke_test"} | ({"wave_id": last["body"]["wave_id"]} if last["body"].get("wave_id") else {}))
             await store.link(conn, plan_id, task_id, "has_task")
     return "fixing"
 
 
-async def retry_soundcheck(conn: AsyncConnection, indexer: store.Indexer, plan_id: int) -> None:
-    """Human-only. A blocked plan gets one more soundcheck with fresh fix rounds."""
+async def retry_smoke_test(conn: AsyncConnection, indexer: store.Indexer, plan_id: int) -> None:
+    """Human-only. A blocked plan gets one more smoke_test with fresh fix rounds."""
     async with conn.transaction():
         plan = await rules.transition(conn, plan_id, "approved", "human")
-        runs = plan["body"].get("soundchecks", []) + [{"at": _now(), "retry": True}]
-        await store.add_version(conn, indexer, plan_id, {**plan["body"], "soundchecks": runs})
+        runs = plan["body"].get("smoke_tests", []) + [{"at": _now(), "retry": True}]
+        await store.add_version(conn, indexer, plan_id, {**plan["body"], "smoke_tests": runs})
 
 
 async def accept_as_is(conn: AsyncConnection, plan_id: int) -> None:
@@ -520,53 +520,53 @@ def unverified(items: list[dict]) -> list[str]:
 
 
 def with_loose_ends(body: dict, ends: list[str]) -> dict:
-    """The task body with these loose ends added to its playback review, opened when needed."""
+    """The task body with these loose ends added to its after-merge review, opened when needed."""
     if not ends:
         return body
-    review = dict(body.get("playback_review") or {})
+    review = dict(body.get("after_merge_review") or {})
     if review.get("status") != "pending":
         review = {"status": "pending"}
     seen = review.get("loose_ends", [])
-    return {**body, "playback_review": {**review, "loose_ends": seen + [e for e in ends if e not in seen]}}
+    return {**body, "after_merge_review": {**review, "loose_ends": seen + [e for e in ends if e not in seen]}}
 
 
 async def note_handoff(conn: AsyncConnection, indexer: store.Indexer | None, task_id: int, items: list[dict]) -> None:
-    """A handoff arrives after the merge: its unverified items join the task's playback review."""
+    """A handoff arrives after the merge: its unverified items join the task's after_merge review."""
     task = await store.get_document(conn, task_id)
     ends = unverified(items)
     if task and task["type"] == "task" and task["status"] == "done" and ends:
         await store.add_version(conn, indexer, task_id, with_loose_ends(task["body"], ends))
 
 
-async def playback_heard(conn: AsyncConnection, indexer: store.Indexer, task_id: int) -> dict:
-    """Human-only. The merged work of a playback feature was reviewed and is fine."""
+async def after_merge_reviewed(conn: AsyncConnection, indexer: store.Indexer, task_id: int) -> dict:
+    """Human-only. The merged work of a review-after-merge feature was reviewed and is fine."""
     async with conn.transaction():
-        task = await _playback_task(conn, task_id)
-        await store.add_version(conn, indexer, task_id, {**task["body"], "playback_review": {"status": "heard", "at": _now()}})
-    return {"status": "heard"}
+        task = await _after_merge_task(conn, task_id)
+        await store.add_version(conn, indexer, task_id, {**task["body"], "after_merge_review": {"status": "reviewed", "at": _now()}})
+    return {"status": "reviewed"}
 
 
-async def playback_fix(conn: AsyncConnection, indexer: store.Indexer, task_id: int, reason: str) -> dict:
+async def after_merge_fix(conn: AsyncConnection, indexer: store.Indexer, task_id: int, reason: str) -> dict:
     """Human-only. Review forward: what needs fixing in merged work becomes a new task, never a block."""
     reason = reason.strip()
     if not reason:
         raise rules.Forbidden("say what needs fixing: it becomes the fix task's instruction")
     async with conn.transaction():
-        task = await _playback_task(conn, task_id)
+        task = await _after_merge_task(conn, task_id)
         b = task["body"]
         commit = ((b.get("runs") or [{}])[-1]).get("merged_sha", "")
         spec = (f"In review after merge, the human asked for a fix to task #{task_id} ({b['title']})"
                 + (f", merged as {commit[:10]}" if commit else "") + f":\n\n{reason}\n\n"
                 f"The original task, for context: {b.get('spec', '')}")
         fix = await store.enqueue_task(conn, indexer, task["project"], title=f"Fix: {b['title']}", spec=spec,
-                                       feature=task["feature"], layers=task["layers"], source=f"playback:{task_id}")
-        await store.add_version(conn, indexer, task_id, {**b, "playback_review": {
+                                       feature=task["feature"], layers=task["layers"], source=f"after_merge:{task_id}")
+        await store.add_version(conn, indexer, task_id, {**b, "after_merge_review": {
             "status": "fix", "at": _now(), "reason": reason, "fix_task_id": fix["task_id"]}})
     return {"status": "fix", **fix}
 
 
-async def _playback_task(conn: AsyncConnection, task_id: int) -> dict:
+async def _after_merge_task(conn: AsyncConnection, task_id: int) -> dict:
     task = await store.get_document(conn, task_id)
-    if not task or task["type"] != "task" or (task["body"].get("playback_review") or {}).get("status") != "pending":
-        raise rules.Forbidden(f"task {task_id} has no playback waiting")
+    if not task or task["type"] != "task" or (task["body"].get("after_merge_review") or {}).get("status") != "pending":
+        raise rules.Forbidden(f"task {task_id} has no after-merge review waiting")
     return task

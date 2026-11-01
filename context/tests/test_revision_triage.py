@@ -1,7 +1,7 @@
 import pytest
 
 from autonome_context import plans, rules, server, store, web
-from autonome_context.plans import PlanBody, Rehearsal, TaskSpec
+from autonome_context.plans import PlanBody, Preflight, TaskSpec
 
 from test_triage import enable
 from test_waves import play, two_feature_wave
@@ -25,7 +25,7 @@ def stats_body(tasks: int = 2, **change) -> PlanBody:
 
 @pytest.fixture
 def held(run_db, project, indexer):
-    """The stats plan held by the rehearsal with a revision. Returns (plan id, old task ids)."""
+    """The stats plan held by the preflight with a revision. Returns (plan id, old task ids)."""
     async def go(conn, tasks=2, notes="the catch-all route breaks the test", **change):
         links, stats, wave = await two_feature_wave(conn, indexer, project)
         queued = await plans.approve_wave(conn, indexer, wave)
@@ -34,7 +34,7 @@ def held(run_db, project, indexer):
         plan = await store.get_document(conn, stats)
         original = stats_body()
         await store.add_version(conn, indexer, stats, {**plan["body"], **original.model_dump(mode="json")})
-        await plans.rehearse(conn, indexer, stats, Rehearsal(
+        await plans.preflight(conn, indexer, stats, Preflight(
             verdict="revise", notes=notes, plan=stats_body(tasks, **change)))
         await conn.commit()
         return stats, queued[stats]
@@ -47,7 +47,7 @@ def revisions(client, project):
 
 
 def url(plan_id):
-    return f"/api/plans/{plan_id}/rehearsal-triage"
+    return f"/api/plans/{plan_id}/preflight-triage"
 
 
 def test_revisions_carry_only_the_changed_tasks_with_their_position(client, project, run_db, indexer, held):

@@ -1,4 +1,4 @@
-"""Server-rendered UI: the human side of the context (setlist, approvals, memory, setup)."""
+"""Server-rendered UI: the human side of the context (queue, approvals, memory, setup)."""
 
 import json
 import logging
@@ -197,26 +197,26 @@ for _name, _fn in {"ref": ref, "label": label, "ago": ago, "when": when, "clock"
 # --- what is waiting on the human ----------------------------------------------------------------
 
 QUEUE_KINDS = {
-    "plans": "Waves & plans", "held": "Held by rehearsal", "soundcheck": "Soundcheck", "fermata": "Fermata",
-    "blocked": "Blocked tasks", "playback": "Playback", "decision": "Decisions", "convention": "Conventions",
+    "plans": "Waves & plans", "held": "Held by preflight", "smoke_test": "Smoke test", "hold_before_merge": "Hold before merge",
+    "blocked": "Blocked tasks", "after_merge": "Review after merge", "decision": "Decisions", "convention": "Conventions",
 }
 
 
-# What holds up the setlist. Decisions and conventions are reviewed when the human likes.
-BLOCKING = {"plans", "held", "soundcheck", "fermata", "blocked"}
+# What holds up the queue. Decisions and conventions are reviewed when the human likes.
+BLOCKING = {"plans", "held", "smoke_test", "hold_before_merge", "blocked"}
 
 
 async def _queue(conn, project: str) -> list[dict]:
     """Everything only a human can move, most blocking first."""
     docs = lambda type, status: store.list_documents(conn, project, type=type, status=status)
-    items = [{"kind": "fermata", "doc": d} for d in await docs("task", "on_hold")]
+    items = [{"kind": "hold_before_merge", "doc": d} for d in await docs("task", "on_hold")]
     items += [{"kind": "held", "doc": d} for d in await docs("plan", "held")]
-    items += [{"kind": "soundcheck", "doc": d} for d in await docs("plan", "blocked")]
+    items += [{"kind": "smoke_test", "doc": d} for d in await docs("plan", "blocked")]
     items += [{"kind": "blocked", "doc": d} for d in await docs("task", "blocked")]
     items += [{"kind": "plans", "doc": d} for d in await docs("wave", "draft")]
     items += [{"kind": "plans", "doc": d} for d in await docs("plan", "draft") if not await plans.wave_of(conn, d)]
-    items += [{"kind": "playback", "doc": t} for t in await docs("task", "done")
-              if (t["body"].get("playback_review") or {}).get("status") == "pending"]
+    items += [{"kind": "after_merge", "doc": t} for t in await docs("task", "done")
+              if (t["body"].get("after_merge_review") or {}).get("status") == "pending"]
     triage = await _triage_on(conn, project)  # with triage on, the classifier judges deviations only
     items += [{"kind": "decision", "doc": d} for d in await docs("decision", "proposed")
               if not (triage and d["body"].get("deviation")) or _escalated(d)]
@@ -251,7 +251,7 @@ async def _triage_on(conn, project: str) -> bool:
 
 
 async def _side(conn, project: str) -> dict:
-    """The sidebar's live part: what waits on the human and what the maestro is playing."""
+    """The sidebar's live part: what waits on the human and what the runner is running."""
     tasks = await store.list_documents(conn, project, type="task", limit=500)
     status = Counter(t["status"] for t in tasks)
     waves = await store.list_documents(conn, project, type="wave", status="approved", limit=5)
@@ -261,7 +261,7 @@ async def _side(conn, project: str) -> dict:
         "select count(*) filter (where d.type = 'handoff'), max(d.created_at) filter (where d.type = 'handoff'),"
         " max(d.created_at) from document d join project p on p.id = d.project_id where p.slug = %s",
         (project,))).fetchone()
-    return {"waiting": len(waiting), "to_hear": sum(i["kind"] == "playback" for i in queue), "playing": status["playing"],
+    return {"waiting": len(waiting), "to_review": sum(i["kind"] == "after_merge" for i in queue), "running": status["running"],
             "on_hold": status["on_hold"], "pending": status["pending"], "wave": waves[0] if waves else None,
             "handoffs": handoffs, "last_handoff": last_handoff, "last_activity": last_activity}
 
@@ -279,26 +279,26 @@ async def render(request: Request, name: str, **ctx) -> Response:
 # --- decisions: the buttons a human gets, and what each one does ----------------------------------
 
 EFFECTS = {
-    ("wave", "draft", "approved"): "Every plan in the wave is approved; their tasks enter the setlist and play "
+    ("wave", "draft", "approved"): "Every plan in the wave is approved; their tasks enter the queue and play "
                                    "in the order shown, each plan after the ones it depends on.",
     ("wave", "draft", "abandoned"): "The wave is dropped. Its plans stay drafts and can be approved on their own.",
     ("wave", "approved", "abandoned"): "The wave is dropped. Its plans keep their own status; merged work stays on main.",
-    ("plan", "draft", "approved"): "Its tasks enter the setlist and the maestro plays them in order.",
+    ("plan", "draft", "approved"): "Its tasks enter the queue and the runner plays them in order.",
     ("plan", "draft", "abandoned"): "The plan is dropped; nothing is queued.",
     ("plan", "approved", "abandoned"): "No task of the plan is played any more. Merged work stays on main.",
     ("plan", "held", "revised"): "The unplayed tasks are replaced by the revised ones and the plan starts.",
-    ("plan", "held", "approved"): "The plan starts as written; the rehearsal notes stay attached to it.",
+    ("plan", "held", "approved"): "The plan starts as written; the preflight notes stay attached to it.",
     ("plan", "held", "abandoned"): "The plan is dropped; plans that wait for it never start.",
-    ("plan", "blocked", "approved"): "One more soundcheck, with fresh fix rounds.",
+    ("plan", "blocked", "approved"): "One more smoke_test, with fresh fix rounds.",
     ("plan", "blocked", "done"): "The feature is done as it is; the plans after it may play.",
     ("plan", "blocked", "abandoned"): "The plan is dropped; plans that wait for it never start.",
-    ("task", "on_hold", "released"): "The maestro merges the branch into main next.",
+    ("task", "on_hold", "released"): "The runner merges the branch into main next.",
     ("task", "on_hold", "pending"): "Back to pending: a new session plays it again.",
     ("task", "blocked", "pending"): "Back to pending: a new session plays it again.",
     ("task", "blocked", "abandoned"): "The task is dropped; tasks that depend on it never start.",
     ("task", "pending", "abandoned"): "The task is dropped; tasks that depend on it never start.",
     ("convention", "proposed", "active"): "Injected into every agent session that touches its layers.",
-    ("convention", "proposed", "rejected"): "Dropped; tune will not propose it again from the same evidence.",
+    ("convention", "proposed", "rejected"): "Dropped; retro will not propose it again from the same evidence.",
     ("decision", "proposed", "accepted"): "Becomes a decision in effect for its feature; later plans respect it.",
     ("decision", "proposed", "rejected"): "A task to undo it is queued in the maintenance plan.",
     ("decision", "accepted", "superseded"): "Marked as no longer in effect.",
@@ -311,7 +311,7 @@ ACTION_LABELS = {
 }
 QUESTIONS = {
     ("wave", "draft"): "Approve the whole wave?", ("plan", "draft"): "Approve this plan?",
-    ("plan", "held"): "Accept the revised plan?", ("plan", "blocked"): "The soundcheck kept failing. What now?",
+    ("plan", "held"): "Accept the revised plan?", ("plan", "blocked"): "The smoke_test kept failing. What now?",
     ("task", "on_hold"): "Release this task to merge?", ("task", "blocked"): "Play it again?",
     ("decision", "proposed"): "Accept this decision?", ("convention", "proposed"): "Adopt this convention?",
 }
@@ -363,9 +363,9 @@ async def decide(conn, indexer, doc: dict, to: str) -> str:
     the new status."""
     doc_id = doc["id"]
     if doc["type"] == "plan" and doc["status"] == "held" and to in ("revised", "approved"):
-        await plans.resolve_rehearsal(conn, indexer, doc_id, accept=to == "revised")
+        await plans.resolve_preflight(conn, indexer, doc_id, accept=to == "revised")
     elif doc["type"] == "plan" and doc["status"] == "blocked" and to == "approved":
-        await plans.retry_soundcheck(conn, indexer, doc_id)
+        await plans.retry_smoke_test(conn, indexer, doc_id)
     elif doc["type"] == "plan" and doc["status"] == "blocked" and to == "done":
         await plans.accept_as_is(conn, doc_id)
     elif doc["type"] == "plan" and to == "approved":
@@ -425,7 +425,7 @@ def _progress(tasks: list[dict]) -> dict:
     n = len(live) or 1
     tok, usd = (sum(x) for x in zip(*[_cost(t) for t in tasks])) if tasks else (0, 0.0)
     return {"total": len(live), "counts": c, "done": c["done"], "tokens": tok, "cost": usd,
-            "bar": {"done": 100 * c["done"] / n, "playing": 100 * (c["playing"] + c["released"]) / n,
+            "bar": {"done": 100 * c["done"] / n, "running": 100 * (c["running"] + c["released"]) / n,
                     "held": 100 * c["on_hold"] / n, "blocked": 100 * c["blocked"] / n}}
 
 
@@ -461,7 +461,7 @@ def _stages(run: dict | None, status: str) -> list[tuple[str, str]]:
     if outcome == "merged":
         return [(n, "is-done") for n in names]
     if outcome == "on_hold" or status in ("on_hold", "released"):
-        names[-1] = "fermata" if status == "on_hold" else "merge"
+        names[-1] = "hold_before_merge" if status == "on_hold" else "merge"
         return [(n, "is-done") for n in names[:-1]] + [(names[-1], "is-current")]
     if review and review.get("verdict") == "fail":
         return [(n, "is-done") for n in names[:2]] + [(names[2], "is-failed"), (names[3], "")]
@@ -673,7 +673,7 @@ async def document_page(request: Request) -> Response:
     return await render(request, "document.html", **ctx)
 
 
-NAV_SECTION = {"wave": "waves", "plan": "waves", "task": "setlist", "convention": "conventions",
+NAV_SECTION = {"wave": "waves", "plan": "waves", "task": "queue", "convention": "conventions",
                "gate_config": "config"}
 
 
@@ -692,7 +692,7 @@ async def _wave(conn, wave: dict) -> dict:
 
 
 def _run_summary(feats: list[dict], gate_failures: Counter) -> dict:
-    """How the wave played, task by task: what the maestro prints when it stops, kept on the page."""
+    """How the wave played, task by task: what the runner prints when it stops, kept on the page."""
     rows = []
     for f in feats:
         for t in f["tasks"]:
@@ -701,13 +701,13 @@ def _run_summary(feats: list[dict], gate_failures: Counter) -> dict:
             tokens, cost = _cost(t)
             rows.append({
                 "task": t, "feature": f["plan"]["feature"] if f["plan"] else None, "sessions": len(runs),
-                "encores": gate_failures.get(t["id"], 0),
+                "retries": gate_failures.get(t["id"], 0),
                 "review_rounds": max((r.get("review_rounds") or 0 for r in runs), default=0),
                 "duration_s": sum(r.get("duration_s") or 0 for r in runs), "tokens": tokens, "cost": cost,
                 "reason": last.get("reason") if t["status"] in ("blocked", "on_hold") else None,
-                "playback": t["body"].get("playback_review"),
+                "after_merge": t["body"].get("after_merge_review"),
             })
-    totals = {k: sum(r[k] for r in rows) for k in ("sessions", "encores", "review_rounds", "duration_s", "tokens", "cost")}
+    totals = {k: sum(r[k] for r in rows) for k in ("sessions", "retries", "review_rounds", "duration_s", "tokens", "cost")}
     counts = Counter(r["task"]["status"] for r in rows)
     return {"rows": rows, "totals": totals, "merged": counts["done"], "blocked": counts["blocked"],
             "held": counts["on_hold"]}
@@ -718,7 +718,7 @@ async def _plan(conn, plan: dict) -> dict:
     failures = Counter(g["task_id"] for g in await store.gate_runs(conn, project=plan["project"], limit=5000)
                        if not g["passed"])
     cfg = await _gate_config(conn, plan["project"])
-    return {"tasks": tasks, "progress": _progress(tasks), "encores": failures, "cfg": cfg,
+    return {"tasks": tasks, "progress": _progress(tasks), "retries": failures, "cfg": cfg,
             "graph": _mermaid(tasks) if tasks else None,
             "after": sorted({p for t in tasks for p in t["body"].get("after_plans", [])})}
 
@@ -742,7 +742,7 @@ async def _task(conn, task: dict) -> dict:
         summary[sid] = list(per.values())
     return {"runs": runs, "gates_by_session": summary, "plan": plan, "last": last, "diff_run": diff_run,
             "stages": _stages(last, task["status"]), "cfg": await _gate_config(conn, task["project"]),
-            "encores": sum(1 for g in gate_runs if not g["passed"]),
+            "retries": sum(1 for g in gate_runs if not g["passed"]),
             "events": await store.events(conn, task_id=task["id"], limit=400)}
 
 
@@ -766,7 +766,7 @@ async def config_page(request: Request) -> Response:
         text = doc["body"]["yaml"] if doc else EXAMPLE
         try:
             cfg = GateConfig.from_yaml(text)
-            summary = f"{len(cfg.gates)} gates" + (", soundcheck configured" if cfg.smoke_test else "")
+            summary = f"{len(cfg.gates)} gates" + (", smoke_test configured" if cfg.smoke_test else "")
         except Exception as e:
             error = str(e)
     return await render(request, "config.html", text=text, doc=doc, error=error, runs=runs, summary=summary)
@@ -803,8 +803,8 @@ async def approvals_page(request: Request) -> Response:
                         kind=kind, kinds=QUEUE_KINDS, oldest=oldest)
 
 
-async def playback(request: Request) -> Response:
-    """The human's review after merge: heard, or a fix queued as a new task. Never blocks anything."""
+async def after_merge(request: Request) -> Response:
+    """The human's review after merge: reviewed, or a fix queued as a new task. Never blocks anything."""
     project, doc_id = request.path_params["project"], int(request.path_params["doc_id"])
     form = await request.form()
     verdict, reason = str(form.get("verdict") or ""), str(form.get("reason") or "")
@@ -827,11 +827,11 @@ async def playback(request: Request) -> Response:
             doc = await store.get_document(conn, doc_id)
             if not doc or doc["project"] != project:
                 return answer({"error": "not found"}, 404)
-            if verdict == "heard":
-                await plans.playback_heard(conn, indexer, doc_id)
-                notice = f"#{doc_id}: sounds right"
+            if verdict == "reviewed":
+                await plans.after_merge_reviewed(conn, indexer, doc_id)
+                notice = f"#{doc_id}: looks right"
             elif verdict == "fix":
-                fix = await plans.playback_fix(conn, indexer, doc_id, reason)
+                fix = await plans.after_merge_fix(conn, indexer, doc_id, reason)
                 notice = f"#{doc_id}: fix queued as #{fix['task_id']}" + (
                     " (approve the maintenance plan once for it to play)" if fix.get("plan_status") == "draft" else "")
             else:
@@ -839,7 +839,7 @@ async def playback(request: Request) -> Response:
     except rules.Forbidden as e:
         return answer({"error": str(e)}, 409)
     except Exception as e:
-        log.exception("playback of #%s failed", doc_id)
+        log.exception("after-merge review of #%s failed", doc_id)
         return answer({"error": f"the context could not save it ({type(e).__name__}); try again in a moment"}, 503)
     return answer({"status": verdict, "notice": notice, "location": back})
 
@@ -923,11 +923,11 @@ async def convention_edit(request: Request) -> Response:
     return RedirectResponse(f"/ui/p/{project}/conventions", status_code=303)
 
 
-SETLIST_COLUMNS = ["pending", "playing", "on_hold", "released", "blocked", "done"]
+QUEUE_COLUMNS = ["pending", "running", "on_hold", "released", "blocked", "done"]
 COLUMN_LIMIT = {"pending": 12, "done": 12}
 
 
-async def setlist_page(request: Request) -> Response:
+async def queue_page(request: Request) -> Response:
     project = request.path_params["project"]
     pool, _ = await services.get()
     async with pool.connection() as conn:
@@ -935,17 +935,17 @@ async def setlist_page(request: Request) -> Response:
         plans_ = {d["id"]: d for d in await store.list_documents(conn, project, type="plan", limit=200)}
         waves = await store.list_documents(conn, project, type="wave", status="approved", limit=5)
     tasks.sort(key=lambda t: (t["body"].get("plan_id", 0), t["body"].get("seq", 0)))
-    columns = {c: [t for t in tasks if t["status"] == c] for c in SETLIST_COLUMNS}
+    columns = {c: [t for t in tasks if t["status"] == c] for c in QUEUE_COLUMNS}
     columns["done"].reverse()
     totals = {c: len(ts) for c, ts in columns.items()}
     for c, n in COLUMN_LIMIT.items():
         columns[c] = columns[c][:n]
     status_of = {t["id"]: t["status"] for t in tasks} | {p["id"]: p["status"] for p in plans_.values()}
     async with pool.connection() as conn:
-        now_doing = await store.last_events(conn, [t["id"] for t in tasks if t["status"] == "playing"])
-    return await render(request, "setlist.html", columns=columns, totals=totals, plans=plans_, status_of=status_of,
+        now_doing = await store.last_events(conn, [t["id"] for t in tasks if t["status"] == "running"])
+    return await render(request, "queue.html", columns=columns, totals=totals, plans=plans_, status_of=status_of,
                         wave=waves[0] if waves else None, progress=_progress(tasks),
-                        playing=[t for t in tasks if t["status"] == "playing"], now_doing=now_doing)
+                        running=[t for t in tasks if t["status"] == "running"], now_doing=now_doing)
 
 
 async def waves_page(request: Request) -> Response:
@@ -1029,7 +1029,7 @@ def routes() -> list:
     return [
         Route("/", lambda r: RedirectResponse("/ui")),
         Route("/ui", home),
-        Route("/ui/p/{project}", lambda r: RedirectResponse(f"/ui/p/{r.path_params['project']}/setlist")),
+        Route("/ui/p/{project}", lambda r: RedirectResponse(f"/ui/p/{r.path_params['project']}/queue")),
         Route("/ui/p/{project}/search", search_page),
         Route("/ui/p/{project}/lab", lab_page),
         Route("/ui/p/{project}/lab/eval", lab_eval, methods=["POST"]),
@@ -1038,14 +1038,14 @@ def routes() -> list:
         Route("/ui/p/{project}/documents/{doc_id:int}", document_page),
         Route("/ui/p/{project}/config", config_page, methods=["GET", "POST"]),
         Route("/ui/p/{project}/approvals", approvals_page),
-        Route("/ui/p/{project}/setlist", setlist_page),
+        Route("/ui/p/{project}/queue", queue_page),
         Route("/ui/p/{project}/waves", waves_page),
         Route("/ui/p/{project}/features", features_page),
         Route("/ui/p/{project}/insights", insights_page),
         Route("/ui/p/{project}/triage", triage_page),
         Route("/ui/p/{project}/features/{feature}", feature_page),
         Route("/ui/p/{project}/documents/{doc_id:int}/transition", transition, methods=["POST"]),
-        Route("/ui/p/{project}/documents/{doc_id:int}/playback", playback, methods=["POST"]),
+        Route("/ui/p/{project}/documents/{doc_id:int}/after-merge-review", after_merge, methods=["POST"]),
         Route("/ui/p/{project}/conventions", conventions_page, methods=["GET", "POST"]),
         Route("/ui/p/{project}/conventions/{doc_id:int}", convention_edit, methods=["POST"]),
         Mount("/static", StaticFiles(directory=_HERE / "static"), name="static"),

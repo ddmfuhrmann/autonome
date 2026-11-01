@@ -40,7 +40,7 @@ def _handoff_sections(h: Handoff) -> list[tuple[str, str]]:
         ("summary", h.summary),
         ("plan_adherence", "\n".join(f"[{p.status}] {p.item}. {p.note}".strip() for p in h.plan_adherence)),
         ("gates", "\n".join(
-            f"{g.name}: {'passed' if g.passed else 'failed'}, {g.encores} encores. {g.root_cause}".strip()
+            f"{g.name}: {'passed' if g.passed else 'failed'}, {g.retries} retries. {g.root_cause}".strip()
             for g in h.gates
         )),
         ("deviations", "\n".join(h.deviations)),

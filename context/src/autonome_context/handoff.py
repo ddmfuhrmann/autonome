@@ -12,7 +12,7 @@ class PlanItem(BaseModel):
 class GateResult(BaseModel):
     name: str
     passed: bool
-    encores: int = 0
+    retries: int = 0
     root_cause: str = ""
 
 

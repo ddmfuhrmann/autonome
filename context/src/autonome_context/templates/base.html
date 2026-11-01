@@ -23,8 +23,8 @@
   <nav class="side__nav">
     <div class="side__group"><span class="label">Process</span>
       {{ nav('features', 'Features') }}
-      {{ nav('setlist', 'Setlist') }}
-      {% call nav('approvals', 'Approvals') %}<span id="side-count" data-live>{% if side.waiting %}<span class="side__count side__count--attn">{{ side.waiting }}<span class="sr-only"> waiting</span></span>{% endif %}{% if side.to_hear %}<span class="side__count" title="merged, review when you like">{{ side.to_hear }}<span class="sr-only"> to hear</span></span>{% endif %}</span>{% endcall %}
+      {{ nav('queue', 'Queue') }}
+      {% call nav('approvals', 'Approvals') %}<span id="side-count" data-live>{% if side.waiting %}<span class="side__count side__count--attn">{{ side.waiting }}<span class="sr-only"> waiting</span></span>{% endif %}{% if side.to_review %}<span class="side__count" title="merged, review when you like">{{ side.to_review }}<span class="sr-only"> to review</span></span>{% endif %}</span>{% endcall %}
       {{ nav('waves', 'Waves') }}
       {{ nav('triage', 'Verdicts') }}
     </div>
@@ -40,14 +40,14 @@
     </div>
   </nav>
   <div class="side__foot" id="side-foot" data-live role="status">
-    {% if side.playing %}
-    <span class="is-live">{{ ui.eq() }} Conducting{% if side.wave %} {{ side.wave|ref }}{% endif %}</span>
-    <span>{{ side.playing }} playing · {{ side.on_hold }} on hold · {{ side.waiting }} waiting on you</span>
+    {% if side.running %}
+    <span class="is-live">{{ ui.eq() }} Running{% if side.wave %} {{ side.wave|ref }}{% endif %}</span>
+    <span>{{ side.running }} running · {{ side.on_hold }} on hold · {{ side.waiting }} waiting on you</span>
     {% else %}
-    <span>Nothing playing · {{ side.pending }} pending</span>
+    <span>Nothing running · {{ side.pending }} pending</span>
     {% endif %}
     <span>{{ side.handoffs }} handoff{{ 's' if side.handoffs != 1 }}</span>
-    {% if side.last_handoff %}<span>Scribe ran {{ side.last_handoff|ago }}</span>{% endif %}
+    {% if side.last_handoff %}<span>Handoff writer ran {{ side.last_handoff|ago }}</span>{% endif %}
   </div>
 </aside>
 {% endif %}
@@ -69,7 +69,7 @@
 // shows the new status once the context confirms it, and a failure is said out loud, not swallowed.
 document.addEventListener("submit", async (ev) => {
   const form = ev.target;
-  if (!(form instanceof HTMLFormElement) || !/\/(transition|playback)$/.test(form.action)) return;
+  if (!(form instanceof HTMLFormElement) || !/\/(transition|after-merge-review)$/.test(form.action)) return;
   ev.preventDefault();
   const button = ev.submitter;
   const label = button?.textContent;

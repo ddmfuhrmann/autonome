@@ -1,6 +1,6 @@
 from autonome_context import history, plans, rules, store
 from autonome_context.handoff import Decision, PlanItem
-from autonome_context.plans import PlanBody, Rehearsal, TaskSpec
+from autonome_context.plans import PlanBody, Preflight, TaskSpec
 
 from conftest import make_handoff
 
@@ -27,7 +27,7 @@ def test_the_history_of_a_subject_gathers_what_went_off_plan(run_db, project, in
         plan_id = await plans.draft(conn, indexer, project, "wallet", [], PlanBody(
             title="Wallet", goal="g", tasks=[TaskSpec(title="Debit", spec="s")]))
         [task] = await plans.approve(conn, indexer, plan_id)
-        await rules.transition(conn, task, "playing", "runner")
+        await rules.transition(conn, task, "running", "runner")
         await rules.transition(conn, task, "blocked", "runner")
         doc = await store.get_document(conn, task)
         await store.add_version(conn, None, task, {**doc["body"], "runs": [{"outcome": "blocked", "reason": "ledger updated in place",
@@ -44,7 +44,7 @@ def test_the_history_of_a_subject_gathers_what_went_off_plan(run_db, project, in
         assert after["review_blocks"][:1] == before["review_blocks"]
         await store.add_version(conn, None, task, doc["body"])
         await store.enqueue_task(conn, indexer, project, title="Fix: Debit", spec="reject negative amounts",
-                                 feature="wallet", source="playback:9")
+                                 feature="wallet", source="after_merge:9")
         await store.put_handoff(conn, indexer, make_handoff(project, feature="signup", summary="Signup form",
                                                             deviations=["unrelated"]), None)
         return await history.build(conn, project, "debit the wallet", indexer.embedder, feature="wallet")
@@ -56,4 +56,4 @@ def test_the_history_of_a_subject_gathers_what_went_off_plan(run_db, project, in
     assert [(d["title"], d["status"]) for d in h["deviation_decisions"]] == [("Cached the balance", "proposed")]
     assert [b["issue"] for b in h["review_blocks"]] == ["updates a ledger row"]
     assert [b["reason"] for b in h["blocked"]] == ["ledger updated in place"]
-    assert [(f["source"], f["title"]) for f in h["fixes"]] == [("playback", "Fix: Debit")]
+    assert [(f["source"], f["title"]) for f in h["fixes"]] == [("after_merge", "Fix: Debit")]

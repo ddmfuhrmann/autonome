@@ -313,7 +313,7 @@ def seed(run_db, indexer, project, *, session="s-1", title="Dict", source=None, 
                     "runs": [{"review": {"findings": [{"severity": "medium", "kind": "style", "issue": "naming"}]}}]}
             if source:
                 body["source"] = source
-            task_id = await store.create_document(conn, indexer, project=project, type="task", status="playing",
+            task_id = await store.create_document(conn, indexer, project=project, type="task", status="running",
                                                   feature="links", layers=["api"], body=body)
         h = await store.put_handoff(conn, indexer, make_handoff(project, feature="links", layers=["api"],
             session_id=session, decisions=[Decision(title=title, rationale="faster", deviation=True)]), None)
@@ -420,7 +420,7 @@ def test_insights_list_exhausted_and_undone_deviations_with_the_undo_gate_result
             source = str(t["body"].get("source", ""))
             if source.startswith("decision:"):
                 undo_of[int(source[9:])] = t["id"]
-                await rules.transition(conn, t["id"], "playing", "runner")
+                await rules.transition(conn, t["id"], "running", "runner")
                 await rules.transition(conn, t["id"], "done", "runner")
         # An older session failed; only the newest session's latest result counts.
         await store.record_gate_runs(conn, project, "undo-old", [

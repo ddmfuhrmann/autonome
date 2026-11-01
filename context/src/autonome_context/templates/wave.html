@@ -3,20 +3,20 @@
 {% block title %}{{ doc|ref }}{% endblock %}
 {% block crumbs %}<a href="/ui/p/{{ project }}/waves">Waves</a><span class="sep">/</span><span aria-current="page">{{ doc|ref }}</span>{% endblock %}
 {% block main %}
-{% set live = features|selectattr('progress.counts.playing')|list %}
+{% set live = features|selectattr('progress.counts.running')|list %}
 <div class="page-head">
   <div class="page-head__text">
-    <div class="page-head__title"><span class="id">{{ doc|ref }}</span><h1>{{ doc.body.title }}</h1>{{ ui.st('playing' if live and doc.status == 'approved' else doc.status, live=true) }}</div>
+    <div class="page-head__title"><span class="id">{{ doc|ref }}</span><h1>{{ doc.body.title }}</h1>{{ ui.st('running' if live and doc.status == 'approved' else doc.status, live=true) }}</div>
     <div class="page-head__meta"><span>composed {{ doc.created_at|when }}</span><span>{{ features|length }} features · {{ progress.total }} tasks</span><span class="mono num">{{ progress.tokens|tokens }} tokens · {{ progress.cost|money }}</span></div>
   </div>
-  <div class="page-head__actions">{{ ui.head_danger(project, doc, actions) }}<a class="btn" href="/ui/p/{{ project }}/setlist">Open setlist</a></div>
+  <div class="page-head__actions">{{ ui.head_danger(project, doc, actions) }}<a class="btn" href="/ui/p/{{ project }}/queue">Open queue</a></div>
 </div>
 
 {{ ui.decision(project, doc, actions) }}
 
 <div class="grid grid--4">
   <div class="stat"><span class="label">Tasks done</span><span class="stat__value">{{ progress.done }}<span class="muted" style="font-size: 16px"> / {{ progress.total }}</span></span>{{ ui.progress(progress) }}</div>
-  <div class="stat"><span class="label">Playing</span><span class="stat__value">{{ progress.counts.playing }}</span><span class="stat__delta">{{ progress.counts.on_hold }} on hold</span></div>
+  <div class="stat"><span class="label">Running</span><span class="stat__value">{{ progress.counts.running }}</span><span class="stat__delta">{{ progress.counts.on_hold }} on hold</span></div>
   <div class="stat"><span class="label">Blocked</span><span class="stat__value">{{ progress.counts.blocked }}</span><span class="stat__delta">tasks</span></div>
   <div class="stat"><span class="label">Tokens</span><span class="stat__value">{{ progress.tokens|tokens }}</span><span class="stat__delta">{{ progress.cost|money }}</span></div>
 </div>
@@ -25,8 +25,8 @@
   <div class="card__head"><h2 class="card__title" id="order-h">Order of play</h2></div>
   <div class="card__body">
     <div class="lanes" role="img" aria-label="{% for f in features %}{{ f.plan.feature if f.plan else '?' }} ({{ f.plan.status if f.plan else 'missing' }}){{ ', then ' if not loop.last }}{% endfor %}">
-      {% for f in features %}{% set s = 'playing' if f.progress.counts.playing else (f.plan.status if f.plan else 'abandoned') %}
-      <span class="lanes__node{{ ' is-live' if s == 'playing' }}"><span class="st st--{{ s }} st--icon st--bare"><span class="sr-only">{{ s|label }}</span></span>{{ f.plan.feature or f.plan.body.title if f.plan else '?' }}</span>
+      {% for f in features %}{% set s = 'running' if f.progress.counts.running else (f.plan.status if f.plan else 'abandoned') %}
+      <span class="lanes__node{{ ' is-live' if s == 'running' }}"><span class="st st--{{ s }} st--icon st--bare"><span class="sr-only">{{ s|label }}</span></span>{{ f.plan.feature or f.plan.body.title if f.plan else '?' }}</span>
       {% if not loop.last %}<span class="lanes__link"></span>{% endif %}
       {% endfor %}
     </div>
@@ -37,17 +37,17 @@
   <section class="stack" aria-labelledby="feat-h">
     <div class="section-head"><h2 id="feat-h">Features</h2><span class="count">{{ features|length }}</span></div>
     <ol class="track">
-      {% for f in features %}{% set p = f.plan %}{% set s = 'playing' if f.progress.counts.playing else (p.status if p else 'abandoned') %}
+      {% for f in features %}{% set p = f.plan %}{% set s = 'running' if f.progress.counts.running else (p.status if p else 'abandoned') %}
       <li class="track__item{{ ' is-done' if s == 'done' }}">
         <div class="track__rail"><span class="track__node">{{ ui.icon_st(s) }}</span></div>
         <div class="track__body">
-          <div class="feat{{ ' feat--live' if s == 'playing' }}{{ ' feat--held' if s == 'held' }}">
+          <div class="feat{{ ' feat--live' if s == 'running' }}{{ ' feat--held' if s == 'held' }}">
             <div class="stack stack--sm">
               <div class="feat__name">{% if p %}{{ ui.doc_link(project, p) }}{% if p.feature %}<span class="tag tag--feature">{{ p.feature }}</span>{% endif %}{% else %}missing plan{% endif %}</div>
               <div class="feat__deps">
                 {% if f.after %}<span>after</span><span class="mono">{% for a in f.after %}{{ a|ref('plan') }}{{ ', ' if not loop.last }}{% endfor %}</span>{% else %}<span>no dependencies</span>{% endif %}
                 {% if p %}<span>·</span>{{ ui.st(p.status, sm=true) }}{% endif %}
-                {% if p and p.body.preflight %}<span>·</span>{{ ui.st(p.body.preflight.verdict, sm=true, text='Rehearsal ' ~ p.body.preflight.verdict) }}{% endif %}
+                {% if p and p.body.preflight %}<span>·</span>{{ ui.st(p.body.preflight.verdict, sm=true, text='Preflight ' ~ p.body.preflight.verdict) }}{% endif %}
                 {% if p and p.status == 'held' %}<a href="/ui/p/{{ project }}/approvals">revision waiting on you</a>{% endif %}
               </div>
             </div>
@@ -66,17 +66,17 @@
         <span class="push muted" style="font-size: 12px">{{ summary.merged }} merged · {{ summary.blocked }} blocked · {{ summary.held }} held · {{ summary.totals.duration_s|duration }}</span></div>
       <div class="card__body card__body--flush" style="overflow-x: auto">
         <table class="table">
-          <thead><tr><th>Task</th><th>Status</th><th class="num">Sessions</th><th class="num">Gate encores</th><th class="num">Review rounds</th><th class="num">Time</th><th class="num">Tokens</th><th class="num">Cost</th><th>Playback</th></tr></thead>
+          <thead><tr><th>Task</th><th>Status</th><th class="num">Sessions</th><th class="num">Gate retries</th><th class="num">Review rounds</th><th class="num">Time</th><th class="num">Tokens</th><th class="num">Cost</th><th>Review after merge</th></tr></thead>
           <tbody>
           {% for r in summary.rows %}
           <tr><td>{{ ui.doc_link(project, r.task) }}{% if r.reason %}<div class="muted" style="font-size: 12px; white-space: pre-wrap">{{ r.reason|truncate(220) }}</div>{% endif %}</td>
-            <td>{{ ui.st(r.task.status, sm=true) }}</td><td class="num">{{ r.sessions }}</td><td class="num">{{ r.encores }}</td>
+            <td>{{ ui.st(r.task.status, sm=true) }}</td><td class="num">{{ r.sessions }}</td><td class="num">{{ r.retries }}</td>
             <td class="num">{{ r.review_rounds }}</td><td class="num">{{ r.duration_s|duration if r.duration_s else '–' }}</td>
             <td class="num mono">{{ r.tokens|tokens }}</td><td class="num mono">{{ r.cost|money }}</td>
-            <td>{% set pr = r.playback %}{% if not pr %}<span class="muted">—</span>{% elif pr.status == 'pending' %}<a href="/ui/p/{{ project }}/approvals?kind=playback">to hear</a>{% elif pr.status == 'heard' %}✓{% else %}<a href="/ui/p/{{ project }}/documents/{{ pr.fix_task_id }}">fix → {{ pr.fix_task_id|ref('task') }}</a>{% endif %}</td></tr>
+            <td>{% set pr = r.after_merge %}{% if not pr %}<span class="muted">—</span>{% elif pr.status == 'pending' %}<a href="/ui/p/{{ project }}/approvals?kind=after_merge">to review</a>{% elif pr.status == 'reviewed' %}✓{% else %}<a href="/ui/p/{{ project }}/documents/{{ pr.fix_task_id }}">fix → {{ pr.fix_task_id|ref('task') }}</a>{% endif %}</td></tr>
           {% endfor %}
           </tbody>
-          <tfoot><tr><th>Total</th><th></th><th class="num">{{ summary.totals.sessions }}</th><th class="num">{{ summary.totals.encores }}</th><th class="num">{{ summary.totals.review_rounds }}</th>
+          <tfoot><tr><th>Total</th><th></th><th class="num">{{ summary.totals.sessions }}</th><th class="num">{{ summary.totals.retries }}</th><th class="num">{{ summary.totals.review_rounds }}</th>
             <th class="num">{{ summary.totals.duration_s|duration }}</th><th class="num mono">{{ summary.totals.tokens|tokens }}</th><th class="num mono">{{ summary.totals.cost|money }}</th><th></th></tr></tfoot>
         </table>
       </div>
@@ -90,10 +90,10 @@
         {% if doc.body.out_of_scope %}<h3>Out of scope</h3><ul>{% for o in doc.body.out_of_scope %}<li>{{ o|mdi }}</li>{% endfor %}</ul>{% endif %}
       </div>
     </div>
-    {% if doc.body.tuned %}
+    {% if doc.body.retro_done %}
     <div class="card">
       <div class="card__head"><h2 class="card__title">What the process learned</h2><a class="push muted" style="font-size: 12px" href="/ui/p/{{ project }}/approvals">proposals</a></div>
-      <div class="card__body prose" style="font-size: 13px">{{ doc.body.tuned.summary|md }}<p class="muted">Tuned {{ doc.body.tuned.at }}. Proposed conventions wait for you on Approvals.</p></div>
+      <div class="card__body prose" style="font-size: 13px">{{ doc.body.retro_done.summary|md }}<p class="muted">Retro done {{ doc.body.retro_done.at }}. Proposed conventions wait for you on Approvals.</p></div>
     </div>
     {% endif %}
     {% if doc.body.discussion %}

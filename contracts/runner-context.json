@@ -19,7 +19,7 @@
     "body": {"backend": "jev", "model": "jev-latest", "is_deviation": 0.19, "reject_at": 0.7}
   },
   "revision_verdict": {
-    "endpoint": "POST /api/plans/{id}/rehearsal-triage",
+    "endpoint": "POST /api/plans/{id}/preflight-triage",
     "item": {"plan_id": 678, "shape_changed": false, "state": {"plan": {"goal": "Count clicks"}, "original": [{"position": 3, "title": "API"}], "revised": [{"position": 3, "title": "API"}]}},
     "judgment": {"model": "jev-1.14.0", "verdict": "accept", "answers": {"drops_acceptance": 0.08, "adds_out_of_scope": 0.08, "changes_design": 0.13}},
     "body": {

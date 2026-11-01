@@ -1,4 +1,4 @@
-"""What the history says about the process itself: the tune loop's input.
+"""What the history says about the process itself: the retro loop's input.
 
 Facts come from data (gate runs, task outcomes, plan adherence in handoffs). Friction is free text,
 so it is grouped by meaning: each item is embedded and similar items are clustered.
@@ -172,11 +172,11 @@ async def build(conn: AsyncConnection, project: str, embedder: Embedder, limit: 
         gate_failures = {r["task_id"]: r["failures"] for r in await cur.fetchall()}
 
     tasks = await store.list_documents(conn, project, type="task", limit=500)
-    # An encore is any trip back to the implementer: a failed gate, or a review round after the first.
+    # A retry is any trip back to the implementer: a failed gate, or a review round after the first.
     runs_of = lambda t: t["body"].get("runs") or []
-    review_encores = {t["id"]: sum(max((r.get("review_rounds") or 1) - 1, 0) for r in runs_of(t)) for t in tasks}
+    review_retries = {t["id"]: sum(max((r.get("review_rounds") or 1) - 1, 0) for r in runs_of(t)) for t in tasks}
     played = [t["id"] for t in tasks if runs_of(t)]
-    encores = [gate_failures.get(i, 0) + review_encores.get(i, 0) for i in played]
+    retries = [gate_failures.get(i, 0) + review_retries.get(i, 0) for i in played]
     outcomes = Counter(t["status"] for t in tasks)
     # What the reviewer noticed but did not block on: the raw material for new conventions.
     findings = [{"task_id": t["id"], "feature": t["feature"], "kind": f.get("kind"), "severity": f["severity"],
@@ -185,9 +185,9 @@ async def build(conn: AsyncConnection, project: str, embedder: Embedder, limit: 
                 for f in ((r.get("reviews") or [r.get("review") or {}])[-1]).get("findings", [])
                 if f.get("severity") != "high"]
     loose_ends = [{"task_id": t["id"], "title": t["body"]["title"], "feature": t["feature"],
-                   "loose_ends": t["body"]["playback_review"]["loose_ends"]}
-                  for t in tasks if (t["body"].get("playback_review") or {}).get("status") == "pending"
-                  and t["body"]["playback_review"].get("loose_ends")]
+                   "loose_ends": t["body"]["after_merge_review"]["loose_ends"]}
+                  for t in tasks if (t["body"].get("after_merge_review") or {}).get("status") == "pending"
+                  and t["body"]["after_merge_review"].get("loose_ends")]
     spent = sorted(({"task_id": t["id"], "title": t["body"]["title"],
                      "tokens": sum(r.get("tokens") or 0 for r in runs_of(t)),
                      "cost_usd": round(sum(r.get("cost_usd") or 0 for r in runs_of(t)), 2),
@@ -210,8 +210,8 @@ async def build(conn: AsyncConnection, project: str, embedder: Embedder, limit: 
         "plan_items": {f: dict(c) for f, c in plan_items.items()},
         "gates": gates,
         "repeated_failures": repeated_failures,
-        "encores_per_task": {"tasks": len(encores), "avg": sum(encores) / len(encores) if encores else 0,
-                             "max": max(encores, default=0)},
+        "retries_per_task": {"tasks": len(retries), "avg": sum(retries) / len(retries) if retries else 0,
+                             "max": max(retries, default=0)},
         "spent": {"tokens": sum(s["tokens"] for s in spent), "cost_usd": round(sum(s["cost_usd"] for s in spent), 2),
                   "costliest": spent[:5]},
         "loose_ends": loose_ends,

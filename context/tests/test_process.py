@@ -21,7 +21,7 @@ def test_agents_cannot_pass_human_gates():
     assert not rules.allowed("plan", "done", "draft", "human")  # undefined transitions are refused
 
 
-def test_draft_revise_approve_queues_tasks_with_fermata(run_db, project, indexer):
+def test_draft_revise_approve_queues_tasks_with_hold_before_merge(run_db, project, indexer):
     async def go(conn):
         async with conn.transaction():
             await store.create_document(conn, indexer, project=project, type="gate_config", status="active",
@@ -41,7 +41,7 @@ def test_draft_revise_approve_queues_tasks_with_fermata(run_db, project, indexer
     assert plan["status"] == "approved" and plan["version"] == 2 and plan["body"]["goal"] == "Signup v2"
     assert [t["status"] for t in tasks] == ["pending", "pending"]
     assert tasks[0]["layers"] == ["ui"] and tasks[1]["body"]["depends_on"] == [tasks[0]["id"]]
-    assert all(t["body"]["fermata"] for t in tasks)
+    assert all(t["body"]["hold_before_merge"] for t in tasks)
 
 
 def test_task_briefing_has_spec_out_of_scope_and_layer_conventions(run_db, project, indexer):
@@ -82,11 +82,11 @@ def test_tasks_are_claimed_in_order_respecting_dependencies(run_db, project, ind
         seen = []
         task = await store.next_task(conn, project)
         seen.append(task["id"])
-        await rules.transition(conn, first, "playing", "runner")
+        await rules.transition(conn, first, "running", "runner")
         seen.append(await store.next_task(conn, project))  # second waits for first
         await rules.transition(conn, first, "done", "runner")
         seen.append((await store.next_task(conn, project))["id"])
-        await rules.transition(conn, second, "playing", "runner")
+        await rules.transition(conn, second, "running", "runner")
         await rules.transition(conn, second, "done", "runner")
         finished = await store.finish_plan_if_complete(conn, plan_id)
         return first, second, seen, finished, (await store.get_document(conn, plan_id))["status"]
@@ -138,7 +138,7 @@ def test_cues_queue_into_one_maintenance_plan_that_a_human_approves_once(run_db,
         claim_before = await store.next_task(conn, project)
         await plans.approve(conn, indexer, a["plan_id"])
         task = await store.next_task(conn, project)
-        await rules.transition(conn, task["id"], "playing", "runner")
+        await rules.transition(conn, task["id"], "running", "runner")
         await rules.transition(conn, task["id"], "done", "runner")
         finished = await store.finish_plan_if_complete(conn, a["plan_id"])
         return a, dup, claim_before, task, finished
@@ -149,7 +149,7 @@ def test_cues_queue_into_one_maintenance_plan_that_a_human_approves_once(run_db,
     assert not finished  # the maintenance plan stays open for the next cue
 
 
-def test_insights_keep_the_reviewers_advisory_findings_for_the_tune_loop(run_db, project, indexer):
+def test_insights_keep_the_reviewers_advisory_findings_for_the_retro_loop(run_db, project, indexer):
     from autonome_context import insights
 
     async def go(conn):

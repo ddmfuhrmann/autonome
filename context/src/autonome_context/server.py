@@ -67,7 +67,7 @@ async def search(
 
 @mcp.tool()
 async def gate_config_get(project: Annotated[str, Field(description="Project slug")]) -> dict:
-    """The project's current gate configuration: which gates run, in which order, encore and budget."""
+    """The project's current gate configuration: which gates run, in which order, retries and budget."""
     pool, _ = await services.get()
     async with pool.connection() as conn:
         return await api.gate_config_body(conn, project)
@@ -101,7 +101,7 @@ async def wave_draft(
 ) -> dict:
     """Group draft plans of several features into a wave the human approves at once in the UI. Each
     feature's plan is drafted first with plan_draft. Approved waves play in order; a feature that
-    depends on others is checked against the code (rehearsed) before it plays."""
+    depends on others is checked against the code (preflight) before it plays."""
     pool, indexer = await services.get()
     async with pool.connection() as conn:
         try:
@@ -121,7 +121,7 @@ async def _ask_human(ctx: Context, question: str, link: str) -> str:
     agent never sees or answers it. Returns approved, declined, or unavailable."""
     try:
         result = await ctx.elicit(f"{question}\n\nOr decide in the UI: {link}", _Approval)
-    except Exception:  # the client cannot ask (a headless conduct session, an old client)
+    except Exception:  # the client cannot ask (a headless run session, an old client)
         return "unavailable"
     return "approved" if isinstance(result, AcceptedElicitation) and result.data.approve else "declined"
 
@@ -141,7 +141,7 @@ async def _approve(ctx: Context, project: str, doc_id: int, kind: str) -> dict:
             summary = plans.plan_summary(doc)
         else:
             summary = plans.wave_summary(doc, [await store.get_document(conn, f["plan_id"]) for f in doc["body"]["features"]])
-    answer = await _ask_human(ctx, f"Approve this {kind}? Its tasks start playing when the maestro runs.\n\n{summary}", link)
+    answer = await _ask_human(ctx, f"Approve this {kind}? Its tasks start running when the runner runs.\n\n{summary}", link)
     if answer != "approved":
         return {"status": "draft", "human": answer, "approve_at": link,
                 "note": "Nothing was approved. The draft waits; the human can approve it in the UI."}
@@ -180,7 +180,7 @@ async def _detail(conn, kind: str, doc: dict) -> str:
     """What the human needs to decide an item, read from the stored document."""
     b = doc["body"]
     last = (b.get("runs") or [{}])[-1]
-    if kind in ("blocked", "fermata"):
+    if kind in ("blocked", "hold_before_merge"):
         return "\n".join(filter(None, [f"Plan #{b.get('plan_id')}" if b.get("plan_id") else "",
                                          f"Spec: {_cut(b.get('spec'), 600)}", f"Branch: {last.get('branch', '')}",
                                          f"Why it stopped: {_cut(last.get('reason'))}" if last.get("reason") else ""]))
@@ -188,19 +188,19 @@ async def _detail(conn, kind: str, doc: dict) -> str:
         r = b.get("preflight") or {}
         revised = r.get("plan") or {}
         return "\n".join(filter(None, [
-            f"Rehearsal notes: {_cut(r.get('notes'))}",
+            f"Preflight notes: {_cut(r.get('notes'))}",
             "Revision proposed, tasks: " + "; ".join(t.get("title", "") for t in revised.get("tasks", []))
             if revised else "No revision proposed.",
             web.revision_triage_line(r.get("triage"))]))
-    if kind == "soundcheck":
-        runs = [r for r in b.get("soundchecks", []) if r.get("report")]
-        return f"Last soundcheck: {_cut(runs[-1]['report'])}" if runs else "No soundcheck report."
+    if kind == "smoke_test":
+        runs = [r for r in b.get("smoke_tests", []) if r.get("report")]
+        return f"Last smoke_test: {_cut(runs[-1]['report'])}" if runs else "No smoke_test report."
     if kind == "plans":
         if doc["type"] == "wave":
             return plans.wave_summary(doc, [await store.get_document(conn, f["plan_id"]) for f in b["features"]])
         return plans.plan_summary(doc)
-    if kind == "playback":
-        ends = (b.get("playback_review") or {}).get("loose_ends") or []
+    if kind == "after_merge":
+        ends = (b.get("after_merge_review") or {}).get("loose_ends") or []
         return (f"Merged as {str(last.get('merged_sha', ''))[:10]}. Spec: {_cut(b.get('spec'), 800)}"
                 + ("\nLeft open at merge:\n" + "\n".join(f"- {_cut(e, 400)}" for e in ends) if ends else ""))
     if kind == "decision":
@@ -215,8 +215,8 @@ async def _detail(conn, kind: str, doc: dict) -> str:
 
 
 async def _choices(conn, kind: str, doc: dict) -> list[dict]:
-    if kind == "playback":
-        return [{"action": "heard", "label": "Sounds right", "effect": "The review is closed."},
+    if kind == "after_merge":
+        return [{"action": "reviewed", "label": "Looks right", "effect": "The review is closed."},
                 {"action": "fix", "label": "Needs a fix", "effect": "Your reason becomes a fix task in the maintenance plan."}]
     in_wave = await plans.wave_of(conn, doc) if doc["type"] == "plan" else None
     return [{"action": a["to"], "label": a["label"], "effect": a["effect"]} for a in web.actions(doc, in_wave)]
@@ -225,7 +225,7 @@ async def _choices(conn, kind: str, doc: dict) -> list[dict]:
 @mcp.tool()
 async def approvals_list(project: str) -> list[dict]:
     """What waits on the human, most blocking first, with what each needs to be decided and the actions
-    available. `blocks` is true for what holds up the setlist; the rest is reviewed when they like.
+    available. `blocks` is true for what holds up the queue; the rest is reviewed when they like.
     Bring each item to the person, discuss it, and resolve it with approval_resolve."""
     pool, _ = await services.get()
     async with pool.connection() as conn:
@@ -246,7 +246,7 @@ async def approval_resolve(
     doc_id: int,
     action: Annotated[str, Field(description="one of the item's actions from approvals_list")],
     ctx: Context,
-    reason: Annotated[str, Field(description="for a playback fix: what to fix; it becomes the fix task's spec")] = "",
+    reason: Annotated[str, Field(description="for an after-merge review fix: what to fix; it becomes the fix task's spec")] = "",
     note: Annotated[str, Field(description="why you recommend it, shown to the human as your words")] = "",
 ) -> dict:
     """Resolve one waiting item, only with the human's yes: the item and the chosen action go to the
@@ -278,11 +278,11 @@ async def approval_resolve(
                 "note": "Nothing changed. The item waits; the human can decide it in the UI."}
     async with pool.connection() as conn:
         try:
-            if action == "heard":
-                await plans.playback_heard(conn, indexer, doc_id)
-                return {"status": "heard", "human": "approved", "url": link}
+            if action == "reviewed":
+                await plans.after_merge_reviewed(conn, indexer, doc_id)
+                return {"status": "reviewed", "human": "approved", "url": link}
             if action == "fix":
-                fix = await plans.playback_fix(conn, indexer, doc_id, reason)
+                fix = await plans.after_merge_fix(conn, indexer, doc_id, reason)
                 return {"status": "fix queued", "fix_task_id": fix["task_id"], "human": "approved", "url": link}
             return {"status": await web.decide(conn, indexer, doc, action), "human": "approved", "url": link}
         except rules.Forbidden as e:
@@ -297,7 +297,7 @@ async def history_get(
 ) -> dict:
     """What went off plan before on the same subject (the feature and the closest related ones): plan
     items changed or skipped, deviations, decisions taken against the plan and how the human judged them,
-    rehearsal revisions, reviewer blocks, fixes from soundcheck, playback and rejected decisions, blocked
+    preflight revisions, reviewer blocks, fixes from smoke tests, after-merge reviews and rejected decisions, blocked
     tasks and friction. Read it before planning, and turn each pattern into acceptance, out of scope, a
     convention or a question."""
     pool, indexer = await services.get()
@@ -411,8 +411,8 @@ async def decision_propose(project: str, title: str, decision: str, context: str
 @mcp.tool()
 async def insights_get(project: str) -> dict:
     """How the process is going: adherence by feature and layer, plan items skipped or changed, gate
-    failure rates, failures that repeat across sessions, encores, blocked tasks, and friction grouped
-    by meaning. The tune loop reads this."""
+    failure rates, failures that repeat across sessions, retries, blocked tasks, and friction grouped
+    by meaning. The retro loop reads this."""
     pool, indexer = await services.get()
     async with pool.connection() as conn:
         return api.jsonable(await insights.build(conn, project, indexer.embedder))

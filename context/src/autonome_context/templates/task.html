@@ -2,15 +2,15 @@
 {% import "_ui.html" as ui %}
 {% block title %}{{ doc|ref }}{% endblock %}
 {% block crumbs %}{% if plan %}<a href="/ui/p/{{ project }}/documents/{{ plan.id }}">{{ plan|ref }}</a><span class="sep">/</span>{% endif %}<span aria-current="page">{{ doc|ref }}</span>{% endblock %}
-{% block topbar %}{% if doc.status in ('pending', 'playing') %}<span class="live" aria-live="polite">Live</span>{% endif %}{% endblock %}
+{% block topbar %}{% if doc.status in ('pending', 'running') %}<span class="live" aria-live="polite">Live</span>{% endif %}{% endblock %}
 {% block main %}
 {% set b = doc.body %}
-<div class="page-head"{% if doc.status in ('pending', 'playing') %} data-refresh="3"{% endif %}>
+<div class="page-head"{% if doc.status in ('pending', 'running') %} data-refresh="3"{% endif %}>
   <div class="page-head__text">
     <div class="page-head__title"><span class="id">{{ doc|ref }}</span><h1>{{ b.title }}</h1>
-      {% set pr = b.playback_review %}{% if pr %}
-      {% if pr.status == 'pending' %}<a class="tag" href="/ui/p/{{ project }}/approvals?kind=playback">Playback pending</a>
-      {% elif pr.status == 'heard' %}<span class="tag tag--feature">Heard ✓</span>
+      {% set pr = b.after_merge_review %}{% if pr %}
+      {% if pr.status == 'pending' %}<a class="tag" href="/ui/p/{{ project }}/approvals?kind=after_merge">Review pending</a>
+      {% elif pr.status == 'reviewed' %}<span class="tag tag--feature">Reviewed ✓</span>
       {% else %}<a class="tag" href="/ui/p/{{ project }}/documents/{{ pr.fix_task_id }}" title="{{ pr.reason }}">Needs a fix → {{ pr.fix_task_id|ref('task') }}</a>{% endif %}
       {% endif %}</div>
     <div class="page-head__meta" id="task-meta" data-live>
@@ -22,7 +22,7 @@
 </div>
 
 {% if doc.status == 'on_hold' and last %}
-<div class="callout callout--hold"><div><strong>Held at the fermata:</strong> gates passed{{ ' and the reviewer approved' if last.review and last.review.verdict == 'pass' }}. Read the diff below before releasing it.</div></div>
+<div class="callout callout--hold"><div><strong>Held before merge:</strong> gates passed{{ ' and the reviewer approved' if last.review and last.review.verdict == 'pass' }}. Read the diff below before releasing it.</div></div>
 {% endif %}
 {{ ui.decision(project, doc, actions) }}
 
@@ -40,10 +40,10 @@
       {% if b.acceptance %}<h3>Acceptance criteria</h3><ul class="checklist">{% for a in b.acceptance %}<li class="{{ 'is-met' if doc.status == 'done' }}">{{ a|mdi }}</li>{% endfor %}</ul>{% endif %}
     </div>
   </section>
-  {% if events or doc.status in ('pending', 'playing') %}
+  {% if events or doc.status in ('pending', 'running') %}
   <section class="card" id="live" aria-labelledby="live-h" data-live>
     <div class="card__head"><h2 class="card__title" id="live-h">Live</h2>
-      <span class="push muted" style="font-size: 12px">{% if doc.status == 'playing' %}{{ ui.eq() }} updating while it plays{% else %}what the sessions did{% endif %}</span></div>
+      <span class="push muted" style="font-size: 12px">{% if doc.status == 'running' %}{{ ui.eq() }} updating while it plays{% else %}what the sessions did{% endif %}</span></div>
     <div class="card__body">
       {% if events %}<ol class="live-log" aria-label="Newest first">{% for e in events|reverse %}
         <li class="k-{{ e.kind }}"><span class="t">{{ e.at|clock }}</span><span class="r">{{ e.role }}</span>{% if e.kind == 'say' %}<div class="x prose">{{ e.text|md }}</div>{% else %}<span class="x">{{ e.text }}</span>{% endif %}</li>
@@ -55,10 +55,10 @@
   <section class="stack" aria-labelledby="runs-h">
   <div class="section-head"><h2 id="runs-h">Runs</h2><span class="count">{{ runs|length }}</span></div>
   <ol class="timeline" id="runs" data-live>
-    {% if doc.status == 'playing' %}
-    <li class="tl"><span class="tl__node">{{ ui.icon_st('playing') }}</span>
+    {% if doc.status == 'running' %}
+    <li class="tl"><span class="tl__node">{{ ui.icon_st('running') }}</span>
       <div class="tl__body"><div class="tl__head"><strong>Run {{ runs|length + 1 }}</strong>{{ ui.eq() }}<span class="tl__time">started {{ doc.updated_at|ago }}</span></div>
-        <div class="callout callout--live"><div>A musician session is playing this task in its own worktree. Gates and the reviewer run when it ends its turn.</div></div></div></li>
+        <div class="callout callout--live"><div>An implementer session is running this task in its own worktree. Gates and the reviewer run when it ends its turn.</div></div></div></li>
     {% endif %}
     {% for run in runs|reverse %}{% set n = runs|length - loop.index0 %}
     {% set gates = gates_by_session.get(run.session_id, []) %}
@@ -77,17 +77,17 @@
       </div></li>
     {% endif %}
     {% if gates %}{% set failing = gates|rejectattr('passed')|list %}{% set retried = gates|selectattr('failures')|list %}
-    <li class="tl"><span class="tl__node">{{ ui.icon_st('failed' if failing else ('encore' if retried else 'passed')) }}</span>
+    <li class="tl"><span class="tl__node">{{ ui.icon_st('failed' if failing else ('retry' if retried else 'passed')) }}</span>
       <div class="tl__body">
         <div class="tl__head"><strong>Gates</strong>{{ ui.st('failed' if failing else 'passed', sm=true, text=(gates|length - failing|length) ~ ' / ' ~ gates|length) }}
-          {% if retried %}<span class="muted" style="font-size: 12px">{{ retried|sum(attribute='failures') }} failure{{ 's' if retried|sum(attribute='failures') > 1 }} fixed by encore</span>{% endif %}</div>
+          {% if retried %}<span class="muted" style="font-size: 12px">{{ retried|sum(attribute='failures') }} failure{{ 's' if retried|sum(attribute='failures') > 1 }} fixed by retry</span>{% endif %}</div>
         <ul class="gates">{% for g in gates %}<li>{{ ui.st('passed' if g.passed else 'failed', sm=true) }}{{ g.gate }}
           {% if g.runs > 1 %}<span class="cmd">ran {{ g.runs }}×{% if g.failures %}, failed {{ g.failures }}×{% endif %}</span>{% endif %}<span class="dur">{{ '%.1f'|format(g.ms / 1000) }}s</span>
           {% if g.output %}<details style="width: 100%"><summary class="muted" style="font-size: 12px; cursor: pointer">{{ 'Output' if not g.passed else 'Output of the last failure' }}</summary><pre class="log">{{ g.output }}</pre></details>{% endif %}</li>{% endfor %}</ul>
       </div></li>
     {% endif %}
     {% else %}
-    {% if doc.status != 'playing' %}<li class="tl"><span class="tl__node">{{ ui.icon_st(doc.status) }}</span><div class="tl__body"><p class="empty">Not played yet.</p></div></li>{% endif %}
+    {% if doc.status != 'running' %}<li class="tl"><span class="tl__node">{{ ui.icon_st(doc.status) }}</span><div class="tl__body"><p class="empty">Not played yet.</p></div></li>{% endif %}
     {% endfor %}
   </ol>
   </section>
@@ -95,14 +95,14 @@
 
   <aside class="stack">
     {% if last %}
-    <div class="card{{ ' card--live' if doc.status == 'playing' }}">
+    <div class="card{{ ' card--live' if doc.status == 'running' }}">
       <div class="card__head"><h2 class="card__title">Spent</h2></div>
       <div class="card__body">
         {% set tok, usd = doc|spent %}
         <dl class="kv">
           <dt>Runs</dt><dd class="mono">{{ runs|length }}</dd>
           <dt>Cost</dt><dd class="mono">{{ usd|money }}</dd>
-          <dt>Encores</dt><dd class="mono">{{ encores }}{% if cfg %} of {{ cfg.retries.max }} per run{% endif %}</dd>
+          <dt>Retries</dt><dd class="mono">{{ retries }}{% if cfg %} of {{ cfg.retries.max }} per run{% endif %}</dd>
         </dl>
         {% if cfg %}{{ ui.meter('tokens, last run', last.tokens or 0, cfg.budget.task_tokens) }}{% endif %}
       </div>
@@ -117,7 +117,7 @@
           {% if doc.layers %}<dt>Layer</dt><dd>{% for l in doc.layers %}<span class="tag tag--layer">{{ l }}</span>{% endfor %}</dd>{% endif %}
           {% if b.depends_on %}<dt>After</dt><dd class="mono">{% for d in b.depends_on %}<a href="/ui/p/{{ project }}/documents/{{ d }}">{{ d|ref('task') }}</a>{{ ', ' if not loop.last }}{% endfor %}</dd>{% endif %}
           {% if b.after_plans %}<dt>Waits for</dt><dd class="mono">{% for p in b.after_plans %}<a href="/ui/p/{{ project }}/documents/{{ p }}">{{ p|ref('plan') }}</a>{{ ', ' if not loop.last }}{% endfor %}</dd>{% endif %}
-          {% if b.fermata %}<dt>Fermata</dt><dd>waits for you before merging</dd>{% endif %}
+          {% if b.hold_before_merge %}<dt>Hold before merge</dt><dd>waits for you before merging</dd>{% endif %}
           {% if b.source %}<dt>Source</dt><dd>{{ b.source }}</dd>{% endif %}
           {% if b.adds_gates %}<dt>Adds gates</dt><dd>{% for g in b.adds_gates %}<span class="tag tag--gate">{{ g.name }}</span>{% endfor %}</dd>{% endif %}
         </dl>

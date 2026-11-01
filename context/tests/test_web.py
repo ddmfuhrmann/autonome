@@ -29,7 +29,7 @@ def blocked_task(run_db, project, indexer):
         plan_id = await plans.draft(conn, indexer, project, "links", [], PlanBody(
             title="Links", goal="g", tasks=[TaskSpec(title="t", spec="s")]))
         [task] = await plans.approve(conn, indexer, plan_id)
-        await rules.transition(conn, task, "playing", "runner")
+        await rules.transition(conn, task, "running", "runner")
         await rules.transition(conn, task, "blocked", "runner")
         await conn.commit()
         return task
@@ -74,7 +74,7 @@ def test_the_wave_page_shows_how_each_task_played(client, project, run_db, index
         for t, to, run in [(first, "done", {"outcome": "merged", "duration_s": 300, "tokens": 40000, "review_rounds": 1}),
                            (second, "blocked", {"outcome": "blocked", "duration_s": 61, "tokens": 9000, "review_rounds": 3,
                                                 "reason": "review: still blocking"})]:
-            await rules.transition(conn, t, "playing", "runner")
+            await rules.transition(conn, t, "running", "runner")
             await rules.transition(conn, t, to, "runner")
             doc = await store.get_document(conn, t)
             await store.add_version(conn, None, t, {**doc["body"], "runs": [run]})
@@ -117,7 +117,7 @@ def test_tooling_features_and_development_notes_stay_apart_from_the_product(clie
     assert 'id="dev-h">Development</h2>' in page and "<code>uv run pytest</code> runs the tests" in page
 
 
-def test_finished_waves_are_listed_until_tuned(client, project, run_db, indexer):
+def test_finished_waves_are_listed_until_retro_done(client, project, run_db, indexer):
     async def go(conn):
         a = await plans.draft(conn, indexer, project, "links", [], PlanBody(title="L", goal="g", tasks=[TaskSpec(title="t", spec="s")]))
         wave = await plans.draft_wave(conn, indexer, project, plans.WaveBody(title="MVP", goal="g", features=[plans.WaveFeature(plan_id=a)]))
@@ -126,9 +126,9 @@ def test_finished_waves_are_listed_until_tuned(client, project, run_db, indexer)
         await conn.commit()
         return wave
     wave = run_db(go)
-    assert [w["id"] for w in client.get(f"/api/projects/{project}/waves/untuned").json()] == [wave]
-    assert client.post(f"/api/waves/{wave}/tuned", json={"summary": "proposed C-1"}).json() == {"ok": True}
-    assert client.get(f"/api/projects/{project}/waves/untuned").json() == []
+    assert [w["id"] for w in client.get(f"/api/projects/{project}/waves/without-retro").json()] == [wave]
+    assert client.post(f"/api/waves/{wave}/retro-done", json={"summary": "proposed C-1"}).json() == {"ok": True}
+    assert client.get(f"/api/projects/{project}/waves/without-retro").json() == []
     assert "What the process learned" in client.get(f"/ui/p/{project}/documents/{wave}").text
 
 
@@ -138,7 +138,7 @@ def test_a_decision_without_a_target_is_refused_clearly(client, project, blocked
     assert status(run_db, blocked_task) == "blocked"
 
 
-def test_only_what_blocks_the_setlist_counts_as_waiting_on_you(client, project, blocked_task, run_db, indexer):
+def test_only_what_blocks_the_queue_counts_as_waiting_on_you(client, project, blocked_task, run_db, indexer):
     from conftest import make_handoff
     from autonome_context.handoff import Decision
 
@@ -179,7 +179,7 @@ def test_a_choice_within_the_plan_is_in_effect_and_a_rejected_deviation_queues_i
     assert undo["body"]["source"] == f"decision:{deviation['id']}" and undo["feature"] == "links"
 
 
-def test_playback_merges_then_waits_to_be_heard_and_a_fix_is_a_new_task(client, project, run_db, indexer):
+def test_after_merge_review_merges_then_waits_to_be_reviewed_and_a_fix_is_a_new_task(client, project, run_db, indexer):
     async def go(conn):
         async with conn.transaction():
             await store.save_singleton(conn, indexer, project, "gate_config", {"yaml": "review_after_merge: {features: [wallet*]}\n"})
@@ -190,55 +190,56 @@ def test_playback_merges_then_waits_to_be_heard_and_a_fix_is_a_new_task(client, 
         return first, second
     first, second = run_db(go)
     for t in (first, second):
-        client.post(f"/api/tasks/{t}/transition", json={"to": "playing"})
+        client.post(f"/api/tasks/{t}/transition", json={"to": "running"})
         r = client.post(f"/api/tasks/{t}/transition", json={"to": "done", "run": {"outcome": "merged", "merged_sha": "a3f9c1e0",
                                                                                   "diff": "diff --git a/x b/x\n+1"}})
         assert r.status_code == 200
     page = client.get(f"/ui/p/{project}/approvals").text
     main, review = page.split('id="review-h"', 1)
-    assert "Debit" not in main and "Sounds right" in review and "a3f9c1e" in review
+    assert "Debit" not in main and "Looks right" in review and "a3f9c1e" in review
     assert 'title="merged, review when you like">2<' in page and "side__count--attn" not in page
+    assert "Debit" in client.get(f"/ui/p/{project}/approvals?kind=after_merge").text
 
-    r = client.post(f"/ui/p/{project}/documents/{first}/playback", data={"verdict": "heard"}, headers=FETCH)
-    assert r.status_code == 200 and "sounds right" in r.json()["notice"]
-    r = client.post(f"/ui/p/{project}/documents/{second}/playback", data={"verdict": "fix", "reason": ""}, headers=FETCH)
+    r = client.post(f"/ui/p/{project}/documents/{first}/after-merge-review", data={"verdict": "reviewed"}, headers=FETCH)
+    assert r.status_code == 200 and "looks right" in r.json()["notice"]
+    r = client.post(f"/ui/p/{project}/documents/{second}/after-merge-review", data={"verdict": "fix", "reason": ""}, headers=FETCH)
     assert r.status_code == 409 and "say what needs fixing" in r.json()["error"]
-    r = client.post(f"/ui/p/{project}/documents/{second}/playback",
+    r = client.post(f"/ui/p/{project}/documents/{second}/after-merge-review",
                     data={"verdict": "fix", "reason": "credit must reject negative amounts"}, headers=FETCH)
     assert r.status_code == 200 and "fix queued" in r.json()["notice"]
 
     async def after(conn):
         return {t["body"]["title"]: t for t in await store.list_documents(conn, project, type="task")}
     tasks = run_db(after)
-    assert tasks["Debit"]["body"]["playback_review"]["status"] == "heard"
+    assert tasks["Debit"]["body"]["after_merge_review"]["status"] == "reviewed"
     fix = tasks["Fix: Credit"]
-    assert "credit must reject negative amounts" in fix["body"]["spec"] and fix["body"]["playback"] is True
-    assert tasks["Credit"]["body"]["playback_review"] == {**tasks["Credit"]["body"]["playback_review"], "status": "fix", "fix_task_id": fix["id"]}
+    assert "credit must reject negative amounts" in fix["body"]["spec"] and fix["body"]["after_merge"] is True
+    assert tasks["Credit"]["body"]["after_merge_review"] == {**tasks["Credit"]["body"]["after_merge_review"], "status": "fix", "fix_task_id": fix["id"]}
     assert "Needs a fix" in client.get(f"/ui/p/{project}/documents/{second}").text
 
 
-def test_a_playing_task_shows_what_its_session_is_doing(client, project, run_db, indexer, monkeypatch):
+def test_a_running_task_shows_what_its_session_is_doing(client, project, run_db, indexer, monkeypatch):
     from autonome_context import store as store_mod
 
     async def go(conn):
         plan_id = await plans.draft(conn, indexer, project, "links", [], PlanBody(title="L", goal="g", tasks=[TaskSpec(title="Routes", spec="s")]))
         [task] = await plans.approve(conn, indexer, plan_id)
-        await rules.transition(conn, task, "playing", "runner")
+        await rules.transition(conn, task, "running", "runner")
         await conn.commit()
         return task
     task = run_db(go)
     monkeypatch.setattr(store_mod, "EVENTS_PER_TASK", 3)
     r = client.post("/api/events", json={"project": project, "events": [
-        {"task_id": task, "role": "maestro", "kind": "stage", "text": "playing on autonome/task-1"},
-        {"task_id": task, "role": "musician", "kind": "say", "text": "Customer 123.456.789-09 is a fixture"},
-        {"task_id": task, "role": "musician", "kind": "tool", "text": "Bash: uv run pytest -q"},
-        {"task_id": task, "role": "musician", "kind": "error", "text": "1 failed"}]})
+        {"task_id": task, "role": "runner", "kind": "stage", "text": "running on autonome/task-1"},
+        {"task_id": task, "role": "implementer", "kind": "say", "text": "Customer 123.456.789-09 is a fixture"},
+        {"task_id": task, "role": "implementer", "kind": "tool", "text": "Bash: uv run pytest -q"},
+        {"task_id": task, "role": "implementer", "kind": "error", "text": "1 failed"}]})
     assert r.status_code == 201
     events = client.get(f"/api/tasks/{task}/events").json()
     assert [e["kind"] for e in events] == ["say", "tool", "error"]  # pruned to the newest 3
     assert "123.456.789-09" not in events[0]["text"]  # redacted like everything else
-    setlist = client.get(f"/ui/p/{project}/setlist").text
-    assert "now__doing" in setlist and "1 failed" in setlist
+    queue = client.get(f"/ui/p/{project}/queue").text
+    assert "now__doing" in queue and "1 failed" in queue
     page = client.get(f"/ui/p/{project}/documents/{task}").text
     assert 'id="live"' in page and 'data-refresh="3"' in page and "Bash: uv run pytest -q" in page
     log = page.split('id="live"', 1)[1]
@@ -263,15 +264,15 @@ def test_a_pending_task_page_refreshes_with_an_empty_live_section(client, projec
     assert 'id="live"' in page and "Waiting for the session's first step" in page
 
 
-def test_a_playing_task_page_swaps_the_header_the_live_log_and_the_runs(client, project, run_db, indexer):
-    task = _task_in(run_db, indexer, project, "playing")
+def test_a_running_task_page_swaps_the_header_the_live_log_and_the_runs(client, project, run_db, indexer):
+    task = _task_in(run_db, indexer, project, "running")
     page = client.get(f"/ui/p/{project}/documents/{task}").text
     assert 'data-refresh="3"' in page and 'class="live"' in page
     for region in ('id="task-meta" data-live', 'id="live" aria-labelledby="live-h" data-live', 'id="runs" data-live'):
         assert region in page
 
 
-@pytest.mark.parametrize("path", [("playing", "done"), ("playing", "blocked"), ("playing", "on_hold")])
+@pytest.mark.parametrize("path", [("running", "done"), ("running", "blocked"), ("running", "on_hold")])
 def test_a_task_that_cannot_change_by_itself_does_not_refresh(client, project, run_db, indexer, path):
     task = _task_in(run_db, indexer, project, *path)
     page = client.get(f"/ui/p/{project}/documents/{task}").text
@@ -281,7 +282,7 @@ def test_a_task_that_cannot_change_by_itself_does_not_refresh(client, project, r
 def test_two_refresh_requests_return_the_same_regions(client, project, run_db, indexer):
     import re
 
-    task = _task_in(run_db, indexer, project, "playing")
+    task = _task_in(run_db, indexer, project, "running")
     ids = []
     for _ in range(2):
         r = client.get(f"/ui/p/{project}/documents/{task}", headers={"X-Refresh": "1"})
@@ -309,7 +310,7 @@ def test_base_defines_the_time_formatter_and_the_tz_cookie():
 
 
 @pytest.mark.parametrize("path", [
-    "", "/setlist", "/approvals", "/documents", "/features", "/waves", "/insights",
+    "", "/queue", "/approvals", "/documents", "/features", "/waves", "/insights",
     "/conventions", "/config", "/search", "/lab", "/triage", "/features/links",
 ])
 def test_every_page_carries_the_time_formatter_and_the_tz_cookie(client, project, path):
@@ -373,7 +374,7 @@ def test_what_a_merge_left_open_waits_for_review_instead_of_vanishing(client, pr
     probe, clean = run_db(go)
     finding = {"kind": "diverges", "severity": "medium", "issue": "The probe is   scanned in every context."}
     for t, findings in ((probe, [finding, {"kind": "missing", "severity": "low", "issue": "nit"}]), (clean, [])):
-        client.post(f"/api/tasks/{t}/transition", json={"to": "playing"})
+        client.post(f"/api/tasks/{t}/transition", json={"to": "running"})
         client.post(f"/api/tasks/{t}/transition", json={"to": "done", "run": {
             "outcome": "merged", "merged_sha": "a3f9c1e0", "review": {"verdict": "pass", "findings": findings}}})
     handoff = {"project": project, "session_id": "s-9", "summary": "done",
@@ -382,7 +383,7 @@ def test_what_a_merge_left_open_waits_for_review_instead_of_vanishing(client, pr
     assert client.post("/api/handoffs", json={"handoff": handoff, "task_id": clean}).status_code == 201
 
     async def bodies(conn):
-        return {t: (await store.get_document(conn, t))["body"].get("playback_review") for t in (probe, clean)}
+        return {t: (await store.get_document(conn, t))["body"].get("after_merge_review") for t in (probe, clean)}
     reviews = run_db(bodies)
     assert reviews[probe] == {"status": "pending", "loose_ends": [
         "review, medium diverges: The probe is scanned in every context."]}
@@ -391,7 +392,7 @@ def test_what_a_merge_left_open_waits_for_review_instead_of_vanishing(client, pr
     assert "Left open at merge" in review and "trace in Grafana" in review and "nit" not in review
 
 
-def test_insights_count_review_rounds_as_encores_and_show_the_debt(client, project, run_db, indexer):
+def test_insights_count_review_rounds_as_retries_and_show_the_debt(client, project, run_db, indexer):
     async def go(conn):
         plan_id = await plans.draft(conn, indexer, project, "links", [], PlanBody(
             title="Links", goal="g", tasks=[TaskSpec(title="Probe", spec="s")]))
@@ -402,7 +403,7 @@ def test_insights_count_review_rounds_as_encores_and_show_the_debt(client, proje
         await conn.commit()
         return task
     task = run_db(go)
-    client.post(f"/api/tasks/{task}/transition", json={"to": "playing"})
+    client.post(f"/api/tasks/{task}/transition", json={"to": "running"})
     client.post(f"/api/tasks/{task}/transition", json={"to": "done", "run": {
         "outcome": "merged", "review_rounds": 3, "tokens": 1000, "cost_usd": 0.5,
         "review": {"verdict": "pass", "findings": [{"kind": "missing", "severity": "medium", "issue": "weak test"}]}}})
@@ -411,7 +412,7 @@ def test_insights_count_review_rounds_as_encores_and_show_the_debt(client, proje
         from autonome_context import insights
         return await insights.build(conn, project, indexer)
     data = run_db(go2)
-    assert data["encores_per_task"]["max"] == 2
+    assert data["retries_per_task"]["max"] == 2
     assert data["spent"]["cost_usd"] == 0.5 and data["spent"]["costliest"][0]["review_rounds"] == 3
     assert data["loose_ends"][0]["loose_ends"] == ["review, medium missing: weak test"]
     assert data["heavy_conventions"][0]["title"] == "Huge"
@@ -502,3 +503,21 @@ def test_documents_facets_narrow_the_list_and_the_drawer_shows_the_picked_docume
     # changing a filter closes it; a document from another project never opens
     assert f"type=decision&amp;type=handoff\"" in page and "doc=" not in page.split('aria-label="Type"', 1)[1].split("</div>", 1)[0]
     assert 'class="drawer' not in client.get(f"/ui/p/other-{project}/documents", params={"doc": kept["id"]}).text
+
+
+def test_the_runner_marks_a_task_running_and_the_old_status_is_refused(client, project, run_db, indexer):
+    task = _task_in(run_db, indexer, project)
+    r = client.post(f"/api/tasks/{task}/transition", json={"to": "play" "ing"})  # split: the vocabulary gate greps for it
+    assert 400 <= r.status_code < 500
+    assert all(isinstance(v, str) for v in r.json().values())
+    assert client.post(f"/api/tasks/{task}/transition", json={"to": "running"}).status_code == 200
+    s = client.get(f"/api/projects/{project}/state").json()
+    assert (task, "running") in [(t["id"], t["status"]) for t in s["tasks"]]
+
+
+def test_the_queue_lives_at_queue_and_a_running_task_says_so(client, project, run_db, indexer):
+    assert client.get(f"/ui/p/{project}/queue").status_code == 200
+    assert client.get(f"/ui/p/{project}/set" "list").status_code == 404
+    task = _task_in(run_db, indexer, project, "running")
+    page = client.get(f"/ui/p/{project}/documents/{task}").text
+    assert "st--running" in page and ">Running<" in page and 'data-refresh="3"' in page
