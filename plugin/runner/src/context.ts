@@ -70,7 +70,16 @@ export interface GateConfig {
     models?: Record<string, RoleModel>;
     language?: string;
     soundcheck: Soundcheck | null;
+    triage?: Triage | null;
   };
+}
+
+/** A classifier judges deviation decisions; the Jev key never lives here. */
+export interface Triage {
+  model: "jev-latest" | "haiku" | "off";
+  fallback: "haiku" | "off";
+  reject_at: number;
+  max_rounds: number;
 }
 
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
