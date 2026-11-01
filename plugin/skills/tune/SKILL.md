@@ -21,6 +21,9 @@ What `insights_get` gives you, beyond adherence and gates:
 - `encores_per_task`: trips back to the implementer (failed gates and review rounds after the first).
 - `spent`: tokens and cost, and the costliest tasks with their review rounds.
 - `heavy_conventions`: active conventions taking more than a quarter of the session briefing.
+- `convention_effects`: per active convention, what it targets before and after its adoption
+  (`findings_before/after`, `friction_before/after`, `tasks_after`) and `holding`: `true` (it worked),
+  `false` (the problem kept coming after it) or `null` (too little history to tell).
 
 ## 2. Find the cause, then propose in the right place
 
@@ -35,8 +38,13 @@ Four kinds of proposal, each only when the evidence supports it:
 | A reviewer finding keeps reappearing | judgement where a check could decide | a gate (lint rule, ArchUnit, a test) in a plan |
 | Friction about missing context | the briefing lacks it | a convention, or a feature doc correction |
 | A heavy convention | one document doing the work of several | `convention_propose` with `replaces`, split by layer |
+| A convention with `holding: false` | prose an agent may skip; fixing the instances does not fix the cause | escalate to a gate: a setup task and the gate in the one debt plan (e.g. mutation testing on changed files for a testing rule), or rewrite the convention with `replaces` when no machine can check it |
+| A convention with `holding: true` | it worked | nothing |
+| A convention with `holding: null` | too little history | nothing |
 
 Prefer a gate over prose: a rule a machine checks beats a paragraph an agent may skip.
+A convention that does not hold is a problem of its own: fixing only the findings that came after it
+(the weak tests, say) repairs the symptom and leaves the rule as it was.
 `convention_propose` cites the evidence (ids, counts) in `why` and `evidence`.
 
 **2. Debt: what merged work left open.** Loose ends that are real defects in the code (a test that
@@ -61,11 +69,20 @@ handoff instructions), its plan must say how the change is measured: add or adju
 `claude plugin eval plugin --tag <skill>` scores at least as well as before the change. A process
 change that cannot be measured is an opinion.
 
-## 3. Report
+## 3. One remedy per problem, before saving
+
+Before any `convention_propose` or `plan_draft`, list every friction cluster, repeated failure, loose
+end and finding you are using, and give each exactly one remedy: a convention, a gate or a plan task.
+When two proposals cite the same id, keep the one that fixes the cause (a gate over a convention over
+a task) and drop the other. Every proposal names the ids it comes from.
+
+## 4. Report
 
 End with this report, at most 25 lines, ids for every claim, a heading left out when it has nothing:
 
 ```markdown
+## Measured
+- convention #id "title": holding true/false (findings/friction before → after), what was done
 ## Project rules
 - proposed convention #id "title": why (evidence ids)
 ## Debt
