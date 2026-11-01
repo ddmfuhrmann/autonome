@@ -260,6 +260,40 @@ export async function screen(state: Record<string, unknown>, cfg: Triage, backen
   throw new Error(`screening failed (${errors.join("; ")})`);
 }
 
+/** Questions on a rehearsal's revision: the state carries the plan's `original` and `revised` tasks,
+ * its `out_of_scope` and its `design`. */
+export const REVISION_QUESTIONS = {
+  drops_acceptance: "A task in `revised` drops or weakens an acceptance criterion that the same task in `original` had.",
+  adds_out_of_scope: "The tasks in `revised` add work that the plan's `out_of_scope` rules out.",
+  changes_design: "The tasks in `revised` go another way than a choice in the plan's `design`.",
+} as const;
+
+export type RevisionQuestionName = keyof typeof REVISION_QUESTIONS;
+export type RevisionAnswers = Record<RevisionQuestionName, number>;
+export type RevisionVerdict = "accept" | "hold";
+
+export interface RevisionJudgment { model: string; answers: RevisionAnswers; verdict: RevisionVerdict }
+
+/** Jev judges a revision: `hold` when any answer reaches `reject_at`, else `accept`. Only Jev, with a
+ * key; no key, another model, a failed call or a missing or out-of-range answer throws, so a revision
+ * never becomes `accept` by default. */
+export async function judgeRevision(state: Record<string, unknown>, cfg: Triage, key: string | undefined,
+  ask: typeof askJev = askJev): Promise<RevisionJudgment> {
+  if (cfg.model !== JEV_MODEL) throw new Error(`revision: triage model is "${cfg.model}", only ${JEV_MODEL} judges revisions`);
+  if (!key) throw new Error("revision: no Jev key");
+  const names = Object.keys(REVISION_QUESTIONS) as RevisionQuestionName[];
+  const raw = (await ask(state, names.map((name) => ({ name, question: REVISION_QUESTIONS[name] })), key) ?? {}) as Record<string, unknown>;
+  for (const n of names) {
+    const v = raw[n];
+    if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 1) {
+      throw new Error(`jev: answer "${n}" is missing or outside 0..1`);
+    }
+  }
+  const answers = Object.fromEntries(names.map((n) => [n, raw[n] as number])) as RevisionAnswers;
+  const hold = names.some((n) => answers[n] >= cfg.reject_at);
+  return { model: String((raw as { model?: unknown }).model ?? JEV_MODEL), answers, verdict: hold ? "hold" : "accept" };
+}
+
 /** Tries the configured model, then the fallback. Throws when both fail or both are off: a failed
  * call is never turned into an answer, so nothing defaults to accept. */
 export async function judge(state: Record<string, unknown>, cfg: Triage, backends: Backends): Promise<Judgment> {

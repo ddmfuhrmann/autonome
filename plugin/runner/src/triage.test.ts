@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import type { consult } from "./agents.js";
 import type { Triage } from "./context.js";
-import { type Answers, haiku, jev, judge, pingJev, QUESTIONS, SCREEN_QUESTION, screen, screenJev, verdict } from "./triage.js";
+import { type Answers, haiku, jev, judge, judgeRevision, pingJev, QUESTIONS, REVISION_QUESTIONS,SCREEN_QUESTION, screen, screenJev, verdict } from "./triage.js";
 
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; });
@@ -177,6 +177,55 @@ test("the request follows TypeSafe's System One API: endpoint, model, state and 
   } finally {
     if (saved !== undefined) process.env.TYPESAFE_URL = saved;
   }
+});
+
+const revState = { original: [{ title: "t" }], revised: [{ title: "t" }], out_of_scope: [], design: [] };
+const rev = (a: number, b: number, c: number) => ({ drops_acceptance: a, adds_out_of_scope: b, changes_design: c });
+
+test("a revision is accepted below reject_at and held at or above it, for the measured scores", async () => {
+  for (const [scores, want] of [
+    [rev(0.06, 0.07, 0.09), "accept"], [rev(0.08, 0.08, 0.13), "accept"],
+    [rev(0.93, 0.05, 0.05), "hold"], [rev(0.05, 0.88, 0.05), "hold"], [rev(0.05, 0.05, 0.94), "hold"],
+  ] as const) {
+    fakeJev(scores);
+    const j = await judgeRevision(revState, cfg, "k");
+    assert.equal(j.verdict, want);
+    assert.deepEqual(j.answers, scores);
+    assert.equal(j.model, "jev-1.14.0");
+  }
+});
+
+test("the revision request goes to systemone with the three questions as nouls", async () => {
+  const saved = process.env.TYPESAFE_URL;
+  delete process.env.TYPESAFE_URL;
+  try {
+    const calls = fakeJev(rev(0.1, 0.1, 0.1));
+    await judgeRevision(revState, cfg, "secret");
+    assert.equal(calls.length, 1);
+    const { url, body, auth } = calls[0];
+    assert.equal(url, "https://api.typesafe.ai/v1/systemone");
+    assert.equal(auth, "Bearer secret");
+    assert.deepEqual(body.state, revState);
+    assert.deepEqual(Object.keys(body.questions).sort(), Object.keys(REVISION_QUESTIONS).sort());
+    for (const [name, q] of Object.entries(body.questions) as [keyof typeof REVISION_QUESTIONS, any][]) {
+      assert.deepEqual(q, { type: "noul", instructions: REVISION_QUESTIONS[name] });
+    }
+  } finally {
+    if (saved !== undefined) process.env.TYPESAFE_URL = saved;
+  }
+});
+
+test("a revision with no key, a haiku model, an HTTP error or a bad answer throws, with no verdict", async () => {
+  const calls = fakeJev(rev(0.1, 0.1, 0.1));
+  await assert.rejects(judgeRevision(revState, cfg, undefined), /key/);
+  await assert.rejects(judgeRevision(revState, { ...cfg, model: "haiku" }, "k"), /haiku/);
+  assert.equal(calls.length, 0);
+  globalThis.fetch = (async () => new Response("no", { status: 500 })) as typeof fetch;
+  await assert.rejects(judgeRevision(revState, cfg, "k"), /500/);
+  fakeJev({ drops_acceptance: 0.1, adds_out_of_scope: 0.1 });
+  await assert.rejects(judgeRevision(revState, cfg, "k"), /changes_design/);
+  fakeJev(rev(0.1, 1.5, 0.1));
+  await assert.rejects(judgeRevision(revState, cfg, "k"), /adds_out_of_scope/);
 });
 
 test("pingJev proves the key and endpoint with one question and names the model that answered", async () => {
