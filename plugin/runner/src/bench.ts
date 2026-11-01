@@ -10,7 +10,8 @@ import { PLAN_SCHEMA, REHEARSAL_PROMPT, rehearsalPrompt } from "./conduct.js";
 import type { Effort, Plan, Rehearsal, RoleModel } from "./context.js";
 import { git } from "./git.js";
 import { review } from "./review.js";
-import { sessionEnv } from "./secrets.js";
+import { jevKey, sessionEnv } from "./secrets.js";
+import { haiku, jev, verdict, type Backend, type Verdict } from "./triage.js";
 
 const BENCH = resolve(dirname(fileURLToPath(import.meta.url)), "../bench");
 const SHORTLINK = process.env.SHORTLINK_REPO ?? join(homedir(), "git", "shortlink");
@@ -96,7 +97,34 @@ async function rehearsalCase(who: RoleModel): Promise<Omit<Score, "role" | "case
   }
 }
 
+interface KnownDeviation { id: string; expected: Verdict; state: Record<string, unknown> }
+
+/** Triage: deviations with a known verdict. Score = share of verdicts that match; the note lists the misses.
+ * A failed backend call throws (the bench records it as an error), it is never scored as an answer. */
+export async function triageDeviationsCase(backend: Backend, rejectAt = 0.7,
+  cases: KnownDeviation[] = JSON.parse(readFileSync(join(BENCH, "triage-deviations.json"), "utf8"))): Promise<Omit<Score, "role" | "case" | "who" | "seconds">> {
+  const misses: string[] = [];
+  for (const c of cases) {
+    const got = verdict(await backend(c.state), rejectAt);
+    if (got !== c.expected) misses.push(`${c.id} (${got}, expected ${c.expected})`);
+  }
+  const hit = cases.length - misses.length;
+  return { score: hit / cases.length, cost: 0, note: `${hit}/${cases.length}${misses.length ? `; missed ${misses.join(", ")}` : ""}` };
+}
+
+/** One row per backend: `jev-latest` needs a key (skipped with a note without one), `haiku` runs the fallback. */
+async function triageCase(who: RoleModel): Promise<Omit<Score, "role" | "case" | "who" | "seconds">> {
+  if (who.model === "jev-latest") {
+    const key = jevKey();
+    if (!key) return { score: 0, cost: 0, note: "skipped: no Jev key (TYPESAFE_API_KEY or ~/.autonome/secrets.env)" };
+    return triageDeviationsCase((state) => jev(state, key));
+  }
+  if (who.model === "haiku") return triageDeviationsCase((state) => haiku(state, undefined, who.effort));
+  return { score: 0, cost: 0, note: "skipped: triage runs on jev-latest or haiku" };
+}
+
 const CASES: Record<string, { role: string; run: (who: RoleModel) => ReturnType<typeof reviewerCase> }> = {
+  "triage/deviations": { role: "triage", run: triageCase },
   "reviewer/post-links": { role: "reviewer", run: reviewerCase },
   "reviewer/raw-500": { role: "reviewer", run: reviewerSeverityCase },
   "rehearsal/plan-16": { role: "rehearsal", run: rehearsalCase },
@@ -117,7 +145,7 @@ export function table(scores: Score[]): string {
 }
 
 export async function bench(opts: { configs: RoleModel[]; runs: number; only?: string; log: (l: string) => void }): Promise<Score[]> {
-  if (!existsSync(join(SHORTLINK, ".git"))) throw new Error(`the bench needs shortlink at ${SHORTLINK} (SHORTLINK_REPO)`);
+  if (!opts.only?.startsWith("triage") && !existsSync(join(SHORTLINK, ".git"))) throw new Error(`the bench needs shortlink at ${SHORTLINK} (SHORTLINK_REPO)`);
   const scores: Score[] = [];
   for (const [name, c] of Object.entries(CASES)) {
     if (opts.only && !name.startsWith(opts.only)) continue;

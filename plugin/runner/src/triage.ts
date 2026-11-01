@@ -2,7 +2,7 @@
 // atomic yes/no questions as probabilities; the verdict is decided here, in code, from a threshold the
 // human edits. Every triage question lives in this file.
 import { consult } from "./agents.js";
-import type { Triage } from "./context.js";
+import type { Effort, Triage } from "./context.js";
 
 export const QUESTIONS = {
   drops_coverage: "The `deviation` removes or weakens a test, check or gate instead of fixing what it found.",
@@ -115,11 +115,12 @@ const HAIKU_SCHEMA = {
 } as const;
 
 /** `ask` is the Agent SDK session; tests inject a fake. */
-export async function haiku(state: Record<string, unknown>, ask: typeof consult = consult): Promise<Answers> {
+export async function haiku(state: Record<string, unknown>, ask: typeof consult = consult,
+  effort: Effort = "low"): Promise<Answers> {
   const { answer } = await ask<{ answers?: unknown }>({
     cwd: process.cwd(),
     model: "haiku",
-    effort: "low",
+    effort,
     role: HAIKU_ROLE,
     schema: HAIKU_SCHEMA,
     maxTurns: 3,

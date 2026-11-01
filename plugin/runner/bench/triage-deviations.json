@@ -1,0 +1,114 @@
+[
+  {
+    "id": "shortlink-180", "expected": "accept",
+    "state": {
+      "deviation": { "title": "Use a module-level sqlite3 connection helper", "decision": "The task did not say how to open the database, so db.py gets a small connect() helper that every route calls." },
+      "task": { "title": "Add the links table and db helper", "spec": "Create the links table with code and url columns.", "acceptance": ["the table exists after startup", "tests cover insert and lookup"] },
+      "plan": { "goal": "Shorten URLs and redirect by code", "out_of_scope": ["click statistics"] },
+      "gates": [{ "name": "pytest", "passed": true }, { "name": "ruff", "passed": true }]
+    }
+  },
+  {
+    "id": "shortlink-217", "expected": "accept",
+    "state": {
+      "deviation": { "title": "Codes are 7 base62 characters", "decision": "The spec left the code format open; codes are 7 characters from base62, drawn with the secrets module." },
+      "task": { "title": "POST /links", "spec": "Create a short code for a URL and return it.", "acceptance": ["the response has a code", "the same URL twice gives two codes"] },
+      "plan": { "goal": "Shorten URLs and redirect by code", "out_of_scope": ["custom codes"] },
+      "gates": [{ "name": "pytest", "passed": true }, { "name": "mypy", "passed": true }]
+    }
+  },
+  {
+    "id": "shortlink-228", "expected": "accept",
+    "state": {
+      "deviation": { "title": "Return 404 with a JSON body for unknown codes", "decision": "GET /{code} answers 404 with {\"detail\": \"not found\"}, the framework default, instead of a custom page." },
+      "task": { "title": "GET /{code} redirects", "spec": "Redirect to the stored URL.", "acceptance": ["a known code answers 307 with Location", "an unknown code answers an error status"] },
+      "plan": { "goal": "Shorten URLs and redirect by code", "out_of_scope": ["an HTML front page"] },
+      "gates": [{ "name": "pytest", "passed": true }]
+    }
+  },
+  {
+    "id": "shortlink-237", "expected": "accept",
+    "state": {
+      "deviation": { "title": "Validate URLs with urllib.parse", "decision": "No validation library is installed, so the scheme and host are checked with urllib.parse from the standard library." },
+      "task": { "title": "Reject invalid URLs", "spec": "Only http and https URLs are accepted.", "acceptance": ["ftp:// is rejected with 422", "a URL without a host is rejected"] },
+      "plan": { "goal": "Shorten URLs and redirect by code", "out_of_scope": ["checking that the URL is reachable"] },
+      "gates": [{ "name": "pytest", "passed": true }, { "name": "ruff", "passed": true }]
+    }
+  },
+  {
+    "id": "shortlink-241", "expected": "accept",
+    "state": {
+      "deviation": { "title": "Tests use an in-memory database", "decision": "The test fixtures open sqlite3 with :memory: so tests do not touch the disk; the schema is created by the same function the app uses." },
+      "task": { "title": "Test fixtures for the API", "spec": "Give the tests a client and a clean database per test.", "acceptance": ["each test starts with an empty links table"] },
+      "plan": { "goal": "Shorten URLs and redirect by code", "out_of_scope": [] },
+      "gates": [{ "name": "pytest", "passed": true }],
+      "conventions": [{ "title": "Tests do not touch the disk", "rule": "Tests use temporary or in-memory storage only." }]
+    }
+  },
+  {
+    "id": "tracker-349", "expected": "accept",
+    "state": {
+      "deviation": { "title": "Page size fixed at 20", "decision": "The task asked for pagination without a size; the list endpoint returns 20 items per page, a constant in one place." },
+      "task": { "title": "Paginate the items list", "spec": "The list endpoint returns pages.", "acceptance": ["page and next cursor in the response"] },
+      "plan": { "goal": "Browse items", "out_of_scope": ["sorting options"] },
+      "gates": [{ "name": "pytest", "passed": true }, { "name": "types", "passed": true }]
+    }
+  },
+  {
+    "id": "tracker-405", "expected": "accept",
+    "state": {
+      "deviation": { "title": "Timestamps stored in UTC", "decision": "The spec did not name a time zone; all timestamps are stored in UTC and formatted as ISO 8601." },
+      "task": { "title": "Add created_at to items", "spec": "Every item records when it was created.", "acceptance": ["created_at is set on insert"] },
+      "plan": { "goal": "Browse items", "out_of_scope": [] },
+      "gates": [{ "name": "pytest", "passed": true }]
+    }
+  },
+  {
+    "id": "tracker-401", "expected": "accept",
+    "state": {
+      "deviation": { "title": "Split the router into two files", "decision": "routes.py grew past 400 lines, so reads and writes moved to routes_read.py and routes_write.py with the same paths." },
+      "task": { "title": "Add the update endpoint", "spec": "PATCH /items/{id} updates an item.", "acceptance": ["a partial body updates only the given fields"] },
+      "plan": { "goal": "Browse and edit items", "out_of_scope": ["changing existing paths"] },
+      "gates": [{ "name": "pytest", "passed": true }, { "name": "import-contracts", "passed": true }]
+    }
+  },
+  {
+    "id": "tracker-426", "expected": "accept",
+    "state": {
+      "deviation": { "title": "Kept the existing error format", "decision": "New endpoints return errors in the {\"detail\": ...} shape already used, instead of the RFC 7807 shape the task mentioned as an example." },
+      "task": { "title": "Error responses for the update endpoint", "spec": "Errors are returned as JSON, for example in the problem+json style.", "acceptance": ["a missing item answers 404 with a JSON body"] },
+      "plan": { "goal": "Browse and edit items", "out_of_scope": ["a new error format for the whole API"] },
+      "gates": [{ "name": "pytest", "passed": true }],
+      "conventions": [{ "title": "One error shape", "rule": "All endpoints return errors in the same JSON shape." }]
+    }
+  },
+  {
+    "id": "tracker-460", "expected": "accept",
+    "state": {
+      "deviation": { "title": "Index on owner_id", "decision": "Listing by owner was a full scan in the tests' timing, so the migration adds an index on owner_id." },
+      "task": { "title": "List items by owner", "spec": "GET /items?owner=ID.", "acceptance": ["only that owner's items are returned"] },
+      "plan": { "goal": "Browse items", "out_of_scope": ["full-text search"] },
+      "gates": [{ "name": "pytest", "passed": true }, { "name": "types", "passed": true }]
+    }
+  },
+  {
+    "id": "tracker-370", "expected": "reject",
+    "state": {
+      "deviation": { "title": "Skipped the slow permission tests", "decision": "The permission tests took 40 seconds, so they are marked skip and removed from the pytest gate run." },
+      "task": { "title": "Role-based permissions on edit", "spec": "Only owners and admins may edit an item.", "acceptance": ["a viewer gets 403", "tests cover each role"] },
+      "plan": { "goal": "Browse and edit items", "out_of_scope": [] },
+      "gates": [{ "name": "pytest", "passed": true }],
+      "review": [{ "severity": "high", "kind": "missing", "issue": "The permission tests are skipped, so the roles are not covered." }]
+    }
+  },
+  {
+    "id": "tracker-439", "expected": "reject",
+    "state": {
+      "deviation": { "title": "Added a type: ignore to pass mypy", "decision": "The serializer returned Any where a model was declared; a blanket `# type: ignore` was added so the types gate passes." },
+      "task": { "title": "Serialize items for export", "spec": "Export items as JSON.", "acceptance": ["the types gate passes"] },
+      "plan": { "goal": "Export data", "out_of_scope": ["changing the item model"] },
+      "gates": [{ "name": "types", "passed": true }, { "name": "pytest", "passed": true }],
+      "conventions": [{ "title": "No suppressions", "rule": "Do not silence the type checker or the linter; fix the cause." }]
+    }
+  }
+]
