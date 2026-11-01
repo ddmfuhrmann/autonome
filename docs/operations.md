@@ -38,6 +38,7 @@ branch (`autonome/task-<id>-…`, kept for inspection). Typical reasons:
 | `stray files still in the change` | generated files (coverage, caches) end up in the diff | add them to the project's `.gitignore`, then **Try again** |
 | `gates failed on top of main` / `conflicts with main` | the work was fine alone but not after another merge | **Try again**: it replays on the current `main` |
 | `token budget exceeded` / `time budget exceeded` | the task is too big | split it (a new plan) or raise `budget` in the gate config |
+| `runner error (3 in a row)` | the runner itself threw three times on the task (a bug, not the task) | read the error in the runs; fix the runner or the context (is it up to date?), then **Try again** |
 | `the session changed nothing` | the implementer did nothing | the spec was probably unclear: abandon and re-plan |
 
 **Try again** sends it back to pending; **Abandon** drops it (tasks that depend on it then never

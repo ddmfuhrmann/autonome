@@ -158,6 +158,9 @@ conventions and gates instead.
   one question, `is_deviation`. At or above `reject_at` it is reopened as a proposed deviation and
   judged like any other; below it, it stays accepted. The screening is always recorded in the
   decision. Decisions from before the triage was on are not screened.
+- **The human's reject wins**: a decision born from the undo of a decision *you* rejected (the undo
+  task's handoff, `undo_of_human_reject`) is accepted as your choice, with no screening and no
+  triage round. An undo of a reject the triage made is still judged, with its round.
 - **On failure**: Jev down or no key → the fallback judges; if that fails too (or is `off`) nothing
   is recorded, the decision stays proposed and is tried again at the next run. A failed triage never
   breaks storing a handoff.
@@ -190,8 +193,9 @@ plugin/bin/autonome bench [--configs haiku:low,sonnet:medium] [--runs 1] [--only
 ```
 
 `conduct` waits for a restarting context and for the account's usage limit to reset (with
-`--watch`), hands a task back to pending on infrastructure errors, and prints a summary when it
-stops. A merge it could not record is recorded by the next run.
+`--watch`), hands a task back to pending on infrastructure errors (the usage limit, monthly spend
+limit included) and on any exception of the runner itself; the third such exception in a row blocks
+the task as `runner error`. It prints a summary when it stops. A merge it could not record is recorded by the next run.
 
 ## 4. Environment variables
 
