@@ -107,6 +107,20 @@ def test_a_held_verdict_shows_in_the_queue_detail(client, project, run_db, index
     assert "triage: hold (adds_out_of_scope 0.88)" in client.get(f"/ui/p/{project}/approvals").text
 
 
+def test_the_state_snapshot_names_the_flag_that_held_a_revision(client, project, run_db, indexer, held):
+    enable(run_db, indexer, project, JEV)
+    plan_id, _ = held(t2={"spec": "do Stats 2 better"})
+
+    def held_items():
+        return [i for i in client.get(f"/api/projects/{project}/state").json()["waiting"] if i["kind"] == "held"]
+
+    [item] = held_items()  # no verdict yet
+    assert item["id"] == plan_id and item["triage_hold"] is None
+    client.post(url(plan_id), json=verdict("hold", answers={"adds_out_of_scope": "0.88", "changes_design": "0.10"}))
+    [item] = held_items()
+    assert item["id"] == plan_id and item["blocks"] is True and item["triage_hold"] == "adds_out_of_scope"
+
+
 @pytest.mark.parametrize("yaml", [None, "triage: {model: off}\n", "triage: {model: haiku}\n"])
 def test_without_jev_the_endpoint_refuses_and_changes_nothing(client, project, run_db, indexer, held, yaml):
     if yaml:

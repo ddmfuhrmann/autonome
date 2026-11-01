@@ -92,6 +92,19 @@ export interface TriageItem {
   state: Record<string, unknown>;
 }
 
+/** A held plan whose rehearsal revision the classifier has yet to judge. */
+export interface RevisionItem {
+  plan_id: number;
+  state: Record<string, unknown>;
+  shape_changed: boolean;
+}
+
+export interface RevisionVerdictBody {
+  model: string;
+  answers: Record<string, string>;
+  verdict: "accept" | "hold";
+}
+
 /** An accepted decision waiting to be screened. */
 export interface ScreenItem {
   decision_id: number;
@@ -286,7 +299,9 @@ export const context = {
       body: JSON.stringify({ to, run }),
     }),
   triageState: (project: string) =>
-    call<{ deviations: TriageItem[]; screen?: ScreenItem[] }>(`/api/projects/${project}/triage`),
+    call<{ deviations: TriageItem[]; screen?: ScreenItem[]; revisions?: RevisionItem[] }>(`/api/projects/${project}/triage`),
+  triageRevision: (planId: number, v: RevisionVerdictBody) =>
+    call<{ status: string }>(`/api/plans/${planId}/rehearsal-triage`, { method: "POST", body: JSON.stringify(v) }),
   triageScreen: (decisionId: number, s: ScreeningBody) =>
     call<{ status: string; deviation: boolean }>(`/api/decisions/${decisionId}/screen`, {
       method: "POST", body: JSON.stringify(s) }),

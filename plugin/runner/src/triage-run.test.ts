@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import type { GateConfig, Triage } from "./context.js";
-import { triagePending } from "./triage-run.js";
+import { triagePending, triageRevisions } from "./triage-run.js";
 import type { Answers } from "./triage.js";
 
 const realFetch = globalThis.fetch;
@@ -22,6 +22,38 @@ function fakeContext(items: unknown[]) {
   };
   return calls;
 }
+
+test("triageRevisions: shape_changed skips Jev; a Jev failure is logged and the next plan is judged", async () => {
+  process.env.TYPESAFE_API_KEY = "k";
+  const calls: { url: string; body?: any }[] = [];
+  globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+    return url.endsWith("/triage") ? json({ deviations: [], revisions: [
+      { plan_id: 1, state: {}, shape_changed: true },
+      { plan_id: 2, state: { n: 2 }, shape_changed: false },
+      { plan_id: 3, state: { n: 3 }, shape_changed: false },
+    ] }) : json({ status: "approved" });
+  };
+  const log: string[] = [];
+  const ask = async (s: Record<string, unknown>) => {
+    if (s.n === 2) throw new Error("jev: HTTP 500");
+    return { drops_acceptance: 0, adds_out_of_scope: 0.88, changes_design: 0.1 };
+  };
+  try {
+    const accepted = await triageRevisions("p", config(triage), { log: (l) => log.push(l), ask });
+    assert.deepEqual(accepted, []);
+  } finally {
+    delete process.env.TYPESAFE_API_KEY;
+  }
+  const posts = calls.filter((c) => c.body);
+  assert.equal(posts.length, 1);
+  assert.match(posts[0].url, /\/api\/plans\/3\/rehearsal-triage$/);
+  assert.equal(posts[0].body.verdict, "hold");
+  assert.ok(log.includes("triage P1: shape changed, left for you"));
+  assert.ok(log.includes("triage P2: left for you: jev: HTTP 500"));
+  assert.ok(log.includes("triage P3: hold (jev, adds_out_of_scope 0.88)"));
+});
 
 test("with triage off or absent nothing is fetched", async () => {
   const calls = fakeContext([]);

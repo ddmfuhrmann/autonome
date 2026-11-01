@@ -1,12 +1,84 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { afterEach, test } from "node:test";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { judgeTask, recordRunnerError, verdictLine, type ConductOptions, type JudgeSeams } from "./conduct.js";
-import type { Finding, GateConfig, ReviewResult, Run, Task } from "./context.js";
+import { judgeTask, recordRunnerError, rehearsePlan, verdictLine, type ConductOptions, type JudgeSeams } from "./conduct.js";
+import type { Finding, GateConfig, Plan, ReviewResult, Run, Task } from "./context.js";
 import { earlierFindingsSection, encoreMessage, gatesSection, recordRound, settleOutcomes, settleRun } from "./review.js";
+
+const realFetch = globalThis.fetch;
+const realKey = process.env.TYPESAFE_API_KEY;
+const realHome = process.env.AUTONOME_HOME;
+afterEach(() => {
+  globalThis.fetch = realFetch;
+  if (realKey === undefined) delete process.env.TYPESAFE_API_KEY; else process.env.TYPESAFE_API_KEY = realKey;
+  if (realHome === undefined) delete process.env.AUTONOME_HOME; else process.env.AUTONOME_HOME = realHome;
+});
+
+/** A fake context for the rehearsal path: the rehearsal holds the plan, one revision waits for the triage. */
+function rehearsalContext(shapeChanged = false) {
+  const calls: { method: string; url: string; body?: any }[] = [];
+  const json = (b: unknown) => new Response(JSON.stringify(b), { headers: { "content-type": "application/json" } });
+  globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    const method = init?.method ?? "GET";
+    calls.push({ method, url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+    if (url.endsWith("/rehearsal")) return json({ plan_status: "held" });
+    if (url.endsWith("/gate-config")) {
+      return json({ config: { triage: { model: "jev-latest", fallback: "haiku", reject_at: 0.7, max_rounds: 2 } } });
+    }
+    if (url.endsWith("/triage")) {
+      return json({ deviations: [], screen: [], revisions: [{ plan_id: 677, state: { original: [], revised: [] }, shape_changed: shapeChanged }] });
+    }
+    return json({ status: "ok" });
+  };
+  return calls;
+}
+
+const plan = { id: 677, body: { title: "shortlink-v6" } } as unknown as Plan;
+const task = { id: 4, body: { title: "t" } } as unknown as Task;
+const rehearsalOpts = (log: string[]) => ({ project: "p", repo: ".", maxTasks: 1, push: false, log: (l: string) => log.push(l) }) as ConductOptions;
+const fakeRehearse = async () => ({ verdict: "revise" }) as never;
+const noScores = { drops_acceptance: 0.01, adds_out_of_scope: 0.02, changes_design: 0.13 };
+
+test("a rehearsal that holds the plan is judged by Jev; an accept starts the plan in the same run", async () => {
+  process.env.TYPESAFE_API_KEY = "k";
+  const calls = rehearsalContext();
+  const log: string[] = [];
+  const ready = await rehearsePlan(plan, task, rehearsalOpts(log), { rehearse: fakeRehearse, ask: async () => noScores });
+  assert.equal(ready, false); // the claim loop goes round again, and the approved plan is claimed
+  const post = calls.find((c) => c.url.endsWith("/api/plans/677/rehearsal-triage"))!;
+  assert.equal(post.method, "POST");
+  assert.equal(post.body.verdict, "accept");
+  assert.deepEqual(post.body.answers, { drops_acceptance: "0.01", adds_out_of_scope: "0.02", changes_design: "0.13" });
+  assert.ok(calls.findIndex((c) => c.url.endsWith("/tasks/4/transition")) < calls.indexOf(post)); // handed back first
+  assert.ok(log.includes("triage P677: accept (jev, changes_design 0.13)"));
+});
+
+test("a revision that changed shape does not call Jev and stays held", async () => {
+  process.env.TYPESAFE_API_KEY = "k";
+  const calls = rehearsalContext(true);
+  const log: string[] = [];
+  let asked = 0;
+  await rehearsePlan(plan, task, rehearsalOpts(log), { rehearse: fakeRehearse, ask: async () => { asked++; return noScores; } });
+  assert.equal(asked, 0);
+  assert.ok(!calls.some((c) => c.url.endsWith("/rehearsal-triage")));
+  assert.ok(log.includes("triage P677: shape changed, left for you"));
+});
+
+test("without a Jev key the plan stays held and conduct goes on", async () => {
+  delete process.env.TYPESAFE_API_KEY;
+  process.env.AUTONOME_HOME = mkdtempSync(join(tmpdir(), "autonome-nokey-"));
+  const calls = rehearsalContext();
+  const log: string[] = [];
+  const ready = await rehearsePlan(plan, task, rehearsalOpts(log), { rehearse: fakeRehearse });
+  assert.equal(ready, false);
+  assert.ok(!calls.some((c) => c.url.endsWith("/rehearsal-triage")));
+  assert.ok(log.some((l) => l.startsWith("triage P677: left for you: ")));
+  assert.ok(log.includes("  the plan needs revising; held for your approval"));
+});
 
 test("every round keeps its findings, each marked with what became of it", () => {
   const f = (severity: "high" | "medium", issue: string): Finding => ({ kind: "missing", severity, issue });

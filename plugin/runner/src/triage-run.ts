@@ -1,9 +1,12 @@
 // Runs the triage in conduct: judges the deviations waiting in the context and posts each verdict.
 // It never stops conduct and never blocks a task: an item that fails stays proposed for the next run.
 import type { EventStream } from "./events.js";
-import { context, type GateConfig } from "./context.js";
+import { context, type GateConfig, type RevisionItem } from "./context.js";
 import { jevKey } from "./secrets.js";
-import { haiku, jev, judge, screen, screenHaiku, screenJev, type Answers, type Backends, type Judgment } from "./triage.js";
+import {
+  askJev, haiku, jev, judge, judgeRevision, screen, screenHaiku, screenJev,
+  type Answers, type Backends, type Judgment, type RevisionAnswers, type RevisionJudgment, type RevisionQuestionName,
+} from "./triage.js";
 
 export interface TriageRunOptions {
   log: (line: string) => void;
@@ -24,8 +27,55 @@ export function verdictLine(decisionId: number, j: Judgment): string {
   return j.verdict === "escalate" ? `${line}: a rule conflict for you` : line;
 }
 
-const nouls = (a: Answers): Record<string, string> =>
+const nouls = (a: Answers | RevisionAnswers): Record<string, string> =>
   Object.fromEntries(Object.entries(a).map(([k, v]) => [k, String(v)]));
+
+/** `triage P677: accept (jev, changes_design 0.13)`: the question with the highest answer. */
+export function revisionLine(planId: number, j: RevisionJudgment): string {
+  const names = Object.keys(j.answers) as RevisionQuestionName[];
+  const top = names.reduce((a, b) => (j.answers[b] > j.answers[a] ? b : a));
+  return `triage P${planId}: ${j.verdict} (jev, ${top} ${j.answers[top]})`;
+}
+
+/** Judges the rehearsal revisions waiting on a held plan; returns the ids of the plans it accepted.
+ * A revision that changed shape is left for the human without calling Jev; a failure (no key included)
+ * leaves the plan held. It never throws, so it never stops conduct. */
+export async function triageRevisions(project: string, cfg: GateConfig["config"], opts: TriageRunOptions & {
+  /** Tests inject a fake of Jev's API. */
+  ask?: typeof askJev;
+}): Promise<number[]> {
+  const triage = cfg.triage;
+  const accepted: number[] = [];
+  if (!triage || triage.model === "off") return accepted;
+  let waiting: RevisionItem[];
+  try {
+    waiting = (await context.triageState(project)).revisions ?? [];
+  } catch (e) {
+    opts.log(`triage: could not read what is waiting: ${String(e)}`);
+    return accepted;
+  }
+  if (!waiting.length) return accepted;
+  let key: string | undefined;
+  for (const item of waiting) {
+    if (item.shape_changed) {
+      opts.log(`triage P${item.plan_id}: shape changed, left for you`);
+      continue;
+    }
+    try {
+      key ??= jevKey((line) => opts.log(`triage: ${line}`));
+      const j = await judgeRevision(item.state, triage, key, opts.ask);
+      await context.triageRevision(item.plan_id, {
+        model: j.model, answers: nouls(j.answers), verdict: j.verdict });
+      const line = revisionLine(item.plan_id, j);
+      opts.log(line);
+      opts.events?.push({ role: "maestro", kind: "stage", text: line });
+      if (j.verdict === "accept") accepted.push(item.plan_id);
+    } catch (e) {
+      opts.log(`triage P${item.plan_id}: left for you: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  return accepted;
+}
 
 export async function triagePending(project: string, cfg: GateConfig["config"], opts: TriageRunOptions): Promise<void> {
   const triage = cfg.triage;
