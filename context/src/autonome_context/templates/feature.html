@@ -8,7 +8,7 @@
 {% macro tline(d) %}
 {% set word = 'merged' if d.type == 'task' and d.status == 'done' else ('blocked' if d.status == 'blocked' else d.type) %}
 <a class="tline" href="/ui/p/{{ project }}/documents/{{ d.id }}">
-  <span class="tline__t" title="{{ d.created_at|when }}">{{ (d.created_at|ago).replace(' ago', '') }}</span>
+  <span class="tline__t" title="{{ d.created_at|when_text }}">{{ (d.created_at|ago).replace(' ago', '') }}</span>
   <span><span class="tline__k{{ ' is-' ~ word if word in ('task', 'merged', 'blocked') }}">{{ word }}</span> {{ d|ref }}
     {%- if d.type == 'handoff' %}{% if d.body.adherence_score is not none %} · adherence {{ '%.2f'|format(d.body.adherence_score) }}{% endif %}
     {%- else %} {{ (d.body.title or d.body.summary or '')|truncate(70) }}{% if d.status and d.type != 'task' %} · {{ d.status|label|lower }}{% endif %}{% endif %}</span>

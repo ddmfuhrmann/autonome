@@ -45,7 +45,7 @@
       <span class="push muted" style="font-size: 12px">{% if doc.status == 'playing' %}{{ ui.eq() }} updating while it plays{% else %}what the sessions did{% endif %}</span></div>
     <div class="card__body">
       {% if events %}<ol class="live-log" aria-label="Newest first">{% for e in events|reverse %}
-        <li class="k-{{ e.kind }}"><span class="t">{{ e.at.strftime('%H:%M:%S') }}</span><span class="r">{{ e.role }}</span>{% if e.kind == 'say' %}<div class="x prose">{{ e.text|md }}</div>{% else %}<span class="x">{{ e.text }}</span>{% endif %}</li>
+        <li class="k-{{ e.kind }}"><span class="t">{{ e.at|clock }}</span><span class="r">{{ e.role }}</span>{% if e.kind == 'say' %}<div class="x prose">{{ e.text|md }}</div>{% else %}<span class="x">{{ e.text }}</span>{% endif %}</li>
       {% endfor %}</ol>
       {% else %}<p class="empty">Waiting for the session's first step…</p>{% endif %}
     </div>

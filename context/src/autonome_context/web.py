@@ -5,11 +5,13 @@ import logging
 import re
 from dataclasses import asdict
 from collections import Counter
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 from pathlib import Path
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import markdown as md
+import markupsafe
 from markupsafe import Markup
 
 from starlette.requests import Request
@@ -82,6 +84,9 @@ def label(status) -> str:
     return STATUS_LABELS.get(s) or s.replace("_", " ").capitalize()
 
 
+TZ_NAME = re.compile(r"[A-Za-z0-9_+\-/]{1,64}")
+
+
 def _when(v) -> datetime | None:
     if isinstance(v, datetime):
         return v if v.tzinfo else v.replace(tzinfo=UTC)
@@ -104,12 +109,43 @@ def ago(v) -> str:
         return f"{s // 3600}h ago"
     if s < 7 * 86400:
         return f"{s // 86400}d ago"
-    return t.strftime("%b %d")
+    return Markup(_time_tag(t, "day", "%b %d"))
 
 
-def when(v) -> str:
+def _time_tag(t: datetime, fmt: str, pattern: str) -> str:
+    """A <time> in UTC: the text is the no-JS fallback, the page script rewrites it in the viewer's zone."""
+    u = t.astimezone(UTC)
+    return (f'<time datetime="{u.strftime("%Y-%m-%dT%H:%M:%SZ")}" data-fmt="{fmt}">'
+            f'{markupsafe.escape(u.strftime(pattern))}</time>')
+
+
+def _timed(fmt: str, pattern: str):
+    def fn(v) -> Markup:
+        t = _when(v)
+        return Markup(_time_tag(t, fmt, pattern)) if t else Markup("")
+    return fn
+
+
+when = _timed("when", "%b %d, %H:%M")
+clock = _timed("clock", "%H:%M:%S")
+hm = _timed("hm", "%H:%M")
+
+
+def when_text(v) -> str:
+    """Plain UTC text, for attributes such as title="" where a tag cannot go."""
     t = _when(v)
-    return t.strftime("%b %d, %H:%M") if t else ""
+    return t.astimezone(UTC).strftime("%b %d, %H:%M") if t else ""
+
+
+def viewer_tz(request: Request) -> tzinfo:
+    """The viewer's zone from the `tz` cookie; anything but a loadable zone name is UTC."""
+    name = request.cookies.get("tz", "")
+    if TZ_NAME.fullmatch(name):
+        try:
+            return ZoneInfo(name)
+        except (ZoneInfoNotFoundError, ValueError, OSError):
+            pass
+    return UTC
 
 
 def tokens(n) -> str:
@@ -153,7 +189,7 @@ def parse_diff(text: str | None) -> list[dict]:
     return files
 
 
-for _name, _fn in {"ref": ref, "label": label, "ago": ago, "when": when, "tokens": tokens, "money": money,
+for _name, _fn in {"ref": ref, "label": label, "ago": ago, "when": when, "clock": clock, "hm": hm, "when_text": when_text, "tokens": tokens, "money": money,
                    "diff_files": parse_diff, "spent": lambda t: _cost(t), "sev": lambda s: SEVERITY.get(s, "minor")}.items():
     templates.env.filters[_name] = _fn
 
@@ -560,12 +596,13 @@ def query_url(request: Request, *, toggle: tuple[str, str] | None = None, put: d
     return request.url.path + (f"?{q}" if q else "")
 
 
-def day_groups(docs: list[dict], now: datetime | None = None) -> list[tuple[str, list[dict]]]:
-    """Today, Yesterday, then one group per date; docs keep their order (newest first)."""
-    today = (now or datetime.now(UTC)).date()
+def day_groups(docs: list[dict], now: datetime | None = None,
+               tz: tzinfo = UTC) -> list[tuple[str, list[dict]]]:
+    """Today, Yesterday, then one group per date in `tz`; docs keep their order (newest first)."""
+    today = _when(now or datetime.now(UTC)).astimezone(tz).date()
     groups: list[tuple[str, list[dict]]] = []
     for d in docs:
-        day = _when(d["created_at"]).date()
+        day = _when(d["created_at"]).astimezone(tz).date()
         delta = (today - day).days
         name = "Today" if delta == 0 else "Yesterday" if delta == 1 else day.strftime("%a, %b %d")
         if not groups or groups[-1][0] != name:
@@ -612,7 +649,7 @@ async def documents_page(request: Request) -> Response:
                         "prev": ids[i - 1] if i else None,
                         "next": ids[i + 1] if i is not None and i + 1 < len(ids) else None}
     selected = {k: p.getlist(k) for k in DOC_FACETS}
-    return await render(request, "documents.html", groups=day_groups(docs), total=len(docs), facets=facets,
+    return await render(request, "documents.html", groups=day_groups(docs, tz=viewer_tz(request)), total=len(docs), facets=facets,
                         selected=selected, q=f.q, peek=peek, url=lambda **kw: query_url(request, **kw))
 
 
