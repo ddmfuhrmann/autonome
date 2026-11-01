@@ -342,3 +342,48 @@ def test_a_draft_plan_shows_its_design_and_full_task_specs(client, project, run_
     assert 'id="design"' in page and "Data access" in page and 'class="is-chosen"><strong>Repository' in page
     assert "<strong>Where</strong>" in page and "<code>ledger.py</code>" in page
     assert "<li>amounts are positive</li>" in page
+
+
+def test_documents_facets_narrow_the_list_and_the_drawer_shows_the_picked_document(client, project, run_db, indexer):
+    from conftest import make_handoff
+    from autonome_context.handoff import Decision
+
+    async def go(conn):
+        await store.put_handoff(conn, indexer, make_handoff(project, feature="links", layers=["api"], decisions=[
+            Decision(title="Kept codes at 7 characters", rationale="62^7 is plenty"),
+            Decision(title="Dict instead of a response model", rationale="faster", deviation=True)]), None)
+        await store.put_handoff(conn, indexer, make_handoff(project, feature="billing", layers=["domain"],
+                                                            summary="Refunds are idempotent."), None)
+        await conn.commit()
+        return {d["body"].get("title") or d["type"]: d for d in await store.list_documents(conn, project)}
+    docs = run_db(go)
+    kept, deviation = docs["Kept codes at 7 characters"], docs["Dict instead of a response model"]
+    base = f"/ui/p/{project}/documents"
+
+    page = client.get(base).text
+    assert "Kept codes at 7 characters" in page and "Refunds are idempotent" in page
+    assert 'class="drawer' not in page and ">Today<" in page
+
+    # a facet narrows the list, its own counts stay whole, and other facets count what is left
+    page = client.get(base, params={"type": "decision"}).text
+    assert "Refunds are idempotent" not in page and "Kept codes at 7 characters" in page
+    assert f'href="{base}?type=decision&amp;type=handoff"' in page  # toggling adds, it never replaces
+    assert 'aria-current="true"' in page
+    page = client.get(base, params=[("feature", "links"), ("feature", "billing")]).text
+    assert "Refunds are idempotent" in page and "Kept codes" in page  # values in one facet are OR'd
+    assert "Refunds" not in client.get(base, params={"layer": "api"}).text
+
+    # the query matches titles, summaries and refs like D-12
+    assert "Kept codes" not in client.get(base, params={"q": "idempotent"}).text
+    assert "Kept codes" in client.get(base, params={"q": f"D-{kept['id']}"}).text
+
+    # ?doc= opens the drawer over the list, keeps the filters, and links to prev/next and the full page
+    page = client.get(base, params={"type": "decision", "doc": deviation["id"]}).text
+    drawer = page.split('class="drawer', 1)[1]
+    assert "Dict instead of a response model" in drawer and "Review in Approvals" in drawer  # proposed: decide elsewhere
+    assert f'href="/ui/p/{project}/documents/{deviation["id"]}">Open<' in drawer
+    assert f'data-close="{base}?type=decision"' in page
+    assert "records (from)" in drawer  # the handoff that recorded it
+    # changing a filter closes it; a document from another project never opens
+    assert f"type=decision&amp;type=handoff\"" in page and "doc=" not in page.split('aria-label="Type"', 1)[1].split("</div>", 1)[0]
+    assert 'class="drawer' not in client.get(f"/ui/p/other-{project}/documents", params={"doc": kept["id"]}).text

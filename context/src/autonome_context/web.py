@@ -499,14 +499,81 @@ async def lab_question(request: Request) -> Response:
     return RedirectResponse(f"/ui/p/{project}/lab", status_code=303)
 
 
+DOC_FACETS = ("type", "status", "feature", "layer")
+PEEK_HIDDEN = {"title", "project", "feature", "layers", "session_id", "plan_id", "seq", "wave_id", "kind",
+               "yaml", "diff", "diff_stat", "output", "mermaid", "last_output", "transcript"}
+
+
+def query_url(request: Request, *, toggle: tuple[str, str] | None = None, put: dict | None = None,
+              drop: tuple[str, ...] = ()) -> str:
+    """This page's URL with one query change: toggle a facet value, put (replace) keys, or drop keys.
+    Changing a filter closes the drawer, since the open document may no longer be in the list."""
+    items = [(k, v) for k, v in request.query_params.multi_items() if k not in drop]
+    if toggle:
+        items = [(k, v) for k, v in items if k != "doc"]
+        items.remove(toggle) if toggle in items else items.append(toggle)
+    for k, v in (put or {}).items():
+        items = [(a, b) for a, b in items if a != k]
+        if v not in (None, ""):
+            items.append((k, str(v)))
+    q = urlencode(items)
+    return request.url.path + (f"?{q}" if q else "")
+
+
+def day_groups(docs: list[dict], now: datetime | None = None) -> list[tuple[str, list[dict]]]:
+    """Today, Yesterday, then one group per date; docs keep their order (newest first)."""
+    today = (now or datetime.now(UTC)).date()
+    groups: list[tuple[str, list[dict]]] = []
+    for d in docs:
+        day = _when(d["created_at"]).date()
+        delta = (today - day).days
+        name = "Today" if delta == 0 else "Yesterday" if delta == 1 else day.strftime("%a, %b %d")
+        if not groups or groups[-1][0] != name:
+            groups.append((name, []))
+        groups[-1][1].append(d)
+    return groups
+
+
+def excerpt(body: dict, limit: int = 3) -> list[tuple[str, str]]:
+    """The first few prose fields of a body, summary first, for the drawer."""
+    keys = (["summary"] if body.get("summary") else []) + [k for k in body if k != "summary"]
+    out = []
+    for k in keys:
+        v = body.get(k)
+        if k in PEEK_HIDDEN or not isinstance(v, str) or not v.strip():
+            continue
+        out.append((k.replace("_", " ").capitalize(), v if len(v) <= 600 else v[:600].rsplit(" ", 1)[0] + "…"))
+        if len(out) == limit:
+            break
+    return out
+
+
 async def documents_page(request: Request) -> Response:
+    """Facets on the left, the list grouped by day, and the picked document in a drawer (?doc=ID)."""
     project = request.path_params["project"]
     p = request.query_params
+    f = store.DocFilter(types=tuple(p.getlist("type")), statuses=tuple(p.getlist("status")),
+                        features=tuple(p.getlist("feature")), layers=tuple(p.getlist("layer")),
+                        q=p.get("q", ""))
     pool, _ = await services.get()
     async with pool.connection() as conn:
-        docs = await store.list_documents(conn, project, type=p.get("type") or None,
-                                          status=p.get("status") or None, feature=p.get("feature") or None)
-    return await render(request, "documents.html", docs=docs, types=DOC_TYPES, filters=p)
+        docs = await store.browse_documents(conn, project, f)
+        facets = await store.document_facets(conn, project, f)
+        peek = None
+        if (pick := p.get("doc", "")).isdigit():
+            doc = await store.get_document(conn, int(pick))
+            if doc and doc["project"] == project:
+                links = await store.links_of(conn, doc["id"])
+                names = await store.titles(conn, [l["id"] for l in links])
+                ids = [d["id"] for d in docs]
+                i = ids.index(doc["id"]) if doc["id"] in ids else None
+                peek = {"doc": doc, "links": [{**l, "title": names.get(l["id"], "")} for l in links],
+                        "excerpt": excerpt(doc["body"]),
+                        "prev": ids[i - 1] if i else None,
+                        "next": ids[i + 1] if i is not None and i + 1 < len(ids) else None}
+    selected = {k: p.getlist(k) for k in DOC_FACETS}
+    return await render(request, "documents.html", groups=day_groups(docs), total=len(docs), facets=facets,
+                        selected=selected, q=f.q, peek=peek, url=lambda **kw: query_url(request, **kw))
 
 
 async def document_page(request: Request) -> Response:

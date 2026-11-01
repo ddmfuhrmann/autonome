@@ -196,6 +196,100 @@ async def list_documents(
         return await cur.fetchall()
 
 
+@dataclass(frozen=True)
+class DocFilter:
+    """What the Documents page narrows by. Values inside one facet are OR'd; facets are AND'd."""
+
+    types: tuple[str, ...] = ()
+    statuses: tuple[str, ...] = ()
+    features: tuple[str, ...] = ()
+    layers: tuple[str, ...] = ()
+    q: str = ""
+
+
+_BROWSE_FROM = """
+    from document d
+    join project p on p.id = d.project_id
+    left join feature f on f.id = d.feature_id
+    join lateral (select v.body from document_version v where v.document_id = d.id
+                  order by v.version desc limit 1) dv on true
+"""
+_REF = re.compile(r"^\s*(?:[A-Za-z]-|#)?(\d+)\s*$")
+
+
+def _browse_where(f: DocFilter, skip: str | None = None) -> tuple[str, dict]:
+    """The where clause for a filter. `skip` leaves one facet out, so its own counts stay comparable."""
+    clauses, params = ["p.slug = %(project)s"], {}
+    if f.types and skip != "type":
+        clauses.append("d.type = any(%(types)s)")
+        params["types"] = list(f.types)
+    if f.statuses and skip != "status":
+        clauses.append("d.status = any(%(statuses)s)")
+        params["statuses"] = list(f.statuses)
+    if f.features and skip != "feature":
+        clauses.append("f.slug = any(%(features)s)")
+        params["features"] = list(f.features)
+    if f.layers and skip != "layer":
+        clauses.append("exists (select 1 from document_layer dl join layer l on l.id = dl.layer_id"
+                       " where dl.document_id = d.id and l.slug = any(%(layers)s))")
+        params["layers"] = list(f.layers)
+    if f.q.strip():
+        ref = _REF.match(f.q)
+        clauses.append("(dv.body->>'title' ilike %(q)s or dv.body->>'summary' ilike %(q)s"
+                       + (" or d.id = %(qid)s" if ref else "") + ")")
+        params["q"] = f"%{f.q.strip()}%"
+        if ref:
+            params["qid"] = int(ref.group(1))
+    return " where " + " and ".join(clauses), params
+
+
+async def browse_documents(conn: AsyncConnection, project: str, f: DocFilter, limit: int = 200) -> list[dict]:
+    """The Documents list: newest first, narrowed by facets and a title/summary/ref query."""
+    where, params = _browse_where(f)
+    async with conn.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            f"select d.id {_BROWSE_FROM} {where} order by d.created_at desc, d.id desc limit %(limit)s",
+            {"project": project, "limit": limit, **params},
+        )
+        ids = [r["id"] for r in await cur.fetchall()]
+        if not ids:
+            return []
+        await cur.execute(_DOC_SELECT + " where d.id = any(%(ids)s) order by d.created_at desc, d.id desc",
+                          {"ids": ids})
+        return await cur.fetchall()
+
+
+async def document_facets(conn: AsyncConnection, project: str, f: DocFilter) -> dict[str, list[tuple[str, int]]]:
+    """Counts per value for type, status, feature and layer. Each facet ignores its own selection, so
+    picking `decision` still shows how many handoffs there are."""
+    out: dict[str, list[tuple[str, int]]] = {}
+    async with conn.cursor() as cur:
+        for name, col in {"type": "d.type", "status": "d.status", "feature": "f.slug"}.items():
+            where, params = _browse_where(f, skip=name)
+            await cur.execute(f"select {col}, count(*) {_BROWSE_FROM} {where} and {col} is not null"
+                              " group by 1 order by 2 desc, 1", {"project": project, **params})
+            out[name] = [(v, n) for v, n in await cur.fetchall()]
+        where, params = _browse_where(f, skip="layer")
+        await cur.execute(f"""select l.slug, count(*) {_BROWSE_FROM}
+                              join document_layer dl on dl.document_id = d.id join layer l on l.id = dl.layer_id
+                              {where} group by 1 order by 2 desc, 1""", {"project": project, **params})
+        out["layer"] = [(v, n) for v, n in await cur.fetchall()]
+    return out
+
+
+async def titles(conn: AsyncConnection, ids: list[int]) -> dict[int, str]:
+    """A short readable title per document, for link lists."""
+    if not ids:
+        return {}
+    async with conn.cursor() as cur:
+        await cur.execute(
+            """select d.id, coalesce(dv.body->>'title', left(dv.body->>'summary', 120), d.type)
+               from document d join lateral (select v.body from document_version v where v.document_id = d.id
+                                             order by v.version desc limit 1) dv on true
+               where d.id = any(%s)""", (ids,))
+        return {i: t for i, t in await cur.fetchall()}
+
+
 async def links_of(conn: AsyncConnection, doc_id: int) -> list[dict]:
     async with conn.cursor(row_factory=dict_row) as cur:
         await cur.execute(
