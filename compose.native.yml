@@ -1,5 +1,6 @@
 # Embeddings from the host's Ollama instead of the container: on a Mac it runs on the GPU (Metal),
-# about 11x faster than the container's CPU, with the same vectors, so nothing needs reindexing.
+# about 11x faster than the container's CPU. At the container's Ollama version (0.24.0) the vectors
+# are the same, so nothing needs reindexing; another version gives different ones.
 # Turn it on with `COMPOSE_FILE=compose.yml:compose.native.yml` in .env; the host's Ollama must be
 # running on :11434 (stop the ollama container first: they share the port).
 services:
