@@ -1,5 +1,5 @@
 {
-  "about": "What the runner POSTs to the context for the triage. plugin/runner tests build each body from its input and compare it with `body`; context tests validate each `body` with the endpoint's model. Change both sides and this file together.",
+  "about": "What the runner POSTs to the context for the triage. plugin/runner tests build each body from its input and compare it with `body`; context tests validate each `body` with the endpoint's model and its checks. Inputs are what the runner really gets (a revision's `model` is the Jev that answered, as Jev's API names it), never idealized values. Change both sides and this file together.",
   "triage_verdict": {
     "endpoint": "POST /api/decisions/{id}/triage",
     "item": {"decision_id": 713, "round": 1, "state": {"deviation": {"title": "Keep ValueError", "decision": "The plan asks for it."}}},
@@ -21,9 +21,9 @@
   "revision_verdict": {
     "endpoint": "POST /api/plans/{id}/rehearsal-triage",
     "item": {"plan_id": 678, "shape_changed": false, "state": {"plan": {"goal": "Count clicks"}, "original": [{"position": 3, "title": "API"}], "revised": [{"position": 3, "title": "API"}]}},
-    "judgment": {"model": "jev-latest", "verdict": "accept", "answers": {"drops_acceptance": 0.08, "adds_out_of_scope": 0.08, "changes_design": 0.13}},
+    "judgment": {"model": "jev-1.14.0", "verdict": "accept", "answers": {"drops_acceptance": 0.08, "adds_out_of_scope": 0.08, "changes_design": 0.13}},
     "body": {
-      "model": "jev-latest",
+      "model": "jev-1.14.0",
       "state": "{\"plan\":{\"goal\":\"Count clicks\"},\"original\":[{\"position\":3,\"title\":\"API\"}],\"revised\":[{\"position\":3,\"title\":\"API\"}]}",
       "answers": {"drops_acceptance": "0.08", "adds_out_of_scope": "0.08", "changes_design": "0.13"},
       "verdict": "accept"
