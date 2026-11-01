@@ -107,6 +107,8 @@ export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 export interface RoleModel {
   model: string;
   effort: Effort;
+  /** Model to switch to when `model` is overloaded or unavailable (the account's usage limit is not this). */
+  fallback?: string;
 }
 
 /** Model and effort for a role: the command line overrides every role, then the gate config. */
@@ -119,8 +121,16 @@ export function languageRule(cfg: GateConfig["config"]): string {
 }
 
 export function roleModel(cfg: GateConfig["config"], role: string, override: { model?: string; effort?: Effort } = {}): RoleModel {
-  const r = cfg.models?.[role] ?? { model: "sonnet", effort: "medium" as Effort };
-  return { model: override.model ?? r.model, effort: override.effort ?? r.effort };
+  const r: RoleModel = cfg.models?.[role] ?? { model: "sonnet", effort: "medium" as Effort };
+  const model = override.model ?? r.model;
+  // A fallback equal to the model would be refused by the SDK; drop it.
+  const fallback = r.fallback && r.fallback !== model ? r.fallback : undefined;
+  return { model, effort: override.effort ?? r.effort, ...(fallback ? { fallback } : {}) };
+}
+
+/** A role's model as Agent SDK options. */
+export function sdkModel(r: RoleModel): { model: string; effort: Effort; fallbackModel?: string } {
+  return { model: r.model, effort: r.effort, ...(r.fallback ? { fallbackModel: r.fallback } : {}) };
 }
 
 export interface Soundcheck {

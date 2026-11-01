@@ -96,6 +96,15 @@ def role_model(project: str, role: str, default_model: str = "sonnet", default_e
             os.getenv(f"AUTONOME_{role.upper()}_EFFORT") or r.get("effort") or default_effort)
 
 
+def model_args(project: str, role: str) -> list[str]:
+    """`claude -p` arguments for a role: --model and --effort, plus --fallback-model when the gate config
+    gives the role a fallback that differs from its model."""
+    model, effort = role_model(project, role)
+    cfg = (get_json(f"/api/projects/{project}/gate-config") or {}).get("config") or {}
+    fallback = ((cfg.get("models") or {}).get(role) or {}).get("fallback")
+    return ["--model", model, "--effort", effort, *(["--fallback-model", fallback] if fallback and fallback != model else [])]
+
+
 def language_rule(project: str) -> str:
     """The rule that keeps what agents write for people in the project's language; empty when none is set."""
     try:

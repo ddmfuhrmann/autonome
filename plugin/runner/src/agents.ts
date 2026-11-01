@@ -16,6 +16,8 @@ export interface Consult {
   schema: Record<string, unknown>;
   model?: string;
   effort?: Effort;
+  /** Model the SDK switches to when `model` is overloaded or unavailable. */
+  fallback?: string;
   /** Extra tools on top of reading files, git and the project memory. */
   tools?: string[];
   env?: Record<string, string>;
@@ -36,6 +38,7 @@ export async function consult<T>(c: Consult): Promise<{ answer: T; cost: number 
       cwd: c.cwd,
       model: c.model,
       effort: c.effort,
+      ...(c.fallback && c.fallback !== c.model ? { fallbackModel: c.fallback } : {}),
       permissionMode: "dontAsk",
       allowedTools: [...READ_ONLY, ...(c.tools ?? [])],
       mcpServers: { autonome: { type: "http", url: `${CONTEXT_URL}/mcp` } },

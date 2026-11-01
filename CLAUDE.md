@@ -60,6 +60,9 @@ plugin/runner/  the maestro (TypeScript, Claude Agent SDK): one session + worktr
 - **Models**: every agent role (musician, reviewer, rehearsal, listener, tune, handoff, docs) has a
   model and an effort in the gate config (`models`, defaults in `gates.DEFAULT_MODELS`: Haiku low
   for reviewer and rehearsal, as measured by `autonome bench`; Sonnet for the rest). `conduct --model/--effort` override all roles.
+  A role may name a `fallback` model, used when its own is overloaded or unavailable (not the usage limit).
+  A task briefing carries the plan's goal, out of scope, design and context (capped), so what the specs
+  rely on (an external API's shape) reaches the musician and the reviewer.
   The triage has its own model setting, `triage` in the gate config: Jev (`jev-latest`) with Haiku as
   the fallback; it is not one of the `models` roles and `--model/--effort` do not change it.
 - **Plans learn from the subject's history.** compose and the rehearsal read `history_get` (what went

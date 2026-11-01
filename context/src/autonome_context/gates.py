@@ -92,6 +92,8 @@ Effort = Literal["low", "medium", "high", "xhigh", "max"]
 class RoleModel(BaseModel):
     model: str
     effort: Effort
+    fallback: str | None = Field(
+        default=None, description="model to switch to when this one is overloaded or unavailable (not the usage limit)")
 
 
 # Who does what, on which model and with how much thinking. Reviewer and rehearsal are measured with
@@ -159,7 +161,7 @@ playback: {features: []}    # merge, then the human reviews forward (never block
 cues: []
 review: {enabled: true, max_rounds: 2}
 # language: pt-BR           # what agents write for people; code and commits follow the project
-# models: {musician: {model: sonnet, effort: medium}}   # per role; see DEFAULT_MODELS for the rest
+# models: {musician: {model: sonnet, effort: medium, fallback: haiku}}   # per role; see DEFAULT_MODELS
 # triage:                    # a classifier judges deviation decisions (the Jev key stays in the runner's environment)
 #   model: jev-latest        # jev-latest | haiku | off
 #   fallback: haiku          # haiku | off

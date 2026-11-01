@@ -76,6 +76,16 @@ def test_scribes_take_model_and_effort_from_env_then_gate_config_then_default(mo
     assert common.role_model("p", "handoff") == ("haiku", "medium")
 
 
+def test_scribes_pass_a_fallback_model_only_when_it_differs(monkeypatch):
+    from autonome import common
+
+    models = {"handoff": {"model": "sonnet", "effort": "low", "fallback": "haiku"},
+              "docs": {"model": "sonnet", "effort": "low", "fallback": "sonnet"}}
+    monkeypatch.setattr(common, "get_json", lambda path, timeout=5: {"config": {"models": models}})
+    assert common.model_args("p", "handoff") == ["--model", "sonnet", "--effort", "low", "--fallback-model", "haiku"]
+    assert common.model_args("p", "docs") == ["--model", "sonnet", "--effort", "low"]
+
+
 def _fake_context(gate_versions: dict[str, int | None]):
     """A context that knows which projects have a saved gate config, and records briefing calls."""
     calls = []

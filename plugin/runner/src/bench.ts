@@ -16,6 +16,8 @@ import { haiku, jev, verdict, type Backend, type Verdict } from "./triage.js";
 const BENCH = resolve(dirname(fileURLToPath(import.meta.url)), "../bench");
 const SHORTLINK = process.env.SHORTLINK_REPO ?? join(homedir(), "git", "shortlink");
 const SHORTLINK_V2 = process.env.SHORTLINK_V2_REPO ?? join(homedir(), "git", "shortlink-v2");
+// This repository: the cases that replay autonome's own tasks.
+const AUTONOME = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
 export interface Score {
   role: string;
@@ -76,6 +78,26 @@ async function reviewerSeverityCase(who: RoleModel): Promise<Omit<Score, "role" 
   }
 }
 
+/** Reviewer, a gap no convention names: autonome's T-478 (commit 76bc1f7) wrote a Jev client for an
+ * endpoint and body that do not exist (POST /v1/nouls with {state, nouls}) while the plan in the
+ * briefing gives the real API (POST /v1/systemone with {model, state, questions}), and its tests fake
+ * the invented shape. The Haiku reviewer of the run passed it. 1.0 = a high finding on the mismatch. */
+async function reviewerInventedApiCase(who: RoleModel): Promise<Omit<Score, "role" | "case" | "who" | "seconds">> {
+  const commit = "76bc1f7";
+  const { dir, done } = checkout(`${commit}~1`, commit, AUTONOME);
+  try {
+    const task = { id: 478, project: "autonome", status: "playing", feature: "triage", layers: ["integration", "application", "test"],
+      body: { title: "The triage module: questions, backends, verdict", spec: "", acceptance: [], plan_id: 471, seq: 3, fermata: false } };
+    const { result, cost } = await review(task, readFileSync(join(BENCH, "reviewer-invented-api-briefing.md"), "utf8"), dir,
+      git(AUTONOME, "rev-parse", `${commit}~1`), who);
+    const api = result.findings.find((f) => /systemone|\/v1\/nouls|nouls|endpoint|request (body|shape)|questions/i.test(f.issue));
+    const score = api?.severity === "high" && result.verdict === "fail" ? 1 : api ? 0.5 : 0;
+    return { score, cost, note: api ? `API mismatch found, ${api.severity}; verdict ${result.verdict}` : `API mismatch not found; verdict ${result.verdict}` };
+  } finally {
+    done();
+  }
+}
+
 /** Rehearsal: plan #16 as approved, against the repo after the quality-gates feature, whose import
  * contract ("routes do no SQL", indirect imports included) the plan's own spec could never pass. */
 async function rehearsalCase(who: RoleModel): Promise<Omit<Score, "role" | "case" | "who" | "seconds">> {
@@ -127,6 +149,7 @@ const CASES: Record<string, { role: string; run: (who: RoleModel) => ReturnType<
   "triage/deviations": { role: "triage", run: triageCase },
   "reviewer/post-links": { role: "reviewer", run: reviewerCase },
   "reviewer/raw-500": { role: "reviewer", run: reviewerSeverityCase },
+  "reviewer/invented-api": { role: "reviewer", run: reviewerInventedApiCase },
   "rehearsal/plan-16": { role: "rehearsal", run: rehearsalCase },
 };
 
@@ -145,7 +168,7 @@ export function table(scores: Score[]): string {
 }
 
 export async function bench(opts: { configs: RoleModel[]; runs: number; only?: string; log: (l: string) => void }): Promise<Score[]> {
-  if (!opts.only?.startsWith("triage") && !existsSync(join(SHORTLINK, ".git"))) throw new Error(`the bench needs shortlink at ${SHORTLINK} (SHORTLINK_REPO)`);
+  if (!opts.only?.startsWith("triage") && opts.only !== "reviewer/invented-api" && !existsSync(join(SHORTLINK, ".git"))) throw new Error(`the bench needs shortlink at ${SHORTLINK} (SHORTLINK_REPO)`);
   const scores: Score[] = [];
   for (const [name, c] of Object.entries(CASES)) {
     if (opts.only && !name.startsWith(opts.only)) continue;

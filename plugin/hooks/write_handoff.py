@@ -85,9 +85,8 @@ def gate_facts(session_id: str) -> str:
 
 def write(condensed: str, cwd: str, facts: str) -> dict:
     env = {**os.environ, "AUTONOME_HANDOFF_CHILD": "1"}
-    model, effort = common.role_model(common.project_slug(cwd), "handoff")
     out = subprocess.run(
-        ["claude", "-p", "--model", model, "--effort", effort, "--output-format", "json",
+        ["claude", "-p", *common.model_args(common.project_slug(cwd), "handoff"), "--output-format", "json",
          "--allowedTools", *READ_ONLY_TOOLS],
         input="\n\n".join(filter(None, [prompt(), common.language_rule(common.project_slug(cwd)), facts, condensed])),
         cwd=cwd, env=env, capture_output=True, text=True, timeout=600,
