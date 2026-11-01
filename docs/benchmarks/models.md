@@ -59,4 +59,5 @@ on the mismatch and a failed review.
 In the run both the musician and the Haiku reviewer missed it, but not for lack of model: the task
 briefing did not carry the plan's `context`, where the API shape was written. With the shape in hand
 Haiku finds it every time. Since 0.11.0 the briefing carries the plan's context (capped at 3,000
-characters). Haiku stays the reviewer's default; a project can still raise it in `models`.
+characters). The human rejected keeping Haiku low as the reviewer's default: it is Sonnet medium
+again; a project can still lower it in `models`. Rehearsal stays on Haiku low.

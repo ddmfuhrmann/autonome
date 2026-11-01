@@ -96,11 +96,11 @@ class RoleModel(BaseModel):
         default=None, description="model to switch to when this one is overloaded or unavailable (not the usage limit)")
 
 
-# Who does what, on which model and with how much thinking. Reviewer and rehearsal are measured with
-# `autonome bench` (docs/benchmarks/models.md); the other roles are still a guess.
+# Who does what, on which model and with how much thinking. Rehearsal is measured with
+# `autonome bench` (docs/benchmarks/models.md); the reviewer stays on Sonnet; the other roles are still a guess.
 DEFAULT_MODELS: dict[str, RoleModel] = {
     "musician": RoleModel(model="sonnet", effort="medium"),
-    "reviewer": RoleModel(model="haiku", effort="low"),
+    "reviewer": RoleModel(model="sonnet", effort="medium"),
     "rehearsal": RoleModel(model="haiku", effort="low"),
     "listener": RoleModel(model="sonnet", effort="medium"),
     "tune": RoleModel(model="sonnet", effort="medium"),
