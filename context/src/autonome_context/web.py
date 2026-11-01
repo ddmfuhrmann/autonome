@@ -190,7 +190,7 @@ async def _queue(conn, project: str) -> list[dict]:
 
 def _escalated(d: dict) -> bool:
     """The triage sent this deviation to the human: a rule conflict, not for it to undo."""
-    return (d["body"].get("triage") or {}).get("verdict") == "escalate"
+    return bool(d["body"].get("triage_conflict"))
 
 
 async def _triage_on(conn, project: str) -> bool:
@@ -951,7 +951,8 @@ async def triage_page(request: Request) -> Response:
                     waiting.append(d)
             else:
                 rows.append({"doc": d, "triage": d["body"]["triage_history"][-1],
-                             "exhausted": bool(d["body"].get("triage_exhausted")), "undo": undo.get(str(d["id"]))})
+                             "exhausted": bool(d["body"].get("triage_exhausted")),
+                             "conflict": bool(d["body"].get("triage_conflict")), "undo": undo.get(str(d["id"]))})
         on = await _triage_on(conn, project)
     rows.sort(key=lambda r: r["triage"].get("at") or "", reverse=True)
     return await render(request, "triage.html", rows=rows, on=on, waiting=waiting if on else [])

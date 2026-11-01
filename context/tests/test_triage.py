@@ -90,14 +90,80 @@ def test_escalate_keeps_the_deviation_proposed_and_shows_it_in_the_queue_as_a_ru
     d = run_db(lambda c: store.get_document(c, doc_id))
     assert d["status"] == "proposed" and d["body"]["triage_history"][0]["verdict"] == "escalate"
     assert run_db(lambda c: store.list_documents(c, project, type="task")) == []  # no undo task
-    assert not d["body"].get("triage_exhausted")
+    assert not d["body"].get("triage_exhausted") and d["body"]["triage_conflict"] is True
     page = client.get(f"/ui/p/{project}/approvals").text
     assert "Dict instead of a response model" in page and "rule conflict" in page
     state = client.get(f"/api/projects/{project}/state").json()
     [item] = [w for w in state["waiting"] if w["id"] == doc_id]
-    assert item["blocks"] is False
-    # the human can still settle it
-    assert client.post(f"/api/decisions/{doc_id}/triage", json=verdict("accept")).status_code == 200
+    assert item["blocks"] is False and item["conflict"] is True and item["exhausted"] is False
+
+
+def conflict(client, doc_id, rule_conflict="0.90"):
+    body = {**verdict("escalate"), "answers": {"rule_conflict": rule_conflict, "drops_coverage": "0.10"}}
+    assert client.post(f"/api/decisions/{doc_id}/triage", json=body).status_code == 200
+
+
+def test_the_queue_item_of_a_conflict_is_non_blocking_and_names_the_flags(
+        client, project, run_db, indexer, deviation):
+    from autonome_context import web
+
+    enable(run_db, indexer, project)
+    doc_id = deviation()
+    conflict(client, doc_id)
+    second = deviation_two(run_db, indexer, project)
+    assert client.post(f"/api/decisions/{second}/triage", json=verdict("accept")).status_code == 200
+    queue = run_db(lambda c: web._queue(c, project))
+    decisions = {i["doc"]["id"]: i for i in queue if i["kind"] == "decision"}  # the accepted one is not here
+    assert set(decisions) == {doc_id} and "decision" not in web.BLOCKING
+
+    from autonome_context import server
+    detail = run_db(lambda c: server._detail(c, "decision", decisions[doc_id]["doc"]))
+    assert detail.startswith("Rule conflict:") and "rule_conflict=0.90" in detail
+
+
+def test_a_plain_decision_is_unchanged_by_the_conflict_flag(client, project, run_db, indexer, deviation):
+    from autonome_context import server
+    enable(run_db, indexer, project)
+    doc_id = deviation()
+    d = run_db(lambda c: store.get_document(c, doc_id))
+    assert run_db(lambda c: server._detail(c, "decision", d)) == (
+        f"Decision: {d['body'].get('decision', '')}\nContext: \nConsequences: ")
+
+
+def test_the_triage_state_list_leaves_out_conflicts(client, project, run_db, indexer):
+    enable(run_db, indexer, project)
+    conflicted, _ = seed(run_db, indexer, project, session="a", title="A")
+    waiting, _ = seed(run_db, indexer, project, session="b", title="B")
+    conflict(client, conflicted)
+    assert [i["decision_id"] for i in pending(client, project)] == [waiting]
+
+
+def test_the_verdicts_page_marks_a_rule_conflict(client, project, run_db, indexer, deviation):
+    enable(run_db, indexer, project)
+    conflict(client, deviation())
+    assert "rule conflict" in client.get(f"/ui/p/{project}/triage").text
+
+
+def test_insights_list_the_conflicts(client, project, run_db, indexer):
+    from autonome_context import insights
+    enable(run_db, indexer, project)
+    doc_id, _ = seed(run_db, indexer, project, title="Conflicted")
+    conflict(client, doc_id, "0.91")
+    data = run_db(lambda c: insights.build(c, project, indexer.embedder))
+    assert data["triage"]["conflicts"] == [
+        {"decision_id": doc_id, "title": "Conflicted", "feature": "links", "rule_conflict": "0.91"}]
+
+
+def test_the_human_settles_a_conflict_like_any_proposed_decision(client, project, run_db, indexer):
+    enable(run_db, indexer, project)
+    accepted, _ = seed(run_db, indexer, project, session="a", title="A")
+    rejected, _ = seed(run_db, indexer, project, session="b", title="B")
+    conflict(client, accepted)
+    conflict(client, rejected)
+    for doc_id, to in ((accepted, "accepted"), (rejected, "rejected")):
+        r = client.post(f"/ui/p/{project}/documents/{doc_id}/transition", data={"to": to}, headers=FETCH)
+        assert r.status_code == 200 and r.json()["status"] == to
+    assert status(run_db, accepted) == "accepted" and status(run_db, rejected) == "rejected"
 
 
 def test_a_decision_that_is_not_a_deviation_or_not_proposed_is_refused(client, project, run_db, indexer, deviation):

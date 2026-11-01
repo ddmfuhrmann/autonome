@@ -11,7 +11,7 @@
     <tbody>{% for r in rows %}<tr>
       <td class="wrap"><a href="/ui/p/{{ project }}/documents/{{ r.doc.id }}"><span class="mono">{{ r.doc|ref }}</span> {{ r.doc.body.title }}</a></td>
       <td>{% if r.doc.feature %}<span class="tag tag--feature">{{ r.doc.feature }}</span>{% endif %}</td>
-      <td>{{ r.triage.verdict }}{% if r.exhausted %} <span class="tag">exhausted</span>{% endif %}</td>
+      <td>{{ r.triage.verdict }}{% if r.exhausted %} <span class="tag">exhausted</span>{% endif %}{% if r.conflict %} <span class="tag">rule conflict</span>{% endif %}</td>
       <td class="mono">{{ r.triage.backend }}</td>
       <td class="mono">{% for q, a in (r.triage.answers or {}).items() %}{{ q }}: {{ a }}{{ ', ' if not loop.last }}{% endfor %}</td>
       <td class="num">{{ r.triage.round }}</td>

@@ -236,6 +236,8 @@ async def post_triage(request: Request) -> JSONResponse:
             body = {**d["body"], "triage": entry, "triage_history": d["body"].get("triage_history", []) + [entry]}
             if exhausted:
                 body["triage_exhausted"] = True
+            if v.verdict == "escalate":
+                body["triage_conflict"] = True
             await store.add_version(conn, indexer, doc_id, body)
             if exhausted:
                 return _json({"status": "proposed", "triage_exhausted": True})
@@ -315,7 +317,7 @@ async def get_triage(request: Request) -> JSONResponse:
         decisions = await store.list_documents(conn, project, type="decision", status="proposed", limit=None,
                                                oldest_first=True)
         for d in decisions:
-            if not d["body"].get("deviation") or d["body"].get("triage_exhausted"):
+            if not d["body"].get("deviation") or d["body"].get("triage_exhausted") or d["body"].get("triage_conflict"):
                 continue
             task = await _decision_task(conn, d["id"])
             round_ = await _triage_round(conn, task)
@@ -467,7 +469,8 @@ async def project_state(request: Request) -> JSONResponse:
         "waiting": [{"kind": i["kind"], "id": i["doc"]["id"], "title": i["doc"]["body"].get("title")
                      or i["doc"]["body"].get("summary", "")[:80], "blocks": i["kind"] in BLOCKING,
                      "deviation": bool(i["doc"]["body"].get("deviation")),
-                     "exhausted": bool(i["doc"]["body"].get("triage_exhausted"))} for i in queue],
+                     "exhausted": bool(i["doc"]["body"].get("triage_exhausted")),
+                     "conflict": bool(i["doc"]["body"].get("triage_conflict"))} for i in queue],
         "triage": triage,
     })
 
