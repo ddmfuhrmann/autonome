@@ -22,6 +22,17 @@ test("new waiting items say whether they block, with the blocked reason", () => 
   assert.deepEqual(changes(next, next), []);
 });
 
+test("a held plan the triage judged hold shows the flag that weighed most", () => {
+  const next: State = { ...empty, triage: true, waiting: [
+    { kind: "held", id: 677, title: "shortlink-v6", blocks: true, triage_hold: "changes_design" },
+    { kind: "held", id: 678, title: "no verdict", blocks: true, triage_hold: null },
+  ] };
+  assert.deepEqual(changes(empty, next), [
+    "needs-you #677 held, triage hold: changes_design",
+    "needs-you #678 held by rehearsal: no verdict",
+  ]);
+});
+
 test("with the triage on, only a deviation it could not settle is reported", () => {
   const next: State = { ...empty, triage: true, waiting: [
     { kind: "decision", id: 1, title: "judged soon", blocks: false, deviation: true },

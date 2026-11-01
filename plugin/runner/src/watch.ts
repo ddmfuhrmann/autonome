@@ -6,7 +6,9 @@ export interface State {
   tasks: { id: number; title: string; status: string; reason?: string }[];
   plans: { id: number; title: string; status: string }[];
   waves: { id: number; title: string; status: string }[];
-  waiting: { kind: string; id: number; title: string; blocks: boolean; deviation?: boolean; exhausted?: boolean; conflict?: boolean }[];
+  waiting: { kind: string; id: number; title: string; blocks: boolean; deviation?: boolean; exhausted?: boolean; conflict?: boolean;
+    /** A held plan the triage judged `hold`: the question that weighed most. */
+    triage_hold?: string | null }[];
   /** The triage is on: it judges deviations, so only the ones it gave up on wait for the human. */
   triage?: boolean;
 }
@@ -16,6 +18,7 @@ type Waiting = State["waiting"][number];
 /** The line for a waiting item, or null when the human has nothing to do with it. */
 function waitingLine(i: Waiting, s: State): string | null {
   const tag = i.blocks ? "needs-you" : "review";
+  if (i.kind === "held" && i.triage_hold) return `${tag} #${i.id} held, triage hold: ${i.triage_hold}`;
   if (i.kind === "decision" && i.deviation && s.triage) {
     if (i.conflict) return `review #${i.id} rule conflict: ${i.title}`;
     return i.exhausted ? `${tag} #${i.id} deviation the triage could not settle: ${i.title}` : null;

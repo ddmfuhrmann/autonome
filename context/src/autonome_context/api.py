@@ -536,6 +536,21 @@ async def get_events(request: Request) -> JSONResponse:
         return _json(await store.events(conn, task_id=int(request.path_params["doc_id"]), after=int(p.get("after", 0))))
 
 
+def _triage_hold_flag(plan: dict) -> str | None:
+    """The question that weighed most when the classifier held a plan's revision, else None."""
+    triage = (plan["body"].get("rehearsal") or {}).get("triage") or {}
+    if triage.get("verdict") != "hold":
+        return None
+
+    def score(a):
+        try:
+            return float(a[1])
+        except ValueError:
+            return -1.0
+    top = max((triage.get("answers") or {}).items(), key=score, default=None)
+    return top[0] if top else "hold"
+
+
 async def project_state(request: Request) -> JSONResponse:
     """A compact snapshot for watchers (`autonome watch`): every task and plan with its status, the
     waves, and what waits on the human, split into what blocks and what can wait."""
@@ -564,7 +579,8 @@ async def project_state(request: Request) -> JSONResponse:
                      or i["doc"]["body"].get("summary", "")[:80], "blocks": i["kind"] in BLOCKING,
                      "deviation": bool(i["doc"]["body"].get("deviation")),
                      "exhausted": bool(i["doc"]["body"].get("triage_exhausted")),
-                     "conflict": bool(i["doc"]["body"].get("triage_conflict"))} for i in queue],
+                     "conflict": bool(i["doc"]["body"].get("triage_conflict")),
+                     "triage_hold": _triage_hold_flag(i["doc"]) if i["kind"] == "held" else None} for i in queue],
         "triage": triage,
     })
 

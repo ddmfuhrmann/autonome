@@ -13,7 +13,8 @@ import { bashPrefixes, scopedFileCommands } from "./fsguard.js";
 import { encoreMessage, findingsForEncore, gatesSection, recordRound, review, settleRun, type GateOutcome } from "./review.js";
 import { soundcheck } from "./soundcheck.js";
 import { jevKey, sessionEnv } from "./secrets.js";
-import { triagePending } from "./triage-run.js";
+import { triagePending, triageRevisions } from "./triage-run.js";
+import type { askJev } from "./triage.js";
 import { advisoryLine } from "./triage.js";
 import { isUsageLimit, UsageLimitError, untilReset } from "./limits.js";
 import { tuneFinishedWaves } from "./tune.js";
@@ -42,6 +43,8 @@ export interface ConductOptions {
   log: (line: string) => void;
   /** Where the live view's events go; conduct makes one when none is given. */
   events?: EventStream;
+  /** Tests replace the agent sessions and Jev's API with fakes. */
+  seams?: { rehearse?: typeof rehearse; ask?: typeof askJev; play?: (task: Task, opts: ConductOptions) => Promise<Run | undefined> };
 }
 
 const MUSICIAN_PROMPT = `You are the implementer of one task in the autonome process. The briefing injected at
@@ -571,6 +574,34 @@ export async function recordRunnerError(
   return to;
 }
 
+/** Rehearses a claimed plan and posts the result. Returns false when the plan is held: the task goes
+ * back to pending, and when the triage accepts the revision at once the plan is approved, so the next
+ * claim plays it in the same run. A failure of the triage leaves the plan held; it never stops conduct. */
+export async function rehearsePlan(plan: Plan, task: Task, opts: ConductOptions, seams: {
+  rehearse?: typeof rehearse; ask?: typeof askJev;
+} = {}): Promise<boolean> {
+  opts.log(`plan #${plan.id} ${plan.body.title}: rehearsing against main`);
+  const r = await (seams.rehearse ?? rehearse)(plan, opts);
+  const { plan_status } = await context.rehearsal(plan.id, r);
+  if (plan_status !== "held") {
+    opts.log(`  ready`);
+    return true;
+  }
+  await context.transition(task.id, "pending");
+  try {
+    const accepted = await triageRevisions(opts.project, (await context.gateConfig(opts.project)).config,
+      { ...opts, ask: seams.ask });
+    if (accepted.includes(plan.id)) {
+      opts.log(`  the revision was accepted by the triage; the plan plays`);
+      return false;
+    }
+  } catch (e) {
+    opts.log(`triage: left for you: ${String(e)}`);
+  }
+  opts.log(`  the plan needs revising; held for your approval`);
+  return false;
+}
+
 export async function conduct(opts: ConductOptions): Promise<number> {
   if (!(await waitForContext(Number(process.env.AUTONOME_CONTEXT_WAIT_S ?? 30)))) {
     throw new Error("autonome-context is unreachable; the conductor does not play without it");
@@ -589,7 +620,9 @@ export async function conduct(opts: ConductOptions): Promise<number> {
   const tally: Played[] = [];
   opts.events ??= new EventStream(opts.project);
   try {
-    await triagePending(opts.project, (await context.gateConfig(opts.project)).config, opts);
+    const cfg = (await context.gateConfig(opts.project)).config;
+    await triagePending(opts.project, cfg, opts);
+    await triageRevisions(opts.project, cfg, opts);
   } catch (e) {
     opts.log(`triage: skipped at start: ${String(e)}`); // never the task's fault; the next run retries
   }
@@ -618,18 +651,8 @@ export async function conduct(opts: ConductOptions): Promise<number> {
         continue;
       }
       try {
-        if (plan) {
-          opts.log(`plan #${plan.id} ${plan.body.title}: rehearsing against main`);
-          const r = await rehearse(plan, opts);
-          const { plan_status } = await context.rehearsal(plan.id, r);
-          if (plan_status === "held") {
-            opts.log(`  the plan needs revising; held for your approval`);
-            await context.transition(task.id, "pending");
-            continue;
-          }
-          opts.log(`  ready`);
-        }
-        const run = await conductTask(task, opts);
+        if (plan && !(await rehearsePlan(plan, task, opts, opts.seams))) continue;
+        const run = await (opts.seams?.play ?? conductTask)(task, opts);
         if (run) tally.push({ id: task.id, title: task.body.title, outcome: run.outcome, reason: run.reason,
           review_rounds: run.review_rounds ?? 0, duration_s: run.duration_s ?? 0, tokens: run.tokens ?? 0 });
       } catch (e) {

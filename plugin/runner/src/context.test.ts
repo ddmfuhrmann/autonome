@@ -125,6 +125,67 @@ test("the monthly spend limit hands the task back to pending without an error ru
   assert.deepEqual(transitions, [{ to: "pending" }]); // no error run, so the streak does not grow toward blocked
 });
 
+test("the loop: rehearsal holds the plan, Jev accepts, and the revised task is claimed and played in the same run", async () => {
+  const repo = realpathSync(mkdtempSync(join(tmpdir(), "autonome-rev-")));
+  git(repo, "init", "-q", "-b", "main");
+  git(repo, "config", "user.email", "t@t");
+  git(repo, "config", "user.name", "t");
+  writeFileSync(join(repo, "a.txt"), "a\n");
+  git(repo, "add", ".");
+  git(repo, "commit", "-qm", "init");
+  const mk = (id: number) => ({ id, project: "p", status: "playing", feature: "links", layers: [],
+    body: { title: `T${id}`, spec: "s", acceptance: [], plan_id: 677, seq: 1, fermata: false } });
+  const plan = { id: 677, body: { title: "shortlink-v6" } };
+  const claims = [{ task: mk(4), rehearse: plan }, { task: mk(5), rehearse: null }]; // 5 stands for the revised task
+  const events: string[] = [];
+  let held = false;
+  process.env.TYPESAFE_API_KEY = "k";
+  globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith("/health")) return json({ status: "ok" });
+    if (url.endsWith("/api/tags")) return json({ models: [{ name: "nomic-embed-text:latest" }] });
+    if (url.endsWith("/tasks/claim")) {
+      // The doctor has passed; keep the closing autonome-docs child off a real context on the default port.
+      process.env.AUTONOME_CONTEXT_URL = "http://127.0.0.1:9";
+      process.env.AUTONOME_CONTEXT_WAIT_S = "0";
+      const next = claims.shift();
+      events.push(`claim ${next?.task.id ?? "none"}`);
+      return json({ task: next?.task ?? null, rehearse: next?.rehearse ?? null, soundcheck: null });
+    }
+    if (url.endsWith("/gate-config")) {
+      return json({ config: { gates: [{ name: "t", run: "true" }],
+        triage: { model: "jev-latest", fallback: "off", reject_at: 0.7, max_rounds: 2 } } });
+    }
+    if (url.endsWith("/api/plans/677/rehearsal")) { held = true; return json({ plan_status: "held" }); }
+    if (url.endsWith("/triage")) {
+      return json({ deviations: [], screen: [], revisions: held
+        ? [{ plan_id: 677, state: { original: [], revised: [] }, shape_changed: false }] : [] });
+    }
+    if (url.endsWith("/api/plans/677/rehearsal-triage")) {
+      held = false;
+      events.push(`post ${JSON.parse(String(init?.body)).verdict}`);
+      return json({ status: "approved" });
+    }
+    if (url.includes("/transition")) { events.push(`${url.match(/tasks\/(\d+)/)![1]} -> ${JSON.parse(String(init?.body)).to}`); return json({ ok: true }); }
+    if (url.endsWith("/waves/untuned")) return json([]);
+    return json({});
+  };
+  const url = process.env.AUTONOME_CONTEXT_URL;
+  try {
+    const played = await conduct({ project: "p", repo, maxTasks: 5, push: false, log: () => {}, seams: {
+      rehearse: async () => ({ verdict: "revise" }) as never,
+      ask: async () => ({ drops_acceptance: 0, adds_out_of_scope: 0, changes_design: 0.13 }),
+      play: async (t) => { events.push(`play ${t.id}`); return { at: "", branch: "", worktree: "", base: "", outcome: "merged" }; },
+    } });
+    assert.equal(played, 1);
+  } finally {
+    if (url === undefined) delete process.env.AUTONOME_CONTEXT_URL; else process.env.AUTONOME_CONTEXT_URL = url;
+    delete process.env.AUTONOME_CONTEXT_WAIT_S;
+    delete process.env.TYPESAFE_API_KEY;
+  }
+  assert.deepEqual(events, ["claim 4", "4 -> pending", "post accept", "claim 5", "play 5", "claim none"]);
+});
+
 test("the language rule names the configured language and is empty without one", () => {
   const cfg = { language: "pt-BR" } as GateConfig["config"];
   assert.match(languageRule(cfg), /in pt-BR\. Keep code, identifiers/);
