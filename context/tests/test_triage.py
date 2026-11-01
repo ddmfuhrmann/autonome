@@ -99,6 +99,56 @@ def test_a_decision_that_is_not_a_deviation_or_not_proposed_is_refused(client, p
     assert status(run_db, other_id) == "accepted"
 
 
+def test_with_triage_on_the_queue_has_no_decisions_and_off_it_has(client, project, run_db, indexer, deviation):
+    deviation()
+    off = client.get(f"/ui/p/{project}/approvals").text
+    assert "Dict instead of a response model" in off
+    enable(run_db, indexer, project)
+    assert "Dict instead of a response model" not in client.get(f"/ui/p/{project}/approvals").text
+    enable(run_db, indexer, project, "triage: {model: off}\n")
+    assert "Dict instead of a response model" in client.get(f"/ui/p/{project}/approvals").text
+
+
+def test_with_triage_on_a_decision_that_is_not_a_deviation_stays_in_the_queue(client, project, run_db, indexer, deviation):
+    enable(run_db, indexer, project)
+    deviation()
+
+    async def propose(conn):  # as the decision_propose MCP tool does: no deviation flag
+        await store.create_document(conn, indexer, project=project, type="decision", status="proposed",
+                                    feature="links", layers=[], body={"title": "Use ULIDs", "decision": "ULIDs"})
+        await conn.commit()
+    run_db(propose)
+    page = client.get(f"/ui/p/{project}/approvals").text
+    assert "Use ULIDs" in page and "Dict instead of a response model" not in page
+
+
+def test_the_verdicts_page_lists_a_judged_deviation_with_its_answers(client, project, run_db, indexer, deviation):
+    enable(run_db, indexer, project)
+    doc_id = deviation()
+    assert "No deviation judged yet" in client.get(f"/ui/p/{project}/triage").text
+    assert client.post(f"/api/decisions/{doc_id}/triage", json=verdict("reject")).status_code == 200
+    [undo] = run_db(lambda c: store.list_documents(c, project, type="task"))
+    page = client.get(f"/ui/p/{project}/triage").text
+    assert "Dict instead of a response model" in page and "changes_behaviour: no" in page
+    assert "reject" in page and "haiku" in page and f"/documents/{undo['id']}" in page
+    assert "exhausted" not in page
+
+
+def test_an_unjudged_deviation_is_off_the_queue_but_shown_on_the_verdicts_page(client, project, run_db, indexer, deviation):
+    enable(run_db, indexer, project)
+    deviation()
+    assert "Dict instead of a response model" not in client.get(f"/ui/p/{project}/approvals").text
+    page = client.get(f"/ui/p/{project}/triage").text
+    assert "Not judged yet" in page and "Dict instead of a response model" in page
+
+
+def test_the_verdicts_page_marks_an_exhausted_deviation(client, project, run_db, indexer, deviation):
+    enable(run_db, indexer, project)
+    doc_id = deviation()
+    client.post(f"/api/decisions/{doc_id}/triage", json=verdict("reject", round=2))
+    assert "exhausted" in client.get(f"/ui/p/{project}/triage").text
+
+
 def test_reject_at_the_last_round_keeps_it_proposed_and_marks_it_exhausted(client, project, run_db, indexer, deviation):
     enable(run_db, indexer, project)
     doc_id = deviation()

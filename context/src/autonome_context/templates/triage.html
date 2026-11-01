@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% import "_ui.html" as ui %}
+{% block title %}Verdicts{% endblock %}
+{% block main %}
+<div class="page-head">
+  <div class="page-head__text"><h1>Verdicts</h1><p class="page-head__meta">Deviations judged by the classifier, newest first.{% if not on %} Triage is off for this project: deviations wait in Approvals.{% endif %}</p></div>
+</div>
+<section class="card">
+  <div class="card__body card__body--flush" style="overflow-x: auto">
+    <table class="table"><thead><tr><th>Decision</th><th>Feature</th><th>Verdict</th><th>Backend</th><th>Answers</th><th class="num">Round</th><th>Undo</th></tr></thead>
+    <tbody>{% for r in rows %}<tr>
+      <td class="wrap"><a href="/ui/p/{{ project }}/documents/{{ r.doc.id }}"><span class="mono">{{ r.doc|ref }}</span> {{ r.doc.body.title }}</a></td>
+      <td>{% if r.doc.feature %}<span class="tag tag--feature">{{ r.doc.feature }}</span>{% endif %}</td>
+      <td>{{ r.triage.verdict }}{% if r.exhausted %} <span class="tag">exhausted</span>{% endif %}</td>
+      <td class="mono">{{ r.triage.backend }}</td>
+      <td class="mono">{% for q, a in (r.triage.answers or {}).items() %}{{ q }}: {{ a }}{{ ', ' if not loop.last }}{% endfor %}</td>
+      <td class="num">{{ r.triage.round }}</td>
+      <td>{% if r.undo %}<a class="mono" href="/ui/p/{{ project }}/documents/{{ r.undo.id }}">{{ r.undo|ref }}</a>{% endif %}</td>
+    </tr>{% else %}<tr><td colspan="7" class="empty">No deviation judged yet.</td></tr>{% endfor %}</tbody></table>
+  </div>
+</section>
+{% if waiting %}
+<section class="card">
+  <div class="card__head"><h2 class="card__title">Not judged yet</h2><span class="push muted" style="font-size: 12px">the runner judges them on its next run; open one to decide by hand</span></div>
+  <div class="card__body card__body--flush">
+    <table class="table"><tbody>{% for d in waiting %}<tr>
+      <td class="wrap"><a href="/ui/p/{{ project }}/documents/{{ d.id }}"><span class="mono">{{ d|ref }}</span> {{ d.body.title }}</a></td>
+      <td>{% if d.feature %}<span class="tag tag--feature">{{ d.feature }}</span>{% endif %}</td>
+    </tr>{% endfor %}</tbody></table>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

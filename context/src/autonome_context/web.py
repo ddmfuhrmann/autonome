@@ -181,9 +181,16 @@ async def _queue(conn, project: str) -> list[dict]:
     items += [{"kind": "plans", "doc": d} for d in await docs("plan", "draft") if not await plans.wave_of(conn, d)]
     items += [{"kind": "playback", "doc": t} for t in await docs("task", "done")
               if (t["body"].get("playback_review") or {}).get("status") == "pending"]
-    items += [{"kind": "decision", "doc": d} for d in await docs("decision", "proposed")]
+    triage = await _triage_on(conn, project)  # with triage on, the classifier judges deviations only
+    items += [{"kind": "decision", "doc": d} for d in await docs("decision", "proposed")
+              if not (triage and d["body"].get("deviation"))]
     items += [{"kind": "convention", "doc": d} for d in await docs("convention", "proposed")]
     return items
+
+
+async def _triage_on(conn, project: str) -> bool:
+    cfg = await _gate_config(conn, project)
+    return bool(cfg and cfg.triage and cfg.triage.model != "off")
 
 
 async def _side(conn, project: str) -> dict:
@@ -835,6 +842,30 @@ async def feature_page(request: Request) -> Response:
     return await render(request, "feature.html", feature=feature, doc=doc, timeline=timeline)
 
 
+async def triage_page(request: Request) -> Response:
+    """Deviations the runner's classifier judged, newest first, with the answers behind each verdict."""
+    project = request.path_params["project"]
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        undo = {}
+        for t in await store.list_documents(conn, project, type="task", limit=None):
+            src = str(t["body"].get("source", ""))
+            if src.startswith("decision:"):
+                undo.setdefault(src.split(":", 1)[1], t)
+        rows = []
+        waiting = []  # proposed deviations the classifier has not judged (no key, backend down, runner crash)
+        for d in await store.list_documents(conn, project, type="decision", limit=None):
+            if not d["body"].get("triage_history"):
+                if d["status"] == "proposed" and d["body"].get("deviation"):
+                    waiting.append(d)
+            else:
+                rows.append({"doc": d, "triage": d["body"]["triage_history"][-1],
+                             "exhausted": bool(d["body"].get("triage_exhausted")), "undo": undo.get(str(d["id"]))})
+        on = await _triage_on(conn, project)
+    rows.sort(key=lambda r: r["triage"].get("at") or "", reverse=True)
+    return await render(request, "triage.html", rows=rows, on=on, waiting=waiting if on else [])
+
+
 async def insights_page(request: Request) -> Response:
     pool, indexer = await services.get()
     async with pool.connection() as conn:
@@ -866,6 +897,7 @@ def routes() -> list:
         Route("/ui/p/{project}/waves", waves_page),
         Route("/ui/p/{project}/features", features_page),
         Route("/ui/p/{project}/insights", insights_page),
+        Route("/ui/p/{project}/triage", triage_page),
         Route("/ui/p/{project}/features/{feature}", feature_page),
         Route("/ui/p/{project}/documents/{doc_id:int}/transition", transition, methods=["POST"]),
         Route("/ui/p/{project}/documents/{doc_id:int}/playback", playback, methods=["POST"]),
