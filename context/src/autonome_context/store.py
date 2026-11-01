@@ -214,6 +214,8 @@ _BROWSE_FROM = """
     join lateral (select v.body from document_version v where v.document_id = d.id
                   order by v.version desc limit 1) dv on true
 """
+PREFLIGHT_KEY = "rehearsal"  # where a plan's body keeps its preflight; renamed with the plan body, not here
+
 _REF = re.compile(r"^\s*(?:[A-Za-z]-|#)?(\d+)\s*$")
 
 
@@ -679,7 +681,7 @@ async def review_flags(conn: AsyncConnection, project: str, feature: str | None)
         return False, False
     cfg = GateConfig.from_yaml(doc["body"]["yaml"])
     match = lambda patterns: any(fnmatch.fnmatch(feature, p) for p in patterns)
-    return match(cfg.fermata.features), match(cfg.playback.features)
+    return match(cfg.hold_before_merge.features), match(cfg.review_after_merge.features)
 
 
 async def pending_gates(conn: AsyncConnection, project: str) -> list[dict]:
@@ -712,7 +714,7 @@ async def finish_plan_if_complete(conn: AsyncConnection, plan_id: int) -> bool:
 async def awaits_soundcheck(conn: AsyncConnection, plan: dict) -> bool:
     """With a soundcheck configured, a plan is done only once its feature passed one."""
     doc = await latest_of_type(conn, plan["project"], "gate_config")
-    if not doc or GateConfig.from_yaml(doc["body"]["yaml"]).soundcheck is None:
+    if not doc or GateConfig.from_yaml(doc["body"]["yaml"]).smoke_test is None:
         return False
     runs = plan["body"].get("soundchecks", [])
     return not (runs and runs[-1].get("passed"))

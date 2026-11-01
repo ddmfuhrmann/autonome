@@ -182,7 +182,7 @@ def test_a_choice_within_the_plan_is_in_effect_and_a_rejected_deviation_queues_i
 def test_playback_merges_then_waits_to_be_heard_and_a_fix_is_a_new_task(client, project, run_db, indexer):
     async def go(conn):
         async with conn.transaction():
-            await store.save_singleton(conn, indexer, project, "gate_config", {"yaml": "playback: {features: [wallet*]}\n"})
+            await store.save_singleton(conn, indexer, project, "gate_config", {"yaml": "review_after_merge: {features: [wallet*]}\n"})
         plan_id = await plans.draft(conn, indexer, project, "wallet", ["domain"], PlanBody(
             title="Wallet", goal="g", tasks=[TaskSpec(title="Debit", spec="debit"), TaskSpec(title="Credit", spec="credit")]))
         first, second = await plans.approve(conn, indexer, plan_id)

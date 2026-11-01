@@ -111,7 +111,7 @@
       </div>
       {% if not loop.last %}<hr>{% endif %}
       {% else %}
-      <p class="empty">{% if cfg and cfg.soundcheck %}Runs after every task of this plan is on <span class="mono">main</span>{% if tasks %}. {{ progress.total - progress.done }} to go{% endif %}.{% else %}No soundcheck in the gate config.{% endif %}</p>
+      <p class="empty">{% if cfg and cfg.smoke_test %}Runs after every task of this plan is on <span class="mono">main</span>{% if tasks %}. {{ progress.total - progress.done }} to go{% endif %}.{% else %}No soundcheck in the gate config.{% endif %}</p>
       {% endfor %}
     </div>
   </section>
@@ -135,7 +135,7 @@
         {% for g in (cfg.gates if cfg else []) %}<li><span class="tag tag--gate">{{ g.name }}</span><span class="cmd">{{ g.run }}</span></li>{% endfor %}
         {% for g in b.gates or [] if not cfg or g.name not in cfg.gates|map(attribute='name')|list %}<li><span class="tag tag--gate">{{ g.name }}</span><span class="tag tag--feature">proposed by plan</span><span class="cmd">{{ g.run }}</span></li>{% endfor %}
       </ul>
-      {% if cfg and cfg.fermata.features %}<p class="muted" style="font-size: 12px">Fermata features: {% for f in cfg.fermata.features %}<span class="mono">{{ f }}</span>{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
+      {% if cfg and cfg.hold_before_merge.features %}<p class="muted" style="font-size: 12px">Fermata features: {% for f in cfg.hold_before_merge.features %}<span class="mono">{{ f }}</span>{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
     </div>
   </div>
   {% if b.conventions %}

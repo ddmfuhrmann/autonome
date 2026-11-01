@@ -152,7 +152,7 @@ async def apply_gates(conn: AsyncConnection, indexer: store.Indexer | None, proj
     doc = await store.latest_of_type(conn, project, "gate_config")
     cfg = (yaml.safe_load(doc["body"]["yaml"]) if doc else None) or {}
     names = {g.get("name") for g in cfg.get("gates", [])}
-    new = [Gate.model_validate(g).model_dump(mode="json", exclude_defaults=True)
+    new = [Gate.model_validate({k: v for k, v in g.items() if k != "with_task"}).model_dump(mode="json", exclude_defaults=True)
            for g in gates if g["name"] not in names]
     if not new:
         return
@@ -387,7 +387,7 @@ async def record_soundcheck(conn: AsyncConnection, indexer: store.Indexer, plan_
             await finish_wave_if_complete(conn, plan_id)
             return "done"
         doc = await store.latest_of_type(conn, plan["project"], "gate_config")
-        max_fixes = GateConfig.from_yaml(doc["body"]["yaml"]).soundcheck.max_fixes if doc else 0
+        max_fixes = GateConfig.from_yaml(doc["body"]["yaml"]).smoke_test.max_fixes if doc else 0
         if not r.fixes or len(_rounds(plan)) > max_fixes:
             await rules.transition(conn, plan_id, "blocked", "runner")
             return "blocked"
