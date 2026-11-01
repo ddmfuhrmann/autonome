@@ -1,8 +1,9 @@
 """HTTP API for hooks and the runner (the plugin's scripts are stdlib-only, so no MCP client)."""
 
 import json
+from typing import Annotated, Literal
 
-from pydantic import ValidationError
+from pydantic import BaseModel, Field, StringConstraints, ValidationError
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
@@ -198,6 +199,53 @@ async def post_soundcheck(request: Request) -> JSONResponse:
     return _json({"outcome": outcome})
 
 
+class TriageVerdict(BaseModel):
+    backend: str
+    model: str
+    state: str
+    # {question name: noul}; the values are the classifier's short answers, never free text
+    answers: dict[Annotated[str, StringConstraints(min_length=1, max_length=80)],
+                  Annotated[str, StringConstraints(min_length=1, max_length=32, pattern=r"^[A-Za-z0-9_.-]+$")]]
+    verdict: Literal["accept", "reject"]
+    round: int = Field(ge=1)
+
+
+async def post_triage(request: Request) -> JSONResponse:
+    """The runner's classifier judged a deviation: keep the verdict and move the decision with it."""
+    try:
+        v = TriageVerdict.model_validate(await request.json())
+    except ValueError as e:  # malformed JSON, or a ValidationError (also a ValueError)
+        detail = e.errors(include_context=False, include_input=False) if isinstance(e, ValidationError) else str(e)
+        return _json({"error": "invalid_triage", "detail": detail}, 422)
+    doc_id = int(request.path_params["doc_id"])
+    pool, indexer = await services.get()
+    async with pool.connection() as conn:
+        async with conn.transaction():
+            # Concurrent verdicts on one decision wait here; the second sees the new status and is refused.
+            await conn.execute("select 1 from document where id = %s for update", (doc_id,))
+            d = await store.get_document(conn, doc_id)
+            if not d or d["type"] != "decision":
+                return _json({"error": "not a decision"}, 404)
+            cfg = (await gate_config_body(conn, d["project"]))["config"]
+            if not cfg.get("triage") or cfg["triage"]["model"] == "off":
+                return _json({"error": "triage is off for this project"}, 403)
+            if d["status"] != "proposed" or not d["body"].get("deviation"):
+                return _json({"error": "only a proposed deviation is triaged"}, 403)
+            exhausted = v.verdict == "reject" and v.round >= cfg["triage"]["max_rounds"]
+            entry = {**v.model_dump(), "at": plans._now()}
+            body = {**d["body"], "triage": entry, "triage_history": d["body"].get("triage_history", []) + [entry]}
+            if exhausted:
+                body["triage_exhausted"] = True
+            await store.add_version(conn, indexer, doc_id, body)
+            if exhausted:
+                return _json({"status": "proposed", "triage_exhausted": True})
+            if v.verdict == "reject":
+                await plans.reject_decision(conn, indexer, doc_id, "runner")
+            else:
+                await rules.transition(conn, doc_id, "accepted", "runner")
+    return _json({"status": "rejected" if v.verdict == "reject" else "accepted"})
+
+
 async def untuned_waves(request: Request) -> JSONResponse:
     """Finished waves the tune loop has not looked at yet."""
     pool, _ = await services.get()
@@ -275,6 +323,7 @@ def routes() -> list:
         Route("/api/plans/{doc_id:int}/rehearsal", post_rehearsal, methods=["POST"]),
         Route("/api/plans/{doc_id:int}/soundcheck", post_soundcheck, methods=["POST"]),
         Route("/api/projects/{project}/waves/untuned", untuned_waves),
+        Route("/api/decisions/{doc_id:int}/triage", post_triage, methods=["POST"]),
         Route("/api/waves/{doc_id:int}/tuned", wave_tuned, methods=["POST"]),
         Route("/api/projects/{project}/briefing", get_briefing),
         Route("/api/projects/{project}/gate-config", get_gate_config),

@@ -40,8 +40,8 @@ TRANSITIONS: dict[tuple[str, str, str], set[str]] = {
     ("task", "pending", "abandoned"): {"human"},
     ("convention", "proposed", "active"): {"human"},  # suggested by the tune loop
     ("convention", "proposed", "rejected"): {"human"},
-    ("decision", "proposed", "accepted"): {"human"},
-    ("decision", "proposed", "rejected"): {"human"},
+    ("decision", "proposed", "accepted"): {"human", "runner"},  # the runner only with a triage verdict
+    ("decision", "proposed", "rejected"): {"human", "runner"},
     ("decision", "accepted", "superseded"): {"human"},
 }
 

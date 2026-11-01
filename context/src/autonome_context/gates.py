@@ -71,6 +71,21 @@ class Review(BaseModel):
     max_rounds: int = Field(default=2, description="times the implementer is sent back with blocking findings")
 
 
+class Triage(BaseModel):
+    """A classifier judges deviation decisions instead of the human. The Jev key lives in the runner's
+    environment (or ~/.autonome/secrets.env), never here."""
+
+    model: Literal["jev-latest", "haiku", "off"] = "jev-latest"
+    fallback: Literal["haiku", "off"] = "haiku"
+    reject_at: float = Field(default=0.7, gt=0, le=1, description="share of noul answers at which a deviation is rejected")
+    max_rounds: int = Field(default=2, ge=1, description="reviewer rounds before a rejected deviation stays proposed")
+
+    @field_validator("model", "fallback", mode="before")
+    @classmethod
+    def _yaml_off(cls, v):
+        return "off" if v is False else v  # YAML 1.1 reads a bare `off` as false
+
+
 Effort = Literal["low", "medium", "high", "xhigh", "max"]
 
 
@@ -110,6 +125,7 @@ class GateConfig(BaseModel):
         default="", description="language of what agents write for people (plans, handoffs, findings, docs), e.g. "
                                 "pt-BR; empty: English. Code, identifiers and commits follow the project")
     soundcheck: Soundcheck | None = None
+    triage: Triage | None = None
     models: dict[str, RoleModel] = Field(
         default_factory=lambda: dict(DEFAULT_MODELS),
         description="model and effort per role; roles left out keep their default")
@@ -144,6 +160,11 @@ cues: []
 review: {enabled: true, max_rounds: 2}
 # language: pt-BR           # what agents write for people; code and commits follow the project
 # models: {musician: {model: sonnet, effort: medium}}   # per role; see DEFAULT_MODELS for the rest
+# triage:                    # a classifier judges deviation decisions (the Jev key stays in the runner's environment)
+#   model: jev-latest        # jev-latest | haiku | off
+#   fallback: haiku          # haiku | off
+#   reject_at: 0.7
+#   max_rounds: 2
 # soundcheck:                # try each finished feature in a running environment (fakes, never real services)
 #   up: docker compose -f infra/compose.yml up -d --wait
 #   down: docker compose -f infra/compose.yml down

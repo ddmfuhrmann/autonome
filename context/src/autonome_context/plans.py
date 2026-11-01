@@ -454,11 +454,12 @@ def wave_summary(wave: dict, wave_plans: list[dict]) -> str:
     return "\n".join(lines)
 
 
-async def reject_decision(conn: AsyncConnection, indexer: store.Indexer, decision_id: int) -> dict:
-    """Human-only. A rejected deviation is undone, not just remembered: a task to change it goes into
-    the project's maintenance plan."""
+async def reject_decision(conn: AsyncConnection, indexer: store.Indexer, decision_id: int,
+                          actor: rules.Actor = "human") -> dict:
+    """The human, or the runner with a triage verdict. A rejected deviation is undone, not just
+    remembered: a task to change it goes into the project's maintenance plan."""
     async with conn.transaction():
-        d = await rules.transition(conn, decision_id, "rejected", "human")
+        d = await rules.transition(conn, decision_id, "rejected", actor)
         handoffs = [l["id"] for l in await store.links_of(conn, decision_id) if l["kind"] == "records"]
         b = d["body"]
         spec = (f"The human rejected this choice, made in an earlier session: {b.get('title')}.\n\n"

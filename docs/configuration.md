@@ -114,6 +114,14 @@ soundcheck:
   listener: true      # an agent exercises the plan's acceptance criteria on the running app
   max_fixes: 2        # fix rounds before the plan is blocked for the human
 
+# Optional: a classifier judges deviation decisions instead of the human (run by the runner).
+# The Jev key is never stored here: it lives in the runner's environment or ~/.autonome/secrets.env.
+triage:
+  model: jev-latest   # jev-latest | haiku | off
+  fallback: haiku     # haiku | off
+  reject_at: 0.7      # score at which a deviation is rejected (0 < x <= 1)
+  max_rounds: 2       # at the last round a rejection leaves the decision proposed, marked exhausted
+
 # Optional: scheduled checks that queue maintenance tasks (run `autonome cues` from cron).
 cues:
   - {name: deps, kind: command, every_hours: 24, run: ./scripts/outdated.sh, task: Update dependencies}
