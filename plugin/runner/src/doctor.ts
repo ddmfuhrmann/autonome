@@ -1,6 +1,7 @@
 // autonome doctor: what the runner needs, checked before it runs instead of found out mid-wave.
 import { spawnSync } from "node:child_process";
-import { CONTEXT_URL, call, type GateConfig } from "./context.js";
+import { query } from "@anthropic-ai/claude-agent-sdk";
+import { CONTEXT_URL, call, roleModel, type GateConfig } from "./context.js";
 import { git, mainCheckout } from "./git.js";
 import { findJevKey, secretsFile, sessionEnv } from "./secrets.js";
 import { pingJev } from "./triage.js";
@@ -24,7 +25,44 @@ async function reach(url: string): Promise<Response | null> {
   }
 }
 
-export async function doctor(project: string, repo: string): Promise<Check[]> {
+/** The slice of the SDK's query the doctor uses; tests inject a fake. */
+export interface ModelsQuery {
+  supportedModels(): Promise<{ value: string; supportsAutoMode?: boolean }[]>;
+  close(): void;
+}
+export type ModelsQueryFactory = (options: { model: string }) => ModelsQuery;
+
+/** A streaming-input query that never gets a prompt: only asks the SDK which models it knows, then closes. */
+export function modelsQueryVia(sdkQuery: typeof query): ModelsQueryFactory {
+  return (options) => sdkQuery({
+    prompt: (async function* () { await new Promise<never>(() => {}); })(),
+    options,
+  }) as unknown as ModelsQuery;
+}
+const sdkModelsQuery = modelsQueryVia(query);
+
+async function autoModeCheck(cfg: GateConfig["config"], seam: ModelsQueryFactory): Promise<{ ok: boolean; detail: string }> {
+  const role = roleModel(cfg, "implementer");
+  const wanted = [role.model, ...(role.fallback ? [role.fallback] : [])];
+  let q: ModelsQuery | undefined;
+  try {
+    q = seam({ model: role.model });
+    const known = await q.supportedModels();
+    const unsupported = wanted.filter((m) => !known.find((k) => k.value === m)?.supportsAutoMode);
+    if (unsupported.length === 0) {
+      return { ok: true, detail: `${wanted.join(" and ")} ${wanted.length > 1 ? "support" : "supports"} auto mode` };
+    }
+    return { ok: false, detail: `${unsupported.join(" and ")} ${unsupported.length > 1 ? "do" : "does"} not support auto mode ` +
+      "→ change the implementer's model (or its fallback) in the gate config, or set permissions back to allowlist" };
+  } catch (e) {
+    return { ok: false, detail: `could not ask the SDK which models support auto mode (${e instanceof Error ? e.message : String(e)})` +
+      " → fix the SDK or set permissions back to allowlist" };
+  } finally {
+    try { q?.close(); } catch { /* closing is best effort */ }
+  }
+}
+
+export async function doctor(project: string, repo: string, seams: { query?: ModelsQueryFactory } = {}): Promise<Check[]> {
   const checks: Check[] = [];
   const add = (name: string, ok: boolean, detail: string) => checks.push({ name, ok, detail });
 
@@ -83,6 +121,11 @@ export async function doctor(project: string, repo: string): Promise<Check[]> {
         (found.warning ? ` (${found.warning})` : "") + `; ${fallback}`);
       checks[checks.length - 1].warn = true;
     }
+  }
+
+  if (got?.config.permissions === "auto") {
+    const auto = await autoModeCheck(got.config, seams.query ?? sdkModelsQuery);
+    add("permissions", auto.ok, `permissions auto: ${auto.detail}`);
   }
 
   const main = mainCheckout(repo);
