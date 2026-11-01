@@ -135,13 +135,17 @@ export async function triageDeviationsCase(backend: Backend, rejectAt = 0.7,
 }
 
 /** One row per backend: `jev-latest` needs a key (skipped with a note without one), `haiku` runs the fallback. */
-async function triageCase(who: RoleModel): Promise<Omit<Score, "role" | "case" | "who" | "seconds">> {
+export async function triageCase(who: RoleModel, ask: typeof consult = consult): Promise<Omit<Score, "role" | "case" | "who" | "seconds">> {
   if (who.model === "jev-latest") {
     const key = jevKey();
     if (!key) return { score: 0, cost: 0, note: "skipped: no Jev key (TYPESAFE_API_KEY or ~/.autonome/secrets.env)" };
     return triageDeviationsCase((state) => jev(state, key));
   }
-  if (who.model === "haiku") return triageDeviationsCase((state) => haiku(state, undefined, who.effort));
+  if (who.model === "haiku") {
+    let cost = 0;
+    const r = await triageDeviationsCase((state) => haiku(state, ask, who.effort,(c) => { cost += c; }));
+    return { ...r, cost };
+  }
   return { score: 0, cost: 0, note: "skipped: triage runs on jev-latest or haiku" };
 }
 

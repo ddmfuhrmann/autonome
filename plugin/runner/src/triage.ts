@@ -164,8 +164,8 @@ const HAIKU_SCHEMA = {
 
 /** `ask` is the Agent SDK session; tests inject a fake. */
 export async function haiku(state: Record<string, unknown>, ask: typeof consult = consult,
-  effort: Effort = "low"): Promise<Answers> {
-  const { answer } = await ask<{ answers?: unknown }>({
+  effort: Effort = "low", onCost?: (cost: number) => void): Promise<Answers> {
+  const { answer, cost } = await ask<{ answers?: unknown }>({
     cwd: process.cwd(),
     model: "haiku",
     effort,
@@ -177,6 +177,7 @@ export async function haiku(state: Record<string, unknown>, ask: typeof consult 
       "Statements:", ...NAMES.map((n) => `- ${n}: ${QUESTIONS[n]}`),
     ].join("\n"),
   });
+  onCost?.(cost);
   return validated(answer?.answers, "haiku");
 }
 
