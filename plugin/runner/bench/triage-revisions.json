@@ -1,0 +1,459 @@
+[
+  {
+    "id": "shortlink-v5-P532",
+    "expected": "accept",
+    "state": {
+      "plan": {
+        "goal": "Count every successful redirect and let a client read a link's totals at GET /links/{code}/stats (code, url, clicks, created_at, last_clicked_at), without the links feature ever importing stats.",
+        "out_of_scope": [
+          "auth, custom aliases, expiration, edit/delete, rate limiting",
+          "per-click history (no row per click, no referrer, user agent or IP)",
+          "counting anything but a 302 from GET /{code}: 404s, stats reads and POSTs are not clicks",
+          "deduplicating clicks from the same client or filtering bots",
+          "changing the Link entity or the links table"
+        ],
+        "design": [
+          {
+            "why": "Follows the one-way links/stats dependency chosen for the wave; the SQL-level FK is the only link.",
+            "topic": "where click data lives",
+            "chosen": "own clicks table keyed by code, FK to links",
+            "options": [
+              { "name": "own clicks table keyed by code, FK to links", "tradeoffs": "stats owns its schema; one UPSERT per redirect" },
+              { "name": "columns on the links table, as v4", "tradeoffs": "one row read; but links persistence changes for stats and the feature boundary blurs" }
+            ]
+          },
+          {
+            "why": "The port exists for this; links stays untouched.",
+            "topic": "how the redirect counts",
+            "chosen": "SqliteClickStore implements ClickRecorder, wired in main",
+            "options": [
+              { "name": "SqliteClickStore implements ClickRecorder, wired in main", "tradeoffs": "no change to links code; the store satisfies the Protocol structurally" },
+              { "name": "the stats router wraps GET /{code}", "tradeoffs": "would need api.stats to own the redirect, duplicating links' route" }
+            ]
+          }
+        ]
+      },
+      "original": [
+        {
+          "position": 3,
+          "title": "API: GET /links/{code}/stats and redirect counting",
+          "spec": "Expose stats and wire click counting into the redirect.\n\n**Where**\n- `src/shortlink/api/stats.py`: `StatsResponse`, `create_stats_router(get_service) -> APIRouter`\n- `src/shortlink/main.py`: wiring\n- `tests/api/test_stats_api.py`\n\n**How**\n- `GET /links/{code}/stats` → 200 `{code, url, clicks, created_at, last_clicked_at}` (`last_clicked_at` null until the first click)\n- LinkNotFoundError → 404 `\"link not found\"`; LinkStorageError → 503 `\"could not read the stats, try again\"`\n- main: startup runs `create_links_schema` then `create_stats_schema`; per request, one connection feeds `SqliteLinkRepository`, `SqliteClickStore` (as the LinkService recorder, replacing `NoClickRecorder`) and `StatsService`\n- a failure to record a click turns the redirect into 503 (existing LinkStorageError mapping); the click is counted only when the redirect is answered\n- `api/stats.py` may import `shortlink.application.links` errors; `main.py` is the only links-side file that changes",
+          "acceptance": [
+            "test: new link → stats 200 with clicks 0, last_clicked_at null, created_at equal to POST's",
+            "test: 3 × GET /{code} (302) → stats clicks 3 and last_clicked_at set",
+            "test: GET of an unknown code (404) and GET /links/{code}/stats do not change clicks",
+            "test: two links are counted separately",
+            "test: stats of unknown and malformed codes → 404 `{\"detail\": \"link not found\"}`",
+            "test: store failure (router mounted on a test app with a service over a failing fake store) → 503 with a string detail, never 500",
+            "`uv run lint-imports` keeps `links never imports stats`; no file `shortlink/*/links.py` changes in this plan"
+          ]
+        }
+      ],
+      "revised": [
+        {
+          "position": 3,
+          "title": "API: GET /links/{code}/stats and redirect counting",
+          "spec": "Expose stats and wire click counting into the redirect.\n\n**Where**\n- `src/shortlink/api/stats.py`: `StatsResponse`, `create_stats_router(get_service) -> APIRouter`, where `get_service` yields a `StatsService`\n- `src/shortlink/main.py`: wiring\n- `tests/api/test_stats_api.py`\n\n**How**\n- `GET /links/{code}/stats` → 200 `{code, url, clicks, created_at, last_clicked_at}` (`last_clicked_at` null until the first click)\n- LinkNotFoundError → 404 `\"link not found\"`; LinkStorageError → 503 `\"could not read the stats, try again\"`\n- the stats dependency wraps `get_service` the same way `guarded` does in `api/links.py`: the first `next()` runs inside a try, so a LinkStorageError raised while the dependency resolves (for example from connect) becomes a 503 and not a 500. Copy the helper into `api/stats.py`; do not import it from `api/links.py` and do not change that file\n- main: startup runs `create_links_schema` then `create_stats_schema`; per request, one connection feeds `SqliteLinkRepository`, `SqliteClickStore` (as the LinkService recorder, replacing `NoClickRecorder`) and `StatsService`\n- a failure to record a click turns the redirect into 503 (existing LinkStorageError mapping); the click is counted only when the redirect is answered\n- `api/stats.py` may import `shortlink.application.links` errors; `main.py` is the only links-side file that changes",
+          "acceptance": [
+            "test: new link → stats 200 with clicks 0, last_clicked_at null, created_at equal to POST's",
+            "test: 3 × GET /{code} (302) → stats clicks 3 and last_clicked_at set",
+            "test: GET of an unknown code (404) and GET /links/{code}/stats do not change clicks",
+            "test: two links are counted separately",
+            "test: stats of unknown and malformed codes → 404 `{\"detail\": \"link not found\"}`",
+            "test: store failure (router mounted on a test app with a service over a failing fake store) → 503 with a string detail, never 500",
+            "test: a failure while the dependency resolves (get_service raises LinkStorageError, as connect does) → 503 with a string detail, never 500",
+            "`uv run lint-imports` keeps `links never imports stats`; no file `shortlink/*/links.py` changes in this plan"
+          ]
+        }
+      ],
+      "notes": "Revised task 3 only. The links review (task 549) found that a LinkStorageError raised while FastAPI resolves a dependency (get_service calling connect) returned a raw 500, and that path had no test. Task 3 now copies that guarded-dependency pattern and adds a test for it. Other notes for implementers, on the code as it is now:\n- LinkService(repository, recorder, clock, new_code) is in application/links.py, with ClickRecorder (Protocol), NoClickRecorder, LinkNotFoundError, LinkStorageError. LinkService.get already rejects malformed codes via is_valid_code before the repository is read, so stats inherits that.\n- persistence/db.py connect() already wraps sqlite3 errors into LinkStorageError and sets foreign_keys=ON, WAL and busy_timeout. SqliteLinkRepository in persistence/links.py is the wrapping pattern to copy.\n- api/links.py has a local `guarded(detail)` dependency inside create_links_router. api/links.py must not change, so api/stats.py copies the helper instead of importing it.\n- Skeleton files exist (docstring only): domain/stats.py, application/stats.py, persistence/stats.py, api/stats.py.\n- The concurrency test needs a links row before recording (FK). Create it with create_links_schema plus a SqliteLinkRepository.add.\n- pyproject's \"links never imports stats\" contract already lists the four stats modules. No pyproject change is needed.\n- Earlier runs ran pytest with --no-cov and missed the 90% line. Read the TOTAL coverage figure from the pytest output.\n- The spec says the click counts \"only when the redirect is answered\". resolve() records before the response exists, so a failure after that point does not undo the count. No acceptance test can check that; don't claim it in the summary.\n- create_stats_router's get_service should yield StatsService, not LinkService. The spec leaves the type open, so this is the choice to make."
+    }
+  },
+  {
+    "id": "shortlink-v6-P677",
+    "expected": "accept",
+    "state": {
+      "plan": {
+        "goal": "Clients can POST a http/https URL to /links and get back a random 7-character base62 code; GET /{code} answers 302 to the stored URL, and lets observers (click-stats, next plan) know about each successful redirect.",
+        "out_of_scope": [
+          "auth, custom aliases, expiration, edit/delete, rate limiting, per-click history (whole wave)",
+          "counting clicks (click-stats plan); this plan only calls observers",
+          "deduplicating identical URLs: every POST creates a new code",
+          "blocking internal hosts or private IPs: the service never fetches the URL, so there is no SSRF; any http/https URL with a host is accepted",
+          "phishing or malware checks on target URLs",
+          "schema migrations framework: the schema is created with CREATE TABLE IF NOT EXISTS on startup",
+          "returning an absolute short URL (needs a configured base URL); the response carries the code"
+        ],
+        "design": [
+          {
+            "why": "Two small tables; the stack says SQLite and the user accepted stdlib sqlite3.",
+            "topic": "data access",
+            "chosen": "repository per aggregate on stdlib sqlite3",
+            "options": [
+              { "name": "repository per aggregate on stdlib sqlite3", "tradeoffs": "One class owns all SQL of an aggregate, no ORM dependency; hand-written mapping and schema." },
+              { "name": "SQLAlchemy Core/ORM", "tradeoffs": "Typed queries and easier migrations later; a heavy dependency and mypy friction for two tables." }
+            ]
+          },
+          {
+            "why": "stdlib sqlite3 is sync; a connection per operation keeps it thread-safe.",
+            "topic": "sync or async",
+            "chosen": "sync endpoints and repositories",
+            "options": [
+              { "name": "sync endpoints and repositories", "tradeoffs": "Plain sqlite3, FastAPI runs them in its threadpool; no async driver." },
+              { "name": "async with aiosqlite", "tradeoffs": "Fits FastAPI's async style; extra dependency and no real gain on a local file database." }
+            ]
+          },
+          {
+            "why": "User picked it: keeps the feature contract one-directional (stats -> links.application) with the redirect rule in links.",
+            "topic": "how click counting hooks into the redirect",
+            "chosen": "RedirectObserver port in links.application",
+            "options": [
+              { "name": "RedirectObserver port in links.application", "tradeoffs": "links never imports stats and import-linter enforces it; one extra protocol." },
+              { "name": "click counter inside links", "tradeoffs": "Fewer pieces; stats becomes only a read endpoint and links owns counting." },
+              { "name": "independent features orchestrated by main.py", "tradeoffs": "Strongest isolation; the redirect rule moves into the composition root." }
+            ]
+          },
+          {
+            "why": "Simple and safe for a small API; tests use a file under tmp_path.",
+            "topic": "database connections",
+            "chosen": "new connection per operation",
+            "options": [
+              { "name": "new connection per operation", "tradeoffs": "Thread-safe under FastAPI's threadpool, trivial to reason about; small open cost per call." },
+              { "name": "one shared connection with check_same_thread=False and a lock", "tradeoffs": "Cheaper per call; a global lock and lifecycle to manage." }
+            ]
+          }
+        ]
+      },
+      "original": [
+        {
+          "position": 4,
+          "title": "Links API: POST /links, GET /{code}, wiring",
+          "spec": "HTTP routes, error handling and the wiring in create_app.\n\n**Where**\n- `src/shortlink/links/api/schemas.py`: `CreateLinkRequest`, `LinkResponse`\n- `src/shortlink/links/api/dependencies.py`: `get_create_link`, `get_resolve_link`\n- `src/shortlink/links/api/routes.py`: `router`\n- `src/shortlink/main.py`: `Settings`, `create_app(settings: Settings | None = None)`, exception handlers\n- `tests/conftest.py` (client on a tmp_path db), `tests/links/api/test_links_api.py`\n\n**How**\n- `POST /links` body `{\"url\": str}` (extra fields forbidden) -> 201 `{\"code\", \"url\", \"created_at\"}` (ISO-8601 UTC) with header `Location: /{code}`\n- `GET /{code}` -> 302 `RedirectResponse(url, status_code=302)` with `Cache-Control: no-store` so browsers do not skip later clicks\n- errors: `InvalidUrl` -> 422 `{\"detail\": \"<message>\"}`; `LinkNotFound` -> 404 `{\"detail\": \"link not found\"}`; `CodeSpaceExhausted` -> 503 `{\"detail\": \"could not allocate a code, retry\"}`; `RequestValidationError` -> 422 with a single string `detail` (e.g. `\"body.url: Field required\"`)\n- `Settings`: frozen dataclass with `db_path: Path`, default from env `SHORTLINK_DB_PATH` or `shortlink.db`; `observers: Sequence[RedirectObserver] = ()` extra hook so click-stats can add its observer\n- `create_app` builds `Database`, runs `initialise()` and `create_links_schema`, builds the repo and use cases, stores them on `app.state`, includes the links router **last** so `/{code}` never shadows `/docs`, `/openapi.json` or `/links/...`\n- dependencies read use cases from `request.app.state`",
+          "acceptance": [
+            "test: POST /links with a valid URL -> 201, body has a 7-char base62 code, the same url, created_at in UTC, and `Location: /{code}`",
+            "test: then GET /{code} with `follow_redirects=False` -> 302, `Location` equals the url, `Cache-Control: no-store`",
+            "test: POST with `ftp://x`, empty url, a url with `\\n`, a 2049-char url -> 422 with a string detail",
+            "test: POST with missing body, non-JSON body, `url` as a number, or an extra field -> 422 with a string detail (never a list)",
+            "test: GET /abc (malformed) and GET /zzzzzzz (unknown) -> 404 `{\"detail\": \"link not found\"}`",
+            "test: the same url posted twice gets two different codes",
+            "test: 20 concurrent POSTs (ThreadPoolExecutor on the TestClient) all return 201 with distinct codes",
+            "test: with a forced generator always returning a taken code, POST -> 503 with a string detail",
+            "test: `/openapi.json` and `/docs` still answer 200 with the catch-all route registered",
+            "test: a Settings observer receives exactly one call per successful redirect and none for 404"
+          ]
+        }
+      ],
+      "revised": [
+        {
+          "position": 4,
+          "title": "Links API: POST /links, GET /{code}, wiring",
+          "spec": "HTTP routes, error handling and the wiring in create_app.\n\n**Where**\n- `src/shortlink/links/api/schemas.py`: `CreateLinkRequest`, `LinkResponse`\n- `src/shortlink/links/api/dependencies.py`: `get_create_link`, `get_resolve_link`\n- `src/shortlink/links/api/routes.py`: `router`\n- `src/shortlink/main.py`: `Settings`, `create_app(settings: Settings | None = None)`, exception handlers\n- `tests/conftest.py`: the `client` fixture takes `tmp_path` and builds `create_app(Settings(db_path=tmp_path / \"test.db\"))`, so no test writes `shortlink.db` into the working directory\n- `tests/test_app.py` (existing, must stay green): the title test calls `create_app(Settings(db_path=tmp_path / \"test.db\"))`. The unknown-path test requests `/does/not/exist` (two segments, which `/{code}` does not match) and still expects 404 `{\"detail\": \"Not Found\"}`. The original single-segment `/does-not-exist` would now reach `/{code}` and return `link not found`, so it must not be used.\n- `tests/links/api/test_links_api.py`\n\n**How**\n- `POST /links` body `{\"url\": str}` (extra fields forbidden) -> 201 `{\"code\", \"url\", \"created_at\"}` (ISO-8601 UTC) with header `Location: /{code}`\n- `GET /{code}` -> 302 `RedirectResponse(url, status_code=302)` with `Cache-Control: no-store` so browsers do not skip later clicks\n- errors: `InvalidUrl` -> 422 `{\"detail\": \"<message>\"}`; `LinkNotFound` -> 404 `{\"detail\": \"link not found\"}`; `CodeSpaceExhausted` -> 503 `{\"detail\": \"could not allocate a code, retry\"}`; `RequestValidationError` -> 422 with a single string `detail` (e.g. `\"body.url: Field required\"`)\n- `Settings`: frozen dataclass with `db_path: Path`, default from env `SHORTLINK_DB_PATH` or `shortlink.db`; `observers: Sequence[RedirectObserver] = ()` extra hook so click-stats can add its observer\n- `create_app` builds `Database`, runs `initialise()` and `create_links_schema`, builds the repo and use cases, stores them on `app.state`, includes the links router **last** so `/{code}` never shadows `/docs`, `/openapi.json` or `/links/...`\n- dependencies read use cases from `request.app.state`",
+          "acceptance": [
+            "test: POST /links with a valid URL -> 201, body has a 7-char base62 code, the same url, created_at in UTC, and `Location: /{code}`",
+            "test: then GET /{code} with `follow_redirects=False` -> 302, `Location` equals the url, `Cache-Control: no-store`",
+            "test: POST with `ftp://x`, empty url, a url with `\\n`, a 2049-char url -> 422 with a string detail",
+            "test: POST with missing body, non-JSON body, `url` as a number, or an extra field -> 422 with a string detail (never a list)",
+            "test: GET /abc (malformed) and GET /zzzzzzz (unknown) -> 404 `{\"detail\": \"link not found\"}`",
+            "test: the same url posted twice gets two different codes",
+            "test: 20 concurrent POSTs (ThreadPoolExecutor on the TestClient) all return 201 with distinct codes",
+            "test: with a forced generator always returning a taken code, POST -> 503 with a string detail",
+            "test: `/openapi.json` and `/docs` still answer 200 with the catch-all route registered",
+            "test: a Settings observer receives exactly one call per successful redirect and none for 404",
+            "test: existing tests/test_app.py still passes: title is `shortlink`, and GET `/does/not/exist` -> 404 `{\"detail\": \"Not Found\"}`"
+          ]
+        }
+      ],
+      "notes": "Revised task 4 only. The original plan breaks an existing test: tests/test_app.py expects GET /does-not-exist (a single segment, 14 chars) to return 404 {\"detail\": \"Not Found\"}. With the catch-all GET /{code}, that path now reaches ResolveLink and returns 404 {\"detail\": \"link not found\"}. The revision switches that test to a two-segment path, which /{code} does not match, and makes the conftest and title tests pass a Settings with tmp_path, so the suite stops creating shortlink.db in the working directory.\n\nNotes for implementers (no revision needed):\n- The module-level `app = create_app()` in main.py runs Database.initialise() on import, so importing shortlink.main creates ./shortlink.db. It is gitignored (*.db), so it is harmless, but tests should not rely on the default path.\n- Acceptance \"POST with a forced generator always returning a taken code -> 503\" has no hook in the spec. Use one of: replace app.state.create_link with a CreateLink built on a fake generator in the test, or add an optional generate parameter to create_app. Pick one in the task and keep it out of Settings' public surface.\n- Persistence: map IntegrityError to CodeTaken only for the primary key (check the message or the constraint); CHECK violations must not become CodeTaken. The domain validates first, so this is defensive.\n- Add __init__.py to each new tests/links/... folder, like tests/__init__.py, so mypy and pytest do not clash on duplicate test basenames.\n- The 20-concurrent-POST test shares one TestClient across threads. If it is flaky, build one TestClient per thread or use httpx with the app's ASGI transport."
+    }
+  },
+  {
+    "id": "shortlink-v6-P677-no-criteria",
+    "expected": "hold",
+    "state": {
+      "plan": {
+        "goal": "Clients can POST a http/https URL to /links and get back a random 7-character base62 code; GET /{code} answers 302 to the stored URL, and lets observers (click-stats, next plan) know about each successful redirect.",
+        "out_of_scope": [
+          "auth, custom aliases, expiration, edit/delete, rate limiting, per-click history (whole wave)",
+          "counting clicks (click-stats plan); this plan only calls observers",
+          "deduplicating identical URLs: every POST creates a new code",
+          "blocking internal hosts or private IPs: the service never fetches the URL, so there is no SSRF; any http/https URL with a host is accepted",
+          "phishing or malware checks on target URLs",
+          "schema migrations framework: the schema is created with CREATE TABLE IF NOT EXISTS on startup",
+          "returning an absolute short URL (needs a configured base URL); the response carries the code"
+        ],
+        "design": [
+          {
+            "why": "Two small tables; the stack says SQLite and the user accepted stdlib sqlite3.",
+            "topic": "data access",
+            "chosen": "repository per aggregate on stdlib sqlite3",
+            "options": [
+              { "name": "repository per aggregate on stdlib sqlite3", "tradeoffs": "One class owns all SQL of an aggregate, no ORM dependency; hand-written mapping and schema." },
+              { "name": "SQLAlchemy Core/ORM", "tradeoffs": "Typed queries and easier migrations later; a heavy dependency and mypy friction for two tables." }
+            ]
+          },
+          {
+            "why": "stdlib sqlite3 is sync; a connection per operation keeps it thread-safe.",
+            "topic": "sync or async",
+            "chosen": "sync endpoints and repositories",
+            "options": [
+              { "name": "sync endpoints and repositories", "tradeoffs": "Plain sqlite3, FastAPI runs them in its threadpool; no async driver." },
+              { "name": "async with aiosqlite", "tradeoffs": "Fits FastAPI's async style; extra dependency and no real gain on a local file database." }
+            ]
+          },
+          {
+            "why": "User picked it: keeps the feature contract one-directional (stats -> links.application) with the redirect rule in links.",
+            "topic": "how click counting hooks into the redirect",
+            "chosen": "RedirectObserver port in links.application",
+            "options": [
+              { "name": "RedirectObserver port in links.application", "tradeoffs": "links never imports stats and import-linter enforces it; one extra protocol." },
+              { "name": "click counter inside links", "tradeoffs": "Fewer pieces; stats becomes only a read endpoint and links owns counting." },
+              { "name": "independent features orchestrated by main.py", "tradeoffs": "Strongest isolation; the redirect rule moves into the composition root." }
+            ]
+          },
+          {
+            "why": "Simple and safe for a small API; tests use a file under tmp_path.",
+            "topic": "database connections",
+            "chosen": "new connection per operation",
+            "options": [
+              { "name": "new connection per operation", "tradeoffs": "Thread-safe under FastAPI's threadpool, trivial to reason about; small open cost per call." },
+              { "name": "one shared connection with check_same_thread=False and a lock", "tradeoffs": "Cheaper per call; a global lock and lifecycle to manage." }
+            ]
+          }
+        ]
+      },
+      "original": [
+        {
+          "position": 4,
+          "title": "Links API: POST /links, GET /{code}, wiring",
+          "spec": "HTTP routes, error handling and the wiring in create_app.\n\n**Where**\n- `src/shortlink/links/api/schemas.py`: `CreateLinkRequest`, `LinkResponse`\n- `src/shortlink/links/api/dependencies.py`: `get_create_link`, `get_resolve_link`\n- `src/shortlink/links/api/routes.py`: `router`\n- `src/shortlink/main.py`: `Settings`, `create_app(settings: Settings | None = None)`, exception handlers\n- `tests/conftest.py` (client on a tmp_path db), `tests/links/api/test_links_api.py`\n\n**How**\n- `POST /links` body `{\"url\": str}` (extra fields forbidden) -> 201 `{\"code\", \"url\", \"created_at\"}` (ISO-8601 UTC) with header `Location: /{code}`\n- `GET /{code}` -> 302 `RedirectResponse(url, status_code=302)` with `Cache-Control: no-store` so browsers do not skip later clicks\n- errors: `InvalidUrl` -> 422 `{\"detail\": \"<message>\"}`; `LinkNotFound` -> 404 `{\"detail\": \"link not found\"}`; `CodeSpaceExhausted` -> 503 `{\"detail\": \"could not allocate a code, retry\"}`; `RequestValidationError` -> 422 with a single string `detail` (e.g. `\"body.url: Field required\"`)\n- `Settings`: frozen dataclass with `db_path: Path`, default from env `SHORTLINK_DB_PATH` or `shortlink.db`; `observers: Sequence[RedirectObserver] = ()` extra hook so click-stats can add its observer\n- `create_app` builds `Database`, runs `initialise()` and `create_links_schema`, builds the repo and use cases, stores them on `app.state`, includes the links router **last** so `/{code}` never shadows `/docs`, `/openapi.json` or `/links/...`\n- dependencies read use cases from `request.app.state`",
+          "acceptance": [
+            "test: POST /links with a valid URL -> 201, body has a 7-char base62 code, the same url, created_at in UTC, and `Location: /{code}`",
+            "test: then GET /{code} with `follow_redirects=False` -> 302, `Location` equals the url, `Cache-Control: no-store`",
+            "test: POST with `ftp://x`, empty url, a url with `\\n`, a 2049-char url -> 422 with a string detail",
+            "test: POST with missing body, non-JSON body, `url` as a number, or an extra field -> 422 with a string detail (never a list)",
+            "test: GET /abc (malformed) and GET /zzzzzzz (unknown) -> 404 `{\"detail\": \"link not found\"}`",
+            "test: the same url posted twice gets two different codes",
+            "test: 20 concurrent POSTs (ThreadPoolExecutor on the TestClient) all return 201 with distinct codes",
+            "test: with a forced generator always returning a taken code, POST -> 503 with a string detail",
+            "test: `/openapi.json` and `/docs` still answer 200 with the catch-all route registered",
+            "test: a Settings observer receives exactly one call per successful redirect and none for 404"
+          ]
+        }
+      ],
+      "revised": [
+        {
+          "position": 4,
+          "title": "Links API: POST /links, GET /{code}, wiring",
+          "spec": "HTTP routes, error handling and the wiring in create_app.\n\n**Where**\n- `src/shortlink/links/api/schemas.py`: `CreateLinkRequest`, `LinkResponse`\n- `src/shortlink/links/api/dependencies.py`: `get_create_link`, `get_resolve_link`\n- `src/shortlink/links/api/routes.py`: `router`\n- `src/shortlink/main.py`: `Settings`, `create_app(settings: Settings | None = None)`, exception handlers\n- `tests/conftest.py`: the `client` fixture takes `tmp_path` and builds `create_app(Settings(db_path=tmp_path / \"test.db\"))`, so no test writes `shortlink.db` into the working directory\n- `tests/test_app.py` (existing, must stay green): the title test calls `create_app(Settings(db_path=tmp_path / \"test.db\"))`. The unknown-path test requests `/does/not/exist` (two segments, which `/{code}` does not match) and still expects 404 `{\"detail\": \"Not Found\"}`. The original single-segment `/does-not-exist` would now reach `/{code}` and return `link not found`, so it must not be used.\n- `tests/links/api/test_links_api.py`\n\n**How**\n- `POST /links` body `{\"url\": str}` (extra fields forbidden) -> 201 `{\"code\", \"url\", \"created_at\"}` (ISO-8601 UTC) with header `Location: /{code}`\n- `GET /{code}` -> 302 `RedirectResponse(url, status_code=302)` with `Cache-Control: no-store` so browsers do not skip later clicks\n- errors: `InvalidUrl` -> 422 `{\"detail\": \"<message>\"}`; `LinkNotFound` -> 404 `{\"detail\": \"link not found\"}`; `CodeSpaceExhausted` -> 503 `{\"detail\": \"could not allocate a code, retry\"}`; `RequestValidationError` -> 422 with a single string `detail` (e.g. `\"body.url: Field required\"`)\n- `Settings`: frozen dataclass with `db_path: Path`, default from env `SHORTLINK_DB_PATH` or `shortlink.db`; `observers: Sequence[RedirectObserver] = ()` extra hook so click-stats can add its observer\n- `create_app` builds `Database`, runs `initialise()` and `create_links_schema`, builds the repo and use cases, stores them on `app.state`, includes the links router **last** so `/{code}` never shadows `/docs`, `/openapi.json` or `/links/...`\n- dependencies read use cases from `request.app.state`",
+          "acceptance": [
+            "test: POST /links with a valid URL -> 201, body has a 7-char base62 code, the same url, created_at in UTC, and `Location: /{code}`",
+            "test: then GET /{code} with `follow_redirects=False` -> 302, `Location` equals the url, `Cache-Control: no-store`",
+            "test: POST with `ftp://x`, empty url, a url with `\\n`, a 2049-char url -> 422 with a string detail",
+            "test: POST with missing body, non-JSON body, `url` as a number, or an extra field -> 422 with a string detail (never a list)",
+            "test: GET /abc (malformed) and GET /zzzzzzz (unknown) -> 404 `{\"detail\": \"link not found\"}`",
+            "test: the same url posted twice gets two different codes",
+            "test: `/openapi.json` and `/docs` still answer 200 with the catch-all route registered",
+            "test: a Settings observer receives exactly one call per successful redirect and none for 404",
+            "test: existing tests/test_app.py still passes: title is `shortlink`, and GET `/does/not/exist` -> 404 `{\"detail\": \"Not Found\"}`"
+          ]
+        }
+      ],
+      "notes": "Revised task 4 only. The original plan breaks an existing test: tests/test_app.py expects GET /does-not-exist (a single segment, 14 chars) to return 404 {\"detail\": \"Not Found\"}. With the catch-all GET /{code}, that path now reaches ResolveLink and returns 404 {\"detail\": \"link not found\"}. The revision switches that test to a two-segment path, which /{code} does not match, and makes the conftest and title tests pass a Settings with tmp_path, so the suite stops creating shortlink.db in the working directory."
+    }
+  },
+  {
+    "id": "shortlink-v6-P677-rate-limit",
+    "expected": "hold",
+    "state": {
+      "plan": {
+        "goal": "Clients can POST a http/https URL to /links and get back a random 7-character base62 code; GET /{code} answers 302 to the stored URL, and lets observers (click-stats, next plan) know about each successful redirect.",
+        "out_of_scope": [
+          "auth, custom aliases, expiration, edit/delete, rate limiting, per-click history (whole wave)",
+          "counting clicks (click-stats plan); this plan only calls observers",
+          "deduplicating identical URLs: every POST creates a new code",
+          "blocking internal hosts or private IPs: the service never fetches the URL, so there is no SSRF; any http/https URL with a host is accepted",
+          "phishing or malware checks on target URLs",
+          "schema migrations framework: the schema is created with CREATE TABLE IF NOT EXISTS on startup",
+          "returning an absolute short URL (needs a configured base URL); the response carries the code"
+        ],
+        "design": [
+          {
+            "why": "Two small tables; the stack says SQLite and the user accepted stdlib sqlite3.",
+            "topic": "data access",
+            "chosen": "repository per aggregate on stdlib sqlite3",
+            "options": [
+              { "name": "repository per aggregate on stdlib sqlite3", "tradeoffs": "One class owns all SQL of an aggregate, no ORM dependency; hand-written mapping and schema." },
+              { "name": "SQLAlchemy Core/ORM", "tradeoffs": "Typed queries and easier migrations later; a heavy dependency and mypy friction for two tables." }
+            ]
+          },
+          {
+            "why": "stdlib sqlite3 is sync; a connection per operation keeps it thread-safe.",
+            "topic": "sync or async",
+            "chosen": "sync endpoints and repositories",
+            "options": [
+              { "name": "sync endpoints and repositories", "tradeoffs": "Plain sqlite3, FastAPI runs them in its threadpool; no async driver." },
+              { "name": "async with aiosqlite", "tradeoffs": "Fits FastAPI's async style; extra dependency and no real gain on a local file database." }
+            ]
+          },
+          {
+            "why": "User picked it: keeps the feature contract one-directional (stats -> links.application) with the redirect rule in links.",
+            "topic": "how click counting hooks into the redirect",
+            "chosen": "RedirectObserver port in links.application",
+            "options": [
+              { "name": "RedirectObserver port in links.application", "tradeoffs": "links never imports stats and import-linter enforces it; one extra protocol." },
+              { "name": "click counter inside links", "tradeoffs": "Fewer pieces; stats becomes only a read endpoint and links owns counting." },
+              { "name": "independent features orchestrated by main.py", "tradeoffs": "Strongest isolation; the redirect rule moves into the composition root." }
+            ]
+          },
+          {
+            "why": "Simple and safe for a small API; tests use a file under tmp_path.",
+            "topic": "database connections",
+            "chosen": "new connection per operation",
+            "options": [
+              { "name": "new connection per operation", "tradeoffs": "Thread-safe under FastAPI's threadpool, trivial to reason about; small open cost per call." },
+              { "name": "one shared connection with check_same_thread=False and a lock", "tradeoffs": "Cheaper per call; a global lock and lifecycle to manage." }
+            ]
+          }
+        ]
+      },
+      "original": [
+        {
+          "position": 4,
+          "title": "Links API: POST /links, GET /{code}, wiring",
+          "spec": "HTTP routes, error handling and the wiring in create_app.\n\n**Where**\n- `src/shortlink/links/api/schemas.py`: `CreateLinkRequest`, `LinkResponse`\n- `src/shortlink/links/api/dependencies.py`: `get_create_link`, `get_resolve_link`\n- `src/shortlink/links/api/routes.py`: `router`\n- `src/shortlink/main.py`: `Settings`, `create_app(settings: Settings | None = None)`, exception handlers\n- `tests/conftest.py` (client on a tmp_path db), `tests/links/api/test_links_api.py`\n\n**How**\n- `POST /links` body `{\"url\": str}` (extra fields forbidden) -> 201 `{\"code\", \"url\", \"created_at\"}` (ISO-8601 UTC) with header `Location: /{code}`\n- `GET /{code}` -> 302 `RedirectResponse(url, status_code=302)` with `Cache-Control: no-store` so browsers do not skip later clicks\n- errors: `InvalidUrl` -> 422 `{\"detail\": \"<message>\"}`; `LinkNotFound` -> 404 `{\"detail\": \"link not found\"}`; `CodeSpaceExhausted` -> 503 `{\"detail\": \"could not allocate a code, retry\"}`; `RequestValidationError` -> 422 with a single string `detail` (e.g. `\"body.url: Field required\"`)\n- `Settings`: frozen dataclass with `db_path: Path`, default from env `SHORTLINK_DB_PATH` or `shortlink.db`; `observers: Sequence[RedirectObserver] = ()` extra hook so click-stats can add its observer\n- `create_app` builds `Database`, runs `initialise()` and `create_links_schema`, builds the repo and use cases, stores them on `app.state`, includes the links router **last** so `/{code}` never shadows `/docs`, `/openapi.json` or `/links/...`\n- dependencies read use cases from `request.app.state`",
+          "acceptance": [
+            "test: POST /links with a valid URL -> 201, body has a 7-char base62 code, the same url, created_at in UTC, and `Location: /{code}`",
+            "test: then GET /{code} with `follow_redirects=False` -> 302, `Location` equals the url, `Cache-Control: no-store`",
+            "test: POST with `ftp://x`, empty url, a url with `\\n`, a 2049-char url -> 422 with a string detail",
+            "test: POST with missing body, non-JSON body, `url` as a number, or an extra field -> 422 with a string detail (never a list)",
+            "test: GET /abc (malformed) and GET /zzzzzzz (unknown) -> 404 `{\"detail\": \"link not found\"}`",
+            "test: the same url posted twice gets two different codes",
+            "test: 20 concurrent POSTs (ThreadPoolExecutor on the TestClient) all return 201 with distinct codes",
+            "test: with a forced generator always returning a taken code, POST -> 503 with a string detail",
+            "test: `/openapi.json` and `/docs` still answer 200 with the catch-all route registered",
+            "test: a Settings observer receives exactly one call per successful redirect and none for 404"
+          ]
+        }
+      ],
+      "revised": [
+        {
+          "position": 4,
+          "title": "Links API: POST /links, GET /{code}, wiring",
+          "spec": "HTTP routes, error handling and the wiring in create_app.\n\n**Where**\n- `src/shortlink/links/api/schemas.py`: `CreateLinkRequest`, `LinkResponse`\n- `src/shortlink/links/api/dependencies.py`: `get_create_link`, `get_resolve_link`\n- `src/shortlink/links/api/routes.py`: `router`\n- `src/shortlink/links/api/rate_limit.py`: per-IP limiter for POST /links\n- `src/shortlink/main.py`: `Settings`, `create_app(settings: Settings | None = None)`, exception handlers\n- `tests/conftest.py`: the `client` fixture takes `tmp_path` and builds `create_app(Settings(db_path=tmp_path / \"test.db\"))`, so no test writes `shortlink.db` into the working directory\n- `tests/test_app.py` (existing, must stay green): the title test calls `create_app(Settings(db_path=tmp_path / \"test.db\"))`. The unknown-path test requests `/does/not/exist` (two segments, which `/{code}` does not match) and still expects 404 `{\"detail\": \"Not Found\"}`. The original single-segment `/does-not-exist` would now reach `/{code}` and return `link not found`, so it must not be used.\n- `tests/links/api/test_links_api.py`\n\n**How**\n- `POST /links` body `{\"url\": str}` (extra fields forbidden) -> 201 `{\"code\", \"url\", \"created_at\"}` (ISO-8601 UTC) with header `Location: /{code}`\n- `POST /links` is limited per client IP: more than 10 requests in 60 seconds from one IP -> 429 `{\"detail\": \"too many requests\"}` with a `Retry-After` header\n- `GET /{code}` -> 302 `RedirectResponse(url, status_code=302)` with `Cache-Control: no-store` so browsers do not skip later clicks\n- errors: `InvalidUrl` -> 422 `{\"detail\": \"<message>\"}`; `LinkNotFound` -> 404 `{\"detail\": \"link not found\"}`; `CodeSpaceExhausted` -> 503 `{\"detail\": \"could not allocate a code, retry\"}`; `RequestValidationError` -> 422 with a single string `detail` (e.g. `\"body.url: Field required\"`)\n- `Settings`: frozen dataclass with `db_path: Path`, default from env `SHORTLINK_DB_PATH` or `shortlink.db`; `observers: Sequence[RedirectObserver] = ()` extra hook so click-stats can add its observer\n- `create_app` builds `Database`, runs `initialise()` and `create_links_schema`, builds the repo and use cases, stores them on `app.state`, includes the links router **last** so `/{code}` never shadows `/docs`, `/openapi.json` or `/links/...`\n- dependencies read use cases from `request.app.state`",
+          "acceptance": [
+            "test: POST /links with a valid URL -> 201, body has a 7-char base62 code, the same url, created_at in UTC, and `Location: /{code}`",
+            "test: then GET /{code} with `follow_redirects=False` -> 302, `Location` equals the url, `Cache-Control: no-store`",
+            "test: POST with `ftp://x`, empty url, a url with `\\n`, a 2049-char url -> 422 with a string detail",
+            "test: POST with missing body, non-JSON body, `url` as a number, or an extra field -> 422 with a string detail (never a list)",
+            "test: GET /abc (malformed) and GET /zzzzzzz (unknown) -> 404 `{\"detail\": \"link not found\"}`",
+            "test: the same url posted twice gets two different codes",
+            "test: 20 concurrent POSTs (ThreadPoolExecutor on the TestClient) all return 201 with distinct codes",
+            "test: with a forced generator always returning a taken code, POST -> 503 with a string detail",
+            "test: `/openapi.json` and `/docs` still answer 200 with the catch-all route registered",
+            "test: a Settings observer receives exactly one call per successful redirect and none for 404",
+            "test: existing tests/test_app.py still passes: title is `shortlink`, and GET `/does/not/exist` -> 404 `{\"detail\": \"Not Found\"}`",
+            "test: the 11th POST /links within 60 seconds from the same IP -> 429 with a string detail and a `Retry-After` header"
+          ]
+        }
+      ],
+      "notes": "Revised task 4 only. The original plan breaks an existing test: tests/test_app.py expects GET /does-not-exist (a single segment, 14 chars) to return 404 {\"detail\": \"Not Found\"}. With the catch-all GET /{code}, that path now reaches ResolveLink and returns 404 {\"detail\": \"link not found\"}. The revision switches that test to a two-segment path, which /{code} does not match, and makes the conftest and title tests pass a Settings with tmp_path, so the suite stops creating shortlink.db in the working directory."
+    }
+  },
+  {
+    "id": "shortlink-v6-P677-async",
+    "expected": "hold",
+    "state": {
+      "plan": {
+        "goal": "Clients can POST a http/https URL to /links and get back a random 7-character base62 code; GET /{code} answers 302 to the stored URL, and lets observers (click-stats, next plan) know about each successful redirect.",
+        "out_of_scope": [
+          "auth, custom aliases, expiration, edit/delete, rate limiting, per-click history (whole wave)",
+          "counting clicks (click-stats plan); this plan only calls observers",
+          "deduplicating identical URLs: every POST creates a new code",
+          "blocking internal hosts or private IPs: the service never fetches the URL, so there is no SSRF; any http/https URL with a host is accepted",
+          "phishing or malware checks on target URLs",
+          "schema migrations framework: the schema is created with CREATE TABLE IF NOT EXISTS on startup",
+          "returning an absolute short URL (needs a configured base URL); the response carries the code"
+        ],
+        "design": [
+          {
+            "why": "Two small tables; the stack says SQLite and the user accepted stdlib sqlite3.",
+            "topic": "data access",
+            "chosen": "repository per aggregate on stdlib sqlite3",
+            "options": [
+              { "name": "repository per aggregate on stdlib sqlite3", "tradeoffs": "One class owns all SQL of an aggregate, no ORM dependency; hand-written mapping and schema." },
+              { "name": "SQLAlchemy Core/ORM", "tradeoffs": "Typed queries and easier migrations later; a heavy dependency and mypy friction for two tables." }
+            ]
+          },
+          {
+            "why": "stdlib sqlite3 is sync; a connection per operation keeps it thread-safe.",
+            "topic": "sync or async",
+            "chosen": "sync endpoints and repositories",
+            "options": [
+              { "name": "sync endpoints and repositories", "tradeoffs": "Plain sqlite3, FastAPI runs them in its threadpool; no async driver." },
+              { "name": "async with aiosqlite", "tradeoffs": "Fits FastAPI's async style; extra dependency and no real gain on a local file database." }
+            ]
+          },
+          {
+            "why": "User picked it: keeps the feature contract one-directional (stats -> links.application) with the redirect rule in links.",
+            "topic": "how click counting hooks into the redirect",
+            "chosen": "RedirectObserver port in links.application",
+            "options": [
+              { "name": "RedirectObserver port in links.application", "tradeoffs": "links never imports stats and import-linter enforces it; one extra protocol." },
+              { "name": "click counter inside links", "tradeoffs": "Fewer pieces; stats becomes only a read endpoint and links owns counting." },
+              { "name": "independent features orchestrated by main.py", "tradeoffs": "Strongest isolation; the redirect rule moves into the composition root." }
+            ]
+          },
+          {
+            "why": "Simple and safe for a small API; tests use a file under tmp_path.",
+            "topic": "database connections",
+            "chosen": "new connection per operation",
+            "options": [
+              { "name": "new connection per operation", "tradeoffs": "Thread-safe under FastAPI's threadpool, trivial to reason about; small open cost per call." },
+              { "name": "one shared connection with check_same_thread=False and a lock", "tradeoffs": "Cheaper per call; a global lock and lifecycle to manage." }
+            ]
+          }
+        ]
+      },
+      "original": [
+        {
+          "position": 4,
+          "title": "Links API: POST /links, GET /{code}, wiring",
+          "spec": "HTTP routes, error handling and the wiring in create_app.\n\n**Where**\n- `src/shortlink/links/api/schemas.py`: `CreateLinkRequest`, `LinkResponse`\n- `src/shortlink/links/api/dependencies.py`: `get_create_link`, `get_resolve_link`\n- `src/shortlink/links/api/routes.py`: `router`\n- `src/shortlink/main.py`: `Settings`, `create_app(settings: Settings | None = None)`, exception handlers\n- `tests/conftest.py` (client on a tmp_path db), `tests/links/api/test_links_api.py`\n\n**How**\n- `POST /links` body `{\"url\": str}` (extra fields forbidden) -> 201 `{\"code\", \"url\", \"created_at\"}` (ISO-8601 UTC) with header `Location: /{code}`\n- `GET /{code}` -> 302 `RedirectResponse(url, status_code=302)` with `Cache-Control: no-store` so browsers do not skip later clicks\n- errors: `InvalidUrl` -> 422 `{\"detail\": \"<message>\"}`; `LinkNotFound` -> 404 `{\"detail\": \"link not found\"}`; `CodeSpaceExhausted` -> 503 `{\"detail\": \"could not allocate a code, retry\"}`; `RequestValidationError` -> 422 with a single string `detail` (e.g. `\"body.url: Field required\"`)\n- `Settings`: frozen dataclass with `db_path: Path`, default from env `SHORTLINK_DB_PATH` or `shortlink.db`; `observers: Sequence[RedirectObserver] = ()` extra hook so click-stats can add its observer\n- `create_app` builds `Database`, runs `initialise()` and `create_links_schema`, builds the repo and use cases, stores them on `app.state`, includes the links router **last** so `/{code}` never shadows `/docs`, `/openapi.json` or `/links/...`\n- dependencies read use cases from `request.app.state`",
+          "acceptance": [
+            "test: POST /links with a valid URL -> 201, body has a 7-char base62 code, the same url, created_at in UTC, and `Location: /{code}`",
+            "test: then GET /{code} with `follow_redirects=False` -> 302, `Location` equals the url, `Cache-Control: no-store`",
+            "test: POST with `ftp://x`, empty url, a url with `\\n`, a 2049-char url -> 422 with a string detail",
+            "test: POST with missing body, non-JSON body, `url` as a number, or an extra field -> 422 with a string detail (never a list)",
+            "test: GET /abc (malformed) and GET /zzzzzzz (unknown) -> 404 `{\"detail\": \"link not found\"}`",
+            "test: the same url posted twice gets two different codes",
+            "test: 20 concurrent POSTs (ThreadPoolExecutor on the TestClient) all return 201 with distinct codes",
+            "test: with a forced generator always returning a taken code, POST -> 503 with a string detail",
+            "test: `/openapi.json` and `/docs` still answer 200 with the catch-all route registered",
+            "test: a Settings observer receives exactly one call per successful redirect and none for 404"
+          ]
+        }
+      ],
+      "revised": [
+        {
+          "position": 4,
+          "title": "Links API: POST /links, GET /{code}, wiring",
+          "spec": "HTTP routes, error handling and the wiring in create_app.\n\n**Where**\n- `src/shortlink/links/api/schemas.py`: `CreateLinkRequest`, `LinkResponse`\n- `src/shortlink/links/api/dependencies.py`: `get_create_link`, `get_resolve_link`\n- `src/shortlink/links/api/routes.py`: `router`\n- `src/shortlink/main.py`: `Settings`, `create_app(settings: Settings | None = None)`, exception handlers\n- `tests/conftest.py`: the `client` fixture takes `tmp_path` and builds `create_app(Settings(db_path=tmp_path / \"test.db\"))`, so no test writes `shortlink.db` into the working directory\n- `tests/test_app.py` (existing, must stay green): the title test calls `create_app(Settings(db_path=tmp_path / \"test.db\"))`. The unknown-path test requests `/does/not/exist` (two segments, which `/{code}` does not match) and still expects 404 `{\"detail\": \"Not Found\"}`. The original single-segment `/does-not-exist` would now reach `/{code}` and return `link not found`, so it must not be used.\n- `tests/links/api/test_links_api.py`\n\n**How**\n- `POST /links` body `{\"url\": str}` (extra fields forbidden) -> 201 `{\"code\", \"url\", \"created_at\"}` (ISO-8601 UTC) with header `Location: /{code}`\n- `GET /{code}` -> 302 `RedirectResponse(url, status_code=302)` with `Cache-Control: no-store` so browsers do not skip later clicks\n- both endpoints are `async def` and the repository uses `aiosqlite` (add it as a dependency): `LinkRepository.add` and `get` become coroutines, and so do `CreateLink`, `ResolveLink` and `GetLink`\n- errors: `InvalidUrl` -> 422 `{\"detail\": \"<message>\"}`; `LinkNotFound` -> 404 `{\"detail\": \"link not found\"}`; `CodeSpaceExhausted` -> 503 `{\"detail\": \"could not allocate a code, retry\"}`; `RequestValidationError` -> 422 with a single string `detail` (e.g. `\"body.url: Field required\"`)\n- `Settings`: frozen dataclass with `db_path: Path`, default from env `SHORTLINK_DB_PATH` or `shortlink.db`; `observers: Sequence[RedirectObserver] = ()` extra hook so click-stats can add its observer\n- `create_app` builds `Database`, runs `initialise()` and `create_links_schema`, builds the repo and use cases, stores them on `app.state`, includes the links router **last** so `/{code}` never shadows `/docs`, `/openapi.json` or `/links/...`\n- dependencies read use cases from `request.app.state`",
+          "acceptance": [
+            "test: POST /links with a valid URL -> 201, body has a 7-char base62 code, the same url, created_at in UTC, and `Location: /{code}`",
+            "test: then GET /{code} with `follow_redirects=False` -> 302, `Location` equals the url, `Cache-Control: no-store`",
+            "test: POST with `ftp://x`, empty url, a url with `\\n`, a 2049-char url -> 422 with a string detail",
+            "test: POST with missing body, non-JSON body, `url` as a number, or an extra field -> 422 with a string detail (never a list)",
+            "test: GET /abc (malformed) and GET /zzzzzzz (unknown) -> 404 `{\"detail\": \"link not found\"}`",
+            "test: the same url posted twice gets two different codes",
+            "test: 20 concurrent POSTs (ThreadPoolExecutor on the TestClient) all return 201 with distinct codes",
+            "test: with a forced generator always returning a taken code, POST -> 503 with a string detail",
+            "test: `/openapi.json` and `/docs` still answer 200 with the catch-all route registered",
+            "test: a Settings observer receives exactly one call per successful redirect and none for 404",
+            "test: existing tests/test_app.py still passes: title is `shortlink`, and GET `/does/not/exist` -> 404 `{\"detail\": \"Not Found\"}`"
+          ]
+        }
+      ],
+      "notes": "Revised task 4 only. The original plan breaks an existing test: tests/test_app.py expects GET /does-not-exist (a single segment, 14 chars) to return 404 {\"detail\": \"Not Found\"}. With the catch-all GET /{code}, that path now reaches ResolveLink and returns 404 {\"detail\": \"link not found\"}. The revision switches that test to a two-segment path, which /{code} does not match, and makes the conftest and title tests pass a Settings with tmp_path, so the suite stops creating shortlink.db in the working directory."
+    }
+  }
+]

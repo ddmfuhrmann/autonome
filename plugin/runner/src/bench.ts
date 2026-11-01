@@ -7,11 +7,11 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { consult } from "./agents.js";
 import { PLAN_SCHEMA, REHEARSAL_PROMPT, rehearsalPrompt } from "./conduct.js";
-import type { Effort, Plan, Rehearsal, RoleModel } from "./context.js";
+import type { Effort, Plan, Rehearsal, RoleModel, Triage } from "./context.js";
 import { git } from "./git.js";
 import { review } from "./review.js";
 import { jevKey, sessionEnv } from "./secrets.js";
-import { haiku, jev, verdict, type Backend, type Verdict } from "./triage.js";
+import { haiku, jev, judgeRevision, verdict, type Backend, type RevisionVerdict, type Verdict } from "./triage.js";
 
 const BENCH = resolve(dirname(fileURLToPath(import.meta.url)), "../bench");
 const SHORTLINK = process.env.SHORTLINK_REPO ?? join(homedir(), "git", "shortlink");
@@ -149,8 +149,33 @@ export async function triageCase(who: RoleModel, ask: typeof consult = consult):
   return { score: 0, cost: 0, note: "skipped: triage runs on jev-latest or haiku" };
 }
 
+interface KnownRevision { id: string; expected: RevisionVerdict; state: Record<string, unknown> }
+
+/** Triage: rehearsal revisions with a known verdict. Score = share of verdicts that match; the note lists
+ * the misses. A failed judgment throws (the bench records it as an error), it is never scored as an answer. */
+export async function triageRevisionsCase(judgeOne: (state: Record<string, unknown>) => Promise<{ verdict: RevisionVerdict }>,
+  cases: KnownRevision[] = JSON.parse(readFileSync(join(BENCH, "triage-revisions.json"), "utf8"))): Promise<Omit<Score, "role" | "case" | "who" | "seconds">> {
+  const misses: string[] = [];
+  for (const c of cases) {
+    const got = (await judgeOne(c.state)).verdict;
+    if (got !== c.expected) misses.push(`${c.id} (${got}, expected ${c.expected})`);
+  }
+  const hit = cases.length - misses.length;
+  return { score: hit / cases.length, cost: 0, note: `${hit}/${cases.length}${misses.length ? `; missed ${misses.join(", ")}` : ""}` };
+}
+
+/** Only `jev-latest` judges revisions: Haiku is skipped with a note, and so is a missing key. */
+export async function triageRevisionsRun(who: RoleModel, rejectAt = 0.7): Promise<Omit<Score, "role" | "case" | "who" | "seconds">> {
+  if (who.model !== "jev-latest") return { score: 0, cost: 0, note: "skipped: revisions are judged by jev-latest only" };
+  const key = jevKey();
+  if (!key) return { score: 0, cost: 0, note: "skipped: no Jev key (TYPESAFE_API_KEY or ~/.autonome/secrets.env)" };
+  const cfg: Triage = { model: "jev-latest", fallback: "off", reject_at: rejectAt, max_rounds: 1 };
+  return triageRevisionsCase((state) => judgeRevision(state, cfg, key));
+}
+
 const CASES: Record<string, { role: string; run: (who: RoleModel) => ReturnType<typeof reviewerCase> }> = {
   "triage/deviations": { role: "triage", run: triageCase },
+  "triage/revisions": { role: "triage", run: (who) => triageRevisionsRun(who) },
   "reviewer/post-links": { role: "reviewer", run: reviewerCase },
   "reviewer/raw-500": { role: "reviewer", run: reviewerSeverityCase },
   "reviewer/invented-api": { role: "reviewer", run: reviewerInventedApiCase },
