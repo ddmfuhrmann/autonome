@@ -97,7 +97,7 @@ language: ""
 # Model and effort per agent role; roles left out keep these defaults.
 models:
   musician:  {model: sonnet, effort: medium}   # implements each task
-  reviewer:  {model: haiku,  effort: low}      # reviews each diff (measured: docs/benchmarks/models.md)
+  reviewer:  {model: sonnet, effort: medium}   # reviews each diff
   rehearsal: {model: haiku,  effort: low}      # checks a waiting plan against the code and the gates
   listener:  {model: sonnet, effort: medium}   # tries a finished feature in the soundcheck
   tune:      {model: sonnet, effort: medium}   # learns from a finished wave
