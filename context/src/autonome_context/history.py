@@ -63,7 +63,7 @@ async def build(conn: AsyncConnection, project: str, subject: str, embedder: Emb
                     item["judged_by"] = "human"
                 out["deviation_decisions"].append(item)
         for p in await store.list_documents(conn, project, type="plan", feature=f, limit=30):
-            r = p["body"].get("rehearsal") or {}
+            r = p["body"].get("preflight") or {}
             if r.get("verdict") in ("revise", "revised", "kept"):
                 out["rehearsal_revisions"].append({"feature": f, "plan": p["id"], "verdict": r["verdict"],
                                                    "notes": _cut(r.get("notes"))})

@@ -185,7 +185,7 @@ async def _detail(conn, kind: str, doc: dict) -> str:
                                          f"Spec: {_cut(b.get('spec'), 600)}", f"Branch: {last.get('branch', '')}",
                                          f"Why it stopped: {_cut(last.get('reason'))}" if last.get("reason") else ""]))
     if kind == "held":
-        r = b.get("rehearsal") or {}
+        r = b.get("preflight") or {}
         revised = r.get("plan") or {}
         return "\n".join(filter(None, [
             f"Rehearsal notes: {_cut(r.get('notes'))}",

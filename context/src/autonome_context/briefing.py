@@ -40,7 +40,7 @@ async def build(conn: AsyncConnection, project: str, task_id: int | None = None)
     if p.get("design"):
         parts.append("## Design the plan chose (follow it; another way is a deviation)\n" + _list([
             f"{d['topic']}: {d['chosen']}. {d['why']}" for d in p["design"]]))
-    if notes := p.get(store.PREFLIGHT_KEY, {}).get("notes"):
+    if notes := p.get("preflight", {}).get("notes"):
         parts.append(f"## Preflight notes (the plan checked against the code before this feature began)\n{notes}")
     conventions = await store.conventions_for(conn, project, task["layers"])
     if conventions:

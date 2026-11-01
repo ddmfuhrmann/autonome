@@ -270,7 +270,7 @@ async def approve_wave(conn: AsyncConnection, indexer: store.Indexer, wave_id: i
 
 def needs_rehearsal(task: dict, plan: dict) -> bool:
     """A wave plan that waited for other features is checked against the code before its first task."""
-    return bool(task["body"].get("after_plans")) and "rehearsal" not in plan["body"]
+    return bool(task["body"].get("after_plans")) and "preflight" not in plan["body"]
 
 
 async def rehearse(conn: AsyncConnection, indexer: store.Indexer, plan_id: int, r: Rehearsal) -> str:
@@ -281,7 +281,7 @@ async def rehearse(conn: AsyncConnection, indexer: store.Indexer, plan_id: int, 
             raise rules.Forbidden(f"plan {plan_id} is not an approved plan")
         if r.verdict == "revise" and r.plan is None:
             raise rules.Forbidden("a revise verdict needs the revised plan")
-        await store.add_version(conn, indexer, plan_id, {**plan["body"], "rehearsal": {
+        await store.add_version(conn, indexer, plan_id, {**plan["body"], "preflight": {
             "at": _now(), **r.model_dump(mode="json", exclude_none=True)}})
         if r.verdict == "revise":
             await rules.transition(conn, plan_id, "held", "runner")
@@ -295,10 +295,10 @@ async def resolve_rehearsal(conn: AsyncConnection, indexer: store.Indexer, plan_
     or the runner carrying a triage verdict."""
     async with conn.transaction():
         plan = await rules.transition(conn, plan_id, "approved", actor)
-        rehearsal = plan["body"].get("rehearsal", {})
+        rehearsal = plan["body"].get("preflight", {})
         if not accept or not rehearsal.get("plan"):
             await store.add_version(conn, indexer, plan_id, {
-                **plan["body"], "rehearsal": {**rehearsal, "verdict": "kept", "plan": None}})
+                **plan["body"], "preflight": {**rehearsal, "verdict": "kept", "plan": None}})
             return
         old = [await store.get_document(conn, l["id"]) for l in await store.links_of(conn, plan_id)
                if l["kind"] == "has_task" and l["direction"] == "out"]
@@ -314,7 +314,7 @@ async def resolve_rehearsal(conn: AsyncConnection, indexer: store.Indexer, plan_
         revised.design = revised.design or [DesignChoice.model_validate(d) for d in original.get("design", [])]
         await store.add_version(conn, indexer, plan_id, {
             **revised.model_dump(mode="json"),
-            "rehearsal": {**rehearsal, "verdict": "revised", "plan": None, "original": original}})
+            "preflight": {**rehearsal, "verdict": "revised", "plan": None, "original": original}})
         first = old[0]["body"] if old else {}
         await _queue_tasks(conn, indexer, plan, revised,
                            after_plans=first.get("after_plans", []), wave_id=first.get("wave_id"))
