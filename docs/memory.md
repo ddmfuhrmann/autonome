@@ -158,10 +158,10 @@ or `rejected`) with the classifier's verdict, which is kept in the decision's `t
 (backend, model, the state shown, the answers, the verdict, the round). A rejection queues a task to
 undo it; when `max_rounds` run out it stays proposed, marked exhausted, off the queue. A deviation that
 follows one rule against another (`rule_conflict`) is escalated: it stays proposed, with no undo task,
-in the approvals queue as a non-blocking rule conflict. With the
-triage off it waits for the human as before. Every reviewer round of a task is kept in the run's
-`reviews`, with each finding's outcome. Deviations are triaged, and so is every accepted decision: the runner
-screens it first (one question, `is_deviation`; the result is kept in the decision's `screening`) and
+in the approvals queue as a non-blocking rule conflict; the decision is marked `triage_conflict` and
+insights lists it under `conflicts`. With the triage off it waits for the human as before. Every
+reviewer round of a task is kept in the run's `reviews`, with each finding's outcome. Deviations are
+triaged, and so is every accepted decision: the runner screens it first (one question, `is_deviation`; the result is kept in the decision's `screening`) and
 reopens it as a deviation (`accepted → proposed`, `screened_as_deviation`) when the score reaches
 `reject_at`, then the triage judges it as any other. Proposed conventions, playback, fermata and blocked
 tasks stay with the human. A *playback* task is merged and

@@ -54,7 +54,10 @@ plugin/runner/  the maestro (TypeScript, Claude Agent SDK): one session + worktr
   never real external services.
 - **Triage**: `triage` in the gate config (opt-in) lets a classifier judge deviations in the runner:
   Jev (Typesafe, `jev-latest`) with a Haiku fallback. Atomic questions, verdict decided in code from
-  thresholds; rounds that run out leave the decision proposed, off the queue, shown in insights. Every
+  thresholds, in order: a weakened test is rejected, then a rule conflict (the task and a convention or
+  gate ask for different things) is escalated, then the other flags. An escalated deviation stays
+  proposed, shows in the approvals queue as "to review", never blocks, and is fixed by changing the
+  rule; no undo task. Rounds that run out leave the decision proposed, off the queue, shown in insights. Every
   accepted decision is screened first (`is_deviation`); at or above `reject_at` it is reopened as a
   deviation and judged like one, so a deviation the scribe missed is still caught. The
   Jev key (`TYPESAFE_API_KEY`) lives in the runner's environment or `~/.autonome/secrets.env`, never in
