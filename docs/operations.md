@@ -18,6 +18,7 @@ plugin/bin/autonome doctor --project <slug> --repo <path>
 | Doctor says | Do |
 |---|---|
 | `✘ context … does not answer` | `docker compose up -d --wait` in the autonome repo |
+| `✘ ollama … does not answer` | `docker compose up -d --wait ollama`; with [embeddings on the host](configuration.md#embeddings-on-the-host), start the host's Ollama |
 | `✘ ollama … not pulled` | `docker compose run --rm ollama-pull` |
 | `✘ gates no gates configured` | save a gate config in the UI, or approve a plan that brings gates (see [configuration](configuration.md)) |
 | `✘ gates not found in …: <cmd>` | install the tool, or fix the gate's `run` |
@@ -111,3 +112,5 @@ The plugin's own state and logs (handoff writer, metronome) are in `~/.autonome/
 - A version saved while embeddings failed is stored without chunks:
   `cd context && uv run autonome-context reindex` indexes what is missing.
 - `docker compose logs context` shows migrations applied at start and any failed request.
+- Saves get slow (seconds to a minute for a large plan): the Ollama container is embedding on the
+  CPU. Use [embeddings on the host](configuration.md#embeddings-on-the-host).

@@ -33,7 +33,7 @@ export async function doctor(project: string, repo: string): Promise<Check[]> {
     : `${CONTEXT_URL} does not answer → docker compose up -d --wait (in the autonome repo)`);
 
   const tags = await reach(`${OLLAMA_URL}/api/tags`);
-  if (!tags?.ok) add("ollama", false, `${OLLAMA_URL} does not answer → docker compose up -d --wait ollama`);
+  if (!tags?.ok) add("ollama", false, `${OLLAMA_URL} does not answer → docker compose up -d --wait ollama (native mode: open Ollama on the host)`);
   else {
     const { models = [] } = (await tags.json()) as { models?: { name: string }[] };
     const pulled = models.some((m) => m.name.split(":")[0] === EMBED_MODEL);

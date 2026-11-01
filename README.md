@@ -75,6 +75,10 @@ git clone https://github.com/ddmfuhrmann/autonome.git && cd autonome
 docker compose up -d --wait     # postgres, ollama and the context; restarts with Docker
 ```
 
+On a Mac, the Ollama container runs on the CPU, and every save waits for its embeddings. To get
+embeddings about 11x faster on the GPU, use the Ollama installed on the host: see
+[embeddings on the host](docs/configuration.md#embeddings-on-the-host).
+
 **2. Install the plugin** in Claude Code:
 
 ```bash
