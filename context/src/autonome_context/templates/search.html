@@ -2,30 +2,27 @@
 {% import "_ui.html" as ui %}
 {% block title %}Search{% endblock %}
 {% block main %}
-<div class="page-head"><div class="page-head__text"><h1>Search</h1><p class="page-head__meta">Plans, handoffs and decisions in memory.</p></div></div>
+<header class="page-head">
+  <div class="page-head__text"><h1>Search</h1><p class="subtitle">Ask the project's memory: plans, handoffs and decisions. Same search the agents get.</p></div>
+</header>
 <form class="stack" role="search" method="get">
-  <div class="row">
-    <label class="sr-only" for="q">Query</label>
-    <input class="input input--lg" id="q" name="q" type="search" value="{{ q }}" placeholder="Why is the ledger append-only?" style="flex: 1 1 420px" autofocus>
-    <input type="hidden" name="mode" value="{{ mode }}">
-    <div class="seg" role="group" aria-label="Mode">{% for m in modes %}<button class="{{ 'is-active' if m == mode }}" type="submit" name="mode" value="{{ m }}"{% if m == mode %} aria-pressed="true"{% endif %}>{{ m|label }}</button>{% endfor %}</div>
+  <div class="searchline">
+    <label class="sr-only" for="q">Question</label>
+    <input class="input input--lg" id="q" name="q" type="search" value="{{ q }}" placeholder="Why is the ledger append-only?" autofocus>
     <button class="btn btn--primary btn--lg" type="submit">Search</button>
   </div>
-  <div class="row">
-    <label class="sr-only" for="type">Kind</label>
-    <select class="select" name="type" id="type"><option value="">All kinds</option>{% for t in types %}<option value="{{ t }}" {{ 'selected' if filters.get('type') == t }}>{{ t }}</option>{% endfor %}</select>
-    <label class="sr-only" for="strategy">Strategy</label>
-    <select class="select" name="strategy" id="strategy">{% for s in strategies %}<option {{ 'selected' if s == strategy }}>{{ s }}</option>{% endfor %}</select>
-    <label class="sr-only" for="feature">Feature</label><input class="input" type="text" name="feature" id="feature" value="{{ filters.get('feature','') }}" placeholder="feature">
-    <label class="sr-only" for="layer">Layer</label><input class="input" type="text" name="layer" id="layer" value="{{ filters.get('layer','') }}" placeholder="layer">
+  <div class="filters">
+    <span><label for="mode">mode</label><select name="mode" id="mode">{% for m in modes %}<option value="{{ m }}" {{ 'selected' if m == mode }}>{{ m|label|lower }}</option>{% endfor %}</select></span>
+    <span><label for="strategy">strategy</label><select name="strategy" id="strategy">{% for s in strategies %}<option {{ 'selected' if s == strategy }}>{{ s }}</option>{% endfor %}</select></span>
+    <span><label for="type">type</label><select name="type" id="type"><option value="">any</option>{% for t in types %}<option value="{{ t }}" {{ 'selected' if filters.get('type') == t }}>{{ t }}</option>{% endfor %}</select></span>
+    <span><label for="feature">feature</label><input type="text" name="feature" id="feature" value="{{ filters.get('feature','') }}" placeholder="any" size="12"></span>
+    <span><label for="layer">layer</label><input type="text" name="layer" id="layer" value="{{ filters.get('layer','') }}" placeholder="any" size="10"></span>
   </div>
 </form>
 {% if q %}
-<div class="card">
-  <div class="card__head"><h2 class="card__title">{{ hits|length }} documents</h2><span class="push muted mono" style="font-size: 12px">{{ mode }} · {{ strategy }}</span></div>
-  <div class="card__body">
-    {% for h in hits %}{% include "_hit.html" %}{% if not loop.last %}<hr>{% endif %}{% else %}<p class="empty">Nothing found.</p>{% endfor %}
-  </div>
-</div>
+<section>
+  <h2>{{ hits|length }} document{{ 's' if hits|length != 1 }} <span class="n mono">{{ mode }} · {{ strategy }}</span></h2>
+  <div class="entries">{% for h in hits %}{% include "_hit.html" %}{% else %}<p class="empty">Nothing found.</p>{% endfor %}</div>
+</section>
 {% endif %}
 {% endblock %}

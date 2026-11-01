@@ -2,30 +2,73 @@
 {% import "_ui.html" as ui %}
 {% block title %}Config{% endblock %}
 {% block main %}
-<div class="page-head">
-  <div class="page-head__text"><h1>Config</h1>
-    <p class="page-head__meta">{% if doc %}<span>version {{ doc.version }} · saved {{ doc.updated_at|ago }}</span>{% else %}<span>not saved yet: an example below</span>{% endif %}<span>validated on save</span></p></div>
-</div>
-<p class="muted" style="font-size: 13px; max-width: 72ch">The rules live in the project's repo; this decides which commands run, in what order, and how strictly. Only editable here, never by an agent. Every save is a new version.</p>
-<form class="stack" method="post">
-  <label class="sr-only" for="yaml">Gate config (YAML)</label>
-  <textarea class="textarea" name="yaml" id="yaml" spellcheck="false" style="min-height: 420px">{{ text }}</textarea>
+<header class="page-head">
+  <div class="page-head__text"><h1>Gate configuration</h1>
+    <p class="subtitle">Which commands run, in what order, and how strictly. The rules live in the project's repo; only editable here, never by an agent. Every save is a new version.</p></div>
+</header>
+<form class="section" method="post">
+  <div class="section-head">
+    <h2>gates.yaml <span class="n">{% if doc %}v{{ doc.version }} · saved {{ doc.updated_at|ago }}{% else %}not saved yet: an example below{% endif %}</span></h2>
+  </div>
   {% if not doc and not error %}<div class="callout callout--block"><div class="wrap"><strong>Not saved yet.</strong> The text below is an example for a Maven project, not this project's config. Replace it with this project's gates and save: until then autonome is not active here (no briefing, no handoffs, no conduct).</div></div>
   {% endif %}
-  {% if error %}<div class="callout callout--block"><div class="wrap">{{ error }}</div></div>
-  {% elif summary %}<div class="callout callout--ok"><div>Valid · {{ summary }}.</div></div>{% endif %}
-  <div class="row"><button class="btn btn--primary" type="submit">Save new version</button><a class="btn btn--ghost" href="/ui/p/{{ project }}/config">Revert</a>
-    <span class="muted" style="font-size: 12px">Applies to tasks that start after saving.</span></div>
+  <div class="yaml">
+    <pre class="yaml__lines" aria-hidden="true"></pre>
+    <div class="yaml__box">
+      <pre aria-hidden="true"></pre>
+      <label class="sr-only" for="yaml">Gate config (YAML)</label>
+      <textarea name="yaml" id="yaml" spellcheck="false" autocapitalize="off" autocomplete="off">{{ text }}</textarea>
+    </div>
+  </div>
+  {% if error %}<div class="callout callout--block"><div class="wrap"><strong>Not valid.</strong> {{ error }}</div></div>
+  {% elif summary %}<p class="footnote"><span style="color: var(--ok)">Valid</span> · {{ summary }}.</p>{% endif %}
+  <div class="row" style="padding-top: 10px">
+    <button class="btn btn--primary" type="submit">Save as v{{ (doc.version + 1) if doc else 1 }}</button>
+    <a class="btn btn--ghost" href="/ui/p/{{ project }}/config">Revert</a>
+    <span class="footnote">Validated against the schema before saving. Applies to tasks that start after saving.</span>
+  </div>
 </form>
-<section class="stack">
-  <div class="section-head"><h2>Recent gate runs</h2></div>
-  <div class="table-wrap"><table class="table">
-    <thead><tr><th>When</th><th>Session</th><th>Task</th><th>Gate</th><th>Result</th><th class="num">ms</th></tr></thead>
-    <tbody>{% for r in runs %}<tr><td class="mono muted" style="font-size: 12px">{{ r.created_at|when }}</td><td><code>{{ r.session_id[:8] }}</code></td>
-      <td>{% if r.task_id %}<a class="mono" href="/ui/p/{{ project }}/documents/{{ r.task_id }}">{{ r.task_id|ref('task') }}</a>{% endif %}</td>
-      <td><span class="tag tag--gate">{{ r.gate }}</span></td><td>{{ ui.st('passed' if r.passed else 'failed', sm=true) }}</td>
-      <td class="num">{{ r.duration_ms }}</td></tr>
-    {% else %}<tr><td colspan="6" class="empty">No gate has run yet.</td></tr>{% endfor %}</tbody>
-  </table></div>
+<script>
+// YAML highlighting: the textarea stays the form field, transparent over a <pre> repainted on input.
+(() => {
+  const ta = document.getElementById("yaml"), pre = ta.previousElementSibling.previousElementSibling, nums = document.querySelector(".yaml__lines");
+  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  const value = (v) => /^\s*(true|false|null|~|-?\d+(\.\d+)?)\s*$/.test(v) ? `<span class="y-lit">${esc(v)}</span>` : esc(v);
+  const line = (l) => {
+    const c = l.search(/(^|\s)#/);
+    const code = c < 0 ? l : l.slice(0, c), note = c < 0 ? "" : `<span class="y-com">${esc(l.slice(c))}</span>`;
+    const m = code.match(/^(\s*)(- )?([^\s:#][^:#]*?)(:)(\s.*|$)/);
+    if (m) return `${m[1]}${m[2] ? '<span class="y-dash">-</span> ' : ""}<span class="y-key">${esc(m[3])}</span>:${value(m[5])}${note}`;
+    const d = code.match(/^(\s*)- (.*)$/);
+    return (d ? `${d[1]}<span class="y-dash">-</span> ${value(d[2])}` : esc(code)) + note;
+  };
+  const paint = () => {
+    const lines = ta.value.split("\n");
+    pre.innerHTML = lines.map(line).join("\n") + "\n";
+    nums.textContent = lines.map((_, i) => i + 1).join("\n");
+    ta.style.height = "auto";
+    ta.style.height = `${Math.max(420, ta.scrollHeight)}px`;
+  };
+  ta.addEventListener("input", paint);
+  ta.addEventListener("scroll", () => { pre.scrollLeft = ta.scrollLeft; });
+  paint();
+})();
+</script>
+
+<section>
+  <h2>Recent gate runs</h2>
+  <div class="entries entries--num">
+    <div class="entry entry--head" style="--cols: 100px 90px 70px minmax(0, 1fr) 70px 70px"><span>when</span><span>session</span><span>task</span><span>gate</span><span>result</span><span class="r">time</span></div>
+    {% for r in runs %}
+    <div class="entry entry--dense" style="--cols: 100px 90px 70px minmax(0, 1fr) 70px 70px">
+      <span class="muted" title="{{ r.created_at|when }}">{{ r.created_at|when }}</span>
+      <span class="mono muted">{{ r.session_id[:8] }}</span>
+      <span>{% if r.task_id %}<a class="mono" href="/ui/p/{{ project }}/documents/{{ r.task_id }}">{{ r.task_id|ref('task') }}</a>{% endif %}</span>
+      <span class="mono trunc">{{ r.gate }}</span>
+      {{ ui.st('passed' if r.passed else 'failed') }}
+      <span class="r muted">{{ '%.1f s'|format(r.duration_ms / 1000) if r.duration_ms and r.duration_ms >= 1000 else (r.duration_ms or 0) ~ ' ms' }}</span>
+    </div>
+    {% else %}<p class="empty">No gate has run yet.</p>{% endfor %}
+  </div>
 </section>
 {% endblock %}

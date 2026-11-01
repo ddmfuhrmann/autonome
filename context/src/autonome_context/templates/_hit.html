@@ -1,6 +1,10 @@
-<div class="stack stack--sm">
-  <div class="row"><span class="tag">{{ h.type }}</span><a href="/ui/p/{{ project }}/documents/{{ h.document_id }}"><span class="id">{{ h.document_id|ref(h.type) }}</span> {{ (h.title or h.section)|truncate(90) }}</a>
-    {% if h.status %}<span class="st st--{{ h.status }} st--sm">{{ h.status|label }}</span>{% endif %}{% if h.feature %}<span class="tag tag--feature">{{ h.feature }}</span>{% endif %}<span class="spacer"></span>
-    <span class="mono muted" style="font-size: 12px">{{ h.section }} · score {{ '%.4f'|format(h.score) }}{% for src, r in h.ranks.items() %} · {{ src }} #{{ r }}{% endfor %}</span></div>
-  <p class="wrap muted" style="font-size: 13px">{{ (h.snippet or h.text)|truncate(500) }}</p>
-</div>
+{# One search hit: title line with the score on the right, then the chunk as prose. #}
+<a class="entry" href="/ui/p/{{ project }}/documents/{{ h.document_id }}">
+  <span class="entry__main">
+    <span class="row" style="gap: 4px 10px; align-items: baseline"><span class="entry__title"><span class="id">{{ h.document_id|ref(h.type) }}</span> {{ (h.title or h.section)|truncate(90) }}</span>
+      <span class="entry__meta">{{ h.type }}{% if h.feature %} · {{ h.feature }}{% endif %} · § {{ h.section }}</span>
+      {% if h.status %}{{ ui.st(h.status, sm=true) }}{% endif %}</span>
+    <span class="prose prose--sm" style="font-size: 15px; max-width: 760px; color: var(--fg-2); margin-top: 6px">{{ (h.snippet or h.text)|truncate(500) }}</span>
+  </span>
+  <span class="entry__side mono" style="font-size: 12px">{{ '%.4f'|format(h.score) }}{% for src, r in h.ranks.items() %} · {{ src }} #{{ r }}{% endfor %}</span>
+</a>

@@ -1,22 +1,17 @@
-{# A living doc: prose sections in markdown, diagrams in mermaid. #}
+{# A living doc: prose sections in markdown, diagrams in mermaid. Set `meta=false` when the page head already says version and date. #}
 {% set b = doc.body %}
-<div class="row muted" style="font-size: 12px"><span class="tag">version {{ doc.version }}</span><span>updated {{ doc.updated_at|ago }}</span>
-  {% if doc.commit_sha %}<span class="mono">at {{ doc.commit_sha[:10] }}</span>{% endif %}</div>
+{% if meta is not defined or meta %}<p class="footnote">Version {{ doc.version }} · updated {{ doc.updated_at|ago }}{% if doc.commit_sha %} at <span class="mono">{{ doc.commit_sha[:10] }}</span>{% endif %}</p>{% endif %}
 {% for key, label in [('overview', 'Overview'), ('how_it_works', 'How it works')] if b.get(key) %}
-<section class="card"><div class="card__head"><h2 class="card__title">{{ label }}</h2></div><div class="card__body prose">{{ b[key]|md }}</div></section>
+<section><h2>{{ label }}</h2><div class="prose">{{ b[key]|md }}</div></section>
 {% endfor %}
-{% if b.get('diagrams') %}
-<div class="stack">
-{% for d in b.diagrams %}<section class="card"><div class="card__head"><h2 class="card__title">{{ d.title }}</h2></div><div class="card__body"><pre class="mermaid">{{ d.mermaid }}</pre></div></section>{% endfor %}
-</div>
-{% endif %}
-<div class="grid grid--2">
+{% for d in b.get('diagrams') or [] %}
+<section><h2>{{ d.title }}</h2><pre class="mermaid">{{ d.mermaid }}</pre></section>
+{% endfor %}
 {% for key, label in [('entities', 'Entities'), ('interfaces', 'Interfaces'), ('decisions_in_effect', 'Decisions in effect'), ('known_issues', 'Known issues')] if b.get(key) %}
-<section class="card"><div class="card__head"><h2 class="card__title">{{ label }}</h2></div><div class="card__body prose"><ul>{% for i in b[key] %}<li>{{ i|mdi }}</li>{% endfor %}</ul></div></section>
+<section><h2>{{ label }}</h2><div class="prose"><ul>{% for i in b[key] %}<li>{{ i|mdi }}</li>{% endfor %}</ul></div></section>
 {% endfor %}
-</div>
 {% if b.get('development') %}
-<section class="card card--dev" aria-labelledby="dev-h"><div class="card__head"><h2 class="card__title" id="dev-h">Development</h2>
-  <span class="push muted" style="font-size: 12px">running, testing and the gates; not part of the product</span></div>
-  <div class="card__body prose">{{ b.development|md }}</div></section>
+<section aria-labelledby="dev-h"><h2 id="dev-h">Development</h2>
+  <p class="footnote">Running, testing and the gates; not part of the product.</p>
+  <div class="prose prose--sm">{{ b.development|md }}</div></section>
 {% endif %}

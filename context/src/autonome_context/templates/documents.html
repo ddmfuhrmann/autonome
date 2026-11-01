@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% import "_ui.html" as ui %}
 {% block title %}Documents{% endblock %}
+{% block main_class %} main--wide{% endblock %}
 {% block topbar %}<span class="mono muted" style="font-size: 12px">{{ total }}{{ '+' if total >= 200 }} documents</span>{% endblock %}
 
 {# One facet: values with counts; a click toggles the value in the URL. Long lists fold after `show`. #}
@@ -38,7 +39,7 @@
 
 {% block main %}
 <div class="page-head">
-  <div class="page-head__text"><h1>Documents</h1><p class="page-head__meta">Everything in this project’s memory, newest first.</p></div>
+  <div class="page-head__text"><h1>Documents</h1><p class="subtitle">Everything in this project’s memory, newest first.</p></div>
 </div>
 
 <form class="qbar" role="search" method="get">

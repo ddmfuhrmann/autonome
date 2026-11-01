@@ -2,38 +2,71 @@
 {% import "_ui.html" as ui %}
 {% block title %}Features{% endblock %}
 {% block main %}
-<div class="page-head"><div class="page-head__text"><h1>Features</h1><p class="page-head__meta">Each feature keeps a living doc rebuilt from plans and handoffs.</p></div></div>
-{% macro cards(list) %}
-<div class="grid grid--3">
+{% set full = request.query_params.get('full') %}
+{% set tooling = features|selectattr('slug', 'in', tooling_slugs)|list %}
+{% set product = features|rejectattr('slug', 'in', tooling_slugs)|list %}
+{% macro rows(list) %}
+<div class="entries entries--num">
+  <div class="entry entry--head" style="--cols: minmax(0, 1fr) 72px 72px 72px 110px 72px" aria-hidden="true">
+    <span></span><span class="r">handoffs</span><span class="r">tasks</span><span class="r">decisions</span><span>adherence</span><span class="r">activity</span>
+  </div>
   {% for f in list %}{% set p = latest_plan.get(f.slug) %}{% set doc = docs.get(f.slug) %}
-  <a class="card{{ ' card--live' if p and p.status == 'approved' }}" href="/ui/p/{{ project }}/features/{{ f.slug }}">
-    <div class="card__head"><span class="card__title">{{ f.slug }}</span>{% if p %}<span class="push">{{ ui.st(p.status, sm=true) }}</span>{% endif %}</div>
-    <div class="card__body">
-      {% if doc and doc.body.overview %}<p class="muted" style="font-size: 13px">{{ doc.body.overview|striptags|truncate(140) }}</p>{% endif %}
-      <dl class="kv">
-        <dt>Adherence</dt>
-        {% if f.adherence is not none %}<dd><span class="bar"><span class="bar__track"><span class="bar__fill{{ ' bar__fill--ok' if f.adherence >= 0.8 }}" style="width: {{ (f.adherence * 100)|round }}%"></span></span><span class="bar__value">{{ '%.2f'|format(f.adherence) }}</span></span></dd>
-        {% else %}<dd class="muted">no handoffs yet</dd>{% endif %}
-        <dt>Tasks</dt><dd class="num">{{ f.tasks }}</dd><dt>Handoffs</dt><dd class="num">{{ f.handoffs }}</dd>{% if f.decisions %}<dt>Decisions</dt><dd class="num">{{ f.decisions }}</dd>{% endif %}
-        <dt>Living doc</dt><dd>{{ 'yes' if f.documented else 'not yet' }}</dd>
-        <dt>Last activity</dt><dd>{{ f.last_activity|ago if f.last_activity else '—' }}</dd>
-      </dl>
-    </div>
+  <a class="entry" style="--cols: minmax(0, 1fr) 72px 72px 72px 110px 72px" href="/ui/p/{{ project }}/features/{{ f.slug }}">
+    <span class="entry__main">
+      <span class="entry__title">{{ f.slug }}</span>
+      <span class="entry__meta">{% if doc and doc.body.overview %}{{ doc.body.overview|striptags|replace('**', '')|replace('`', '')|truncate(110) }}{% elif f.documented %}living doc v{{ doc.version if doc else '' }}{% else %}no living doc yet · written after the next delivery{% endif %}
+        {%- if p %} · {{ p|ref }} {{ ui.st(p.status, sm=true) }}{% endif %}</span>
+    </span>
+    <span class="r">{{ f.handoffs }}</span><span class="r">{{ f.tasks }}</span><span class="r">{{ f.decisions }}</span>
+    {% if f.adherence is not none %}{% set cls = 'ok' if f.adherence >= 0.8 else ('warn' if f.adherence >= 0.6 else 'bad') %}
+    <span class="bar"><span class="bar__track"><span class="bar__fill bar__fill--{{ cls }}" style="width: {{ (f.adherence * 100)|round }}%"></span></span><span class="bar__value">{{ '%.2f'|format(f.adherence) }}</span></span>
+    {% else %}<span class="faint">—</span>{% endif %}
+    <span class="r entry__side">{{ (f.last_activity|ago).replace(' ago', '') if f.last_activity else '—' }}</span>
   </a>
-  {% else %}<p class="empty">No features yet.</p>{% endfor %}
+  {% endfor %}
 </div>
 {% endmacro %}
-{% set tooling = features|selectattr('slug', 'in', tooling_slugs)|list %}
-{{ cards(features|rejectattr('slug', 'in', tooling_slugs)|list) }}
-{% if tooling %}
-<section class="stack">
-  <div class="section-head"><h2>Development</h2><span class="muted" style="font-size: 13px">features that set up gates and tooling, not part of the product</span></div>
-  {{ cards(tooling) }}
+
+<header class="page-head">
+  <div class="page-head__text">
+    <h1>{{ project }}</h1>
+    <p class="subtitle">{{ product|length }} feature{{ 's' if product|length != 1 }}{% if tooling %} · {{ tooling|length }} for development{% endif %}{% if overview %} · system overview v{{ overview.version }} · updated {{ overview.updated_at|ago }}{% if overview.commit_sha %} at <span class="mono" style="font-size: 14px">{{ overview.commit_sha[:8] }}</span>{% endif %}{% endif %}</p>
+  </div>
+</header>
+
+{% if overview %}
+{% if full %}
+<div class="stack stack--lg">
+  {% with doc = overview, meta = false %}{% include "_doc.html" %}{% endwith %}
+  <a class="more" href="?">Show the short overview</a>
+</div>
+{% else %}
+<section>
+  <h2>Overview</h2>
+  <div class="prose">{{ (overview.body.overview or '').split('\n\n')[0]|md }}</div>
+  <a class="more accent" href="?full=1">Read the full overview{{ ', with diagrams' if overview.body.diagrams }}</a>
 </section>
 {% endif %}
-<section class="stack">
-  <div class="section-head"><h2>System overview</h2></div>
-  {% if overview %}{% with doc = overview %}{% include "_doc.html" %}{% endwith %}
-  {% else %}<p class="empty">No system overview yet. The scribe writes it after the first delivery, or run <code>autonome-docs --overview</code> in the repo.</p>{% endif %}
+{% endif %}
+
+<section>
+  <h2>Features</h2>
+  {% if product %}{{ rows(product) }}{% else %}<p class="empty">No features yet.</p>{% endif %}
 </section>
+
+{% if tooling %}
+<section>
+  <h2>Development</h2>
+  <p class="footnote">Features that set up gates and tooling, not part of the product.</p>
+  {{ rows(tooling) }}
+</section>
+{% endif %}
+
+{% if overview and not full and overview.body.development %}
+<section aria-labelledby="dev-h"><h2 id="dev-h">Development</h2>
+  <p class="footnote">Running, testing and the gates; not part of the product.</p>
+  <div class="prose prose--sm">{{ overview.body.development|md }}</div></section>
+{% endif %}
+
+{% if not overview %}<p class="footnote">No system overview yet. The scribe writes it after the first delivery, or run <span class="mono">autonome-docs --overview</span> in the repo.</p>{% endif %}
 {% endblock %}

@@ -4,71 +4,64 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}autonome{% endblock %}{% if project %} · {{ project }}{% endif %} · autonome</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
 <link rel="stylesheet" href="/static/app.css?v={{ asset_v }}">
 {% block head %}{% endblock %}
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
-<script>document.addEventListener("DOMContentLoaded", () => window.mermaid && mermaid.initialize({ startOnLoad: true, theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "neutral" }));</script>
+<script>document.addEventListener("DOMContentLoaded", () => window.mermaid && mermaid.initialize({ startOnLoad: true, theme: "dark", themeVariables: { background: "#121212", fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif" } }));</script>
 </head>
 <body>
-{% macro nav(slug, text, path) -%}
-<a class="side__link" href="/ui/p/{{ project }}/{{ slug }}"{% if (nav_section or request.url.path.split('/')[4:5]|first) == slug %} aria-current="page"{% endif %}><svg class="icon-svg" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{{ path|safe }}</svg><span>{{ text }}</span>{{ caller() if caller }}</a>
+{% macro nav(slug, text) -%}
+<a class="side__link" href="/ui/p/{{ project }}/{{ slug }}"{% if (nav_section or request.url.path.split('/')[4:5]|first) == slug %} aria-current="page"{% endif %}>{{ text }}{{ caller() if caller }}</a>
 {%- endmacro %}
 <div class="app">
+{% if project %}
 <aside class="side" aria-label="Primary">
-  <a class="brand" href="/ui"><svg class="brand-mark" viewBox="0 0 20 20" aria-hidden="true"><path d="M7.2 2.5h5.6l3.6 15H3.6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M10 15.2L13.6 5" stroke="var(--brass)" stroke-width="1.6" stroke-linecap="round"/><circle cx="12.5" cy="8.1" r="1.6" fill="var(--brass)"/><path d="M5.2 13.5h9.6" stroke="currentColor" stroke-width="1.2"/></svg><span>auto<b>nome</b></span></a>
-  {% if project %}
-  <a class="side__project" href="/ui" title="Switch project"><span>{{ project }}</span><span class="chev" aria-hidden="true">⌄</span></a>
+  <div class="side__head">
+    <a class="brand" href="/ui">autonome</a>
+    <a class="side__project" href="/ui" title="Switch project">{{ project }}</a>
+  </div>
   <nav class="side__nav">
-    <div class="side__group">
-      {{ nav('setlist', 'Setlist', '<path d="M2.5 3.5h3v9h-3zM6.5 3.5h3v6h-3zM10.5 3.5h3v4h-3z"/>') }}
-      {% call nav('approvals', 'Approvals', '<path d="M2.2 11.5a5.8 5.8 0 0 1 11.6 0"/><circle cx="8" cy="10.6" r="1.3" fill="currentColor" stroke="none"/>') %}<span id="side-count" data-live>{% if side.waiting %}<span class="side__count side__count--attn">{{ side.waiting }}<span class="sr-only"> waiting</span></span>{% endif %}{% if side.to_hear %}<span class="side__count" title="merged, review when you like">{{ side.to_hear }}<span class="sr-only"> to hear</span></span>{% endif %}</span>{% endcall %}
-      {{ nav('waves', 'Waves', '<circle cx="3.5" cy="8" r="1.8"/><circle cx="12.5" cy="4" r="1.8"/><circle cx="12.5" cy="12" r="1.8"/><path d="M5.2 7.3l5.6-2.5M5.2 8.7l5.6 2.5"/>') }}
-    </div>
-    <div class="side__group"><span class="label">Score</span>
-      {{ nav('features', 'Features', '<path d="M2.5 2.5h4.5v4.5h-4.5zM9 2.5h4.5v4.5H9zM2.5 9h4.5v4.5h-4.5zM9 9h4.5v4.5H9z"/>') }}
-      {{ nav('insights', 'Insights', '<path d="M2.5 13.5h11M4 11V8M7 11V4.5M10 11V6.5M13 11V3"/>') }}
-      {{ nav('triage', 'Verdicts', '<path d="M3 8.5l3 3 7-7"/>') }}
+    <div class="side__group"><span class="label">Process</span>
+      {{ nav('features', 'Features') }}
+      {{ nav('setlist', 'Setlist') }}
+      {% call nav('approvals', 'Approvals') %}<span id="side-count" data-live>{% if side.waiting %}<span class="side__count side__count--attn">{{ side.waiting }}<span class="sr-only"> waiting</span></span>{% endif %}{% if side.to_hear %}<span class="side__count" title="merged, review when you like">{{ side.to_hear }}<span class="sr-only"> to hear</span></span>{% endif %}</span>{% endcall %}
+      {{ nav('waves', 'Waves') }}
+      {{ nav('triage', 'Verdicts') }}
     </div>
     <div class="side__group"><span class="label">Memory</span>
-      {{ nav('search', 'Search', '<circle cx="7" cy="7" r="4.3"/><path d="M10.2 10.2l3.3 3.3"/>') }}
-      {{ nav('documents', 'Documents', '<path d="M4 2.5h5l3 3v8H4z"/><path d="M9 2.5v3h3"/>') }}
-      {{ nav('lab', 'Lab', '<path d="M6 2.5h4M6.8 2.5v4L3 12.6a.9.9 0 0 0 .8 1.4h8.4a.9.9 0 0 0 .8-1.4L9.2 6.5v-4"/>') }}
+      {{ nav('search', 'Search') }}
+      {{ nav('documents', 'Documents') }}
+      {{ nav('insights', 'Insights') }}
     </div>
-    <div class="side__group"><span class="label">Setup</span>
-      {{ nav('conventions', 'Conventions', '<path d="M3 2.5h7.5L13 5v8.5H3z"/><path d="M5.5 7h5M5.5 9.5h5M5.5 12h3"/>') }}
-      {{ nav('config', 'Config', '<circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v1.8M8 12.4v1.8M1.8 8h1.8M12.4 8h1.8M3.6 3.6l1.3 1.3M11.1 11.1l1.3 1.3M3.6 12.4l1.3-1.3M11.1 4.9l1.3-1.3"/>') }}
+    <div class="side__group"><span class="label">Tuning</span>
+      {{ nav('conventions', 'Conventions') }}
+      {{ nav('config', 'Config') }}
+      {{ nav('lab', 'Lab') }}
     </div>
   </nav>
-  <div class="side__foot" id="side-foot" data-live>
+  <div class="side__foot" id="side-foot" data-live role="status">
     {% if side.playing %}
-    <div class="conductor" role="status">
-      <div class="conductor__head">{{ ui.eq() }}Conducting{% if side.wave %} {{ side.wave|ref }}{% endif %}</div>
-      <span>{{ side.playing }} playing · {{ side.on_hold }} on hold · {{ side.waiting }} waiting on you</span>
-    </div>
+    <span class="is-live">{{ ui.eq() }} Conducting{% if side.wave %} {{ side.wave|ref }}{% endif %}</span>
+    <span>{{ side.playing }} playing · {{ side.on_hold }} on hold · {{ side.waiting }} waiting on you</span>
     {% else %}
-    <div class="conductor conductor--idle" role="status">
-      <div class="conductor__head">Nothing playing</div>
-      <span>{{ side.pending }} pending · {{ side.waiting }} waiting on you</span>
-      <span class="mono">autonome conduct --project {{ project }}</span>
-    </div>
+    <span>Nothing playing · {{ side.pending }} pending</span>
     {% endif %}
+    <span>{{ side.handoffs }} handoff{{ 's' if side.handoffs != 1 }}</span>
+    {% if side.last_handoff %}<span>Scribe ran {{ side.last_handoff|ago }}</span>{% endif %}
   </div>
-  {% endif %}
 </aside>
-<main class="main">
+{% endif %}
+<main class="{{ 'main' if project else 'home' }}{% block main_class %}{% endblock %}">
+  {% set crumbs = self.crumbs()|trim %}{% set topbar = self.topbar()|trim %}
+  {% if crumbs or topbar %}
   <header class="topbar">
-    <nav class="crumbs" aria-label="Breadcrumb">
-      {% if project %}<a href="/ui/p/{{ project }}">{{ project }}</a><span class="sep">/</span>{% endif %}
-      {% block crumbs %}<span aria-current="page">{{ self.title() }}</span>{% endblock %}
-    </nav>
+    <nav class="crumbs" aria-label="Breadcrumb">{% block crumbs %}{% endblock %}</nav>
     <span class="spacer"></span>
     {% block topbar %}{% endblock %}
   </header>
-  <div class="page">
-    <div id="notices" aria-live="polite">{% if request.query_params.done %}<p class="notice notice--ok" role="status">{{ request.query_params.done }}</p>{% endif %}</div>
-    {% block main %}{% endblock %}
-  </div>
+  {% endif %}
+  <div id="notices" aria-live="polite">{% if request.query_params.done %}<p class="notice notice--ok" role="status">{{ request.query_params.done }}</p>{% endif %}</div>
+  {% block main %}{% endblock %}
 </main>
 </div>
 <script>

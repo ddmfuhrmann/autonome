@@ -2,64 +2,87 @@
 {% import "_ui.html" as ui %}
 {% block title %}Insights{% endblock %}
 {% block main %}
-<div class="page-head">
-  <div class="page-head__text"><h1>Insights</h1><p class="page-head__meta">How the process is going, from {{ i.handoffs }} handoffs and every recorded gate run. What <span class="mono">tune</span> reads to propose gates and conventions.</p></div>
-  <div class="page-head__actions"><div class="cmdline">/autonome:tune</div></div>
+{% macro secs(ms) %}{{ '%.1f s'|format(ms / 1000) if ms >= 1000 else (ms|round|int) ~ ' ms' }}{% endmacro %}
+<header class="page-head">
+  <div class="page-head__text"><h1>Insights</h1>
+    <p class="subtitle">How the process is going, from {{ i.handoffs }} handoffs and every recorded gate run. <span class="mono" style="font-size: 15px">/autonome:tune</span> reads the same data to propose gates and conventions.</p></div>
+</header>
+<div class="stats">
+  <div class="stat"><span class="stat__value">{{ i.task_outcomes.get('done', 0) }}</span><span class="stat__label">tasks done</span>
+    <span class="stat__delta">{{ i.task_outcomes.values()|sum }} in all{% for s, n in i.task_outcomes.items() if s not in ('done', 'blocked') %} · {{ n }} {{ s }}{% endfor %}</span></div>
+  <div class="stat"><span class="stat__value">{{ i.task_outcomes.get('blocked', 0) }}</span><span class="stat__label">blocked</span></div>
+  <div class="stat"><span class="stat__value">{{ '%.1f'|format(i.encores_per_task.avg) }}</span><span class="stat__label">encores per task, max {{ i.encores_per_task.max }}</span><span class="stat__delta">over {{ i.encores_per_task.tasks }} tasks</span></div>
+  <div class="stat"><span class="stat__value">{{ gate_failures }}</span><span class="stat__label">gate failures</span></div>
+  <div class="stat"><span class="stat__value">{{ '%.2f'|format(avg_adherence) if avg_adherence is not none else '—' }}</span><span class="stat__label">adherence overall</span><span class="stat__delta">plan vs handoff</span></div>
 </div>
-<div class="grid grid--4">
-  <div class="stat"><span class="label">Avg adherence</span><span class="stat__value">{{ '%.2f'|format(avg_adherence) if avg_adherence is not none else '—' }}</span><span class="stat__delta">plan vs handoff</span></div>
-  <div class="stat"><span class="label">Encores / task</span><span class="stat__value">{{ '%.2f'|format(i.encores_per_task.avg) }}</span><span class="stat__delta">{{ i.encores_per_task.tasks }} tasks · max {{ i.encores_per_task.max }}</span></div>
-  <div class="stat"><span class="label">Gate failures</span><span class="stat__value">{{ gate_failures }}</span><span class="stat__delta">{% for g in i.gates|sort(attribute='failures', reverse=true) if g.failures %}{{ g.failures }} {{ g.gate }}{{ ' · ' if not loop.last }}{% endfor %}</span></div>
-  <div class="stat"><span class="label">Tasks</span><span class="stat__value">{{ i.task_outcomes.values()|sum }}</span><span class="stat__delta">{% for s, n in i.task_outcomes.items() %}{{ n }} {{ s }}{{ ' · ' if not loop.last }}{% endfor %}</span></div>
-</div>
-<div class="grid grid--2">
-  <section class="card">
-    <div class="card__head"><h2 class="card__title">Adherence by feature × layer</h2></div>
-    <div class="card__body card__body--flush" style="overflow-x: auto">
-      {% if grid %}<table class="table"><thead><tr><th>Feature</th>{% for l in layers %}<th>{{ l }}</th>{% endfor %}</tr></thead>
-      <tbody>{% for f, row in grid.items() %}<tr><td>{{ f }}</td>{% for l in layers %}<td class="mono{{ ' muted' if l not in row }}">{{ '%.2f'|format(row[l]) if l in row else '—' }}</td>{% endfor %}</tr>{% endfor %}</tbody></table>
-      {% else %}<p class="empty" style="padding: 16px">No scored handoffs.</p>{% endif %}
+
+<section>
+  <h2>Friction that repeats <span class="n">from handoffs</span></h2>
+  <div class="entries">
+    {% for c in i.friction_clusters %}
+    <div class="entry" style="--cols: minmax(0, 1fr)">
+      <div class="entry__main">
+        <p class="prose prose--sm" style="font-size: 15px; color: var(--fg)">{{ c.example }}</p>
+        <span class="entry__meta">{{ c.size }} mention{{ 's' if c.size != 1 }}{% if c.features %} · {{ c.features|join(', ') }}{% endif %} ·
+          {% for h in c.handoffs %}<a class="mono" href="/ui/p/{{ project }}/documents/{{ h }}">{{ h|ref('handoff') }}</a> {% endfor %}</span>
+      </div>
     </div>
-  </section>
-  <section class="card">
-    <div class="card__head"><h2 class="card__title">Gates</h2></div>
-    <div class="card__body card__body--flush" style="overflow-x: auto">
-      <table class="table"><thead><tr><th>Gate</th><th class="num">Runs</th><th class="num">Failures</th><th class="num">Avg ms</th></tr></thead>
-      <tbody>{% for g in i.gates %}<tr><td><span class="tag tag--gate">{{ g.gate }}</span></td><td class="num">{{ g.runs }}</td><td class="num">{{ g.failures }}</td><td class="num">{{ g.avg_ms }}</td></tr>
-      {% else %}<tr><td colspan="4" class="empty">No gate runs.</td></tr>{% endfor %}</tbody></table>
-    </div>
-  </section>
-</div>
-<section class="card">
-  <div class="card__head"><h2 class="card__title">Friction that repeats</h2><span class="push muted" style="font-size: 12px">from handoffs</span></div>
-  <div class="card__body card__body--flush" style="overflow-x: auto">
-    <table class="table"><thead><tr><th>Example</th><th class="num">Mentions</th><th>Features</th><th>Handoffs</th></tr></thead>
-    <tbody>{% for c in i.friction_clusters %}<tr><td class="wrap">{{ c.example }}</td><td class="num">{{ c.size }}</td>
-      <td>{% for f in c.features %}<span class="tag tag--feature">{{ f }}</span>{% endfor %}</td>
-      <td class="mono">{% for h in c.handoffs %}<a href="/ui/p/{{ project }}/documents/{{ h }}">{{ h|ref('handoff') }}</a> {% endfor %}</td></tr>
-    {% else %}<tr><td colspan="4" class="empty">No friction seen in more than one handoff yet.</td></tr>{% endfor %}</tbody></table>
+    {% else %}<p class="empty">No friction seen in more than one handoff yet.</p>{% endfor %}
   </div>
 </section>
-<section class="card">
-  <div class="card__head"><h2 class="card__title">Failures that repeat across sessions</h2></div>
-  <div class="card__body">
-    {% for r in i.repeated_failures %}<div class="stack stack--sm"><div class="row"><span class="tag tag--gate">{{ r.gate }}</span><span class="muted" style="font-size: 13px">{{ r.times }} times in {{ r.sessions }} sessions</span></div><pre class="log">{{ r.last_output }}</pre></div>
+
+<section>
+  <h2 class="{{ 'is-stop' if i.repeated_failures }}">Failures that repeat across sessions</h2>
+  <div class="entries">
+    {% for r in i.repeated_failures %}
+    <div class="entry" style="--cols: minmax(0, 1fr)">
+      <div class="entry__main" style="gap: 10px">
+        <span class="entry__meta"><span class="tag tag--gate">{{ r.gate }}</span> · {{ r.times }} times in {{ r.sessions }} sessions</span>
+        <pre class="log">{{ r.last_output }}</pre>
+      </div>
+    </div>
     {% else %}<p class="empty">None.</p>{% endfor %}
   </div>
 </section>
-<div class="grid grid--2">
-  <section class="card">
-    <div class="card__head"><h2 class="card__title">Plan items by outcome</h2></div>
-    <div class="card__body card__body--flush" style="overflow-x: auto">
-      <table class="table"><thead><tr><th>Feature</th><th class="num">done</th><th class="num">partial</th><th class="num">changed</th><th class="num">skipped</th></tr></thead>
-      <tbody>{% for f, c in i.plan_items.items() %}<tr><td>{{ f }}</td>{% for s in ['done','partial','changed','skipped'] %}<td class="num">{{ c.get(s, 0) }}</td>{% endfor %}</tr>
-      {% else %}<tr><td colspan="5" class="empty">No plan items recorded.</td></tr>{% endfor %}</tbody></table>
+
+<div class="grid grid--2" style="gap: 48px 56px">
+  <section>
+    <h2>Gates</h2>
+    <div class="entries entries--num">
+      <div class="entry entry--head" style="--cols: minmax(0, 1fr) 56px 56px 70px"><span></span><span class="r">runs</span><span class="r">failed</span><span class="r">avg</span></div>
+      {% for g in i.gates %}
+      <div class="entry entry--dense" style="--cols: minmax(0, 1fr) 56px 56px 70px"><span class="mono">{{ g.gate }}</span><span class="r">{{ g.runs }}</span><span class="r{{ ' st--failed' if g.failures }}">{{ g.failures }}</span><span class="r muted">{{ secs(g.avg_ms or 0) }}</span></div>
+      {% else %}<p class="empty">No gate runs.</p>{% endfor %}
     </div>
   </section>
-  <section class="card">
-    <div class="card__head"><h2 class="card__title">Blocked</h2></div>
-    <div class="card__body">
-      {% for b in i.blocked %}<div class="stack stack--sm"><a href="/ui/p/{{ project }}/documents/{{ b.task_id }}"><span class="id">{{ b.task_id|ref('task') }}</span> {{ b.title }}</a><span class="muted wrap" style="font-size: 12px">{{ b.reason|truncate(200) }}</span></div>
+
+  <section>
+    <h2>Adherence, lowest first</h2>
+    <div class="entries entries--num">
+      <div class="entry entry--head" style="--cols: minmax(0, 1fr) 80px 110px 32px"><span></span><span>layer</span><span>avg</span><span class="r">n</span></div>
+      {% for a in i.adherence|sort(attribute='avg') %}{% set cls = 'ok' if a.avg >= 0.8 else ('warn' if a.avg >= 0.6 else 'bad') %}
+      <div class="entry entry--dense" style="--cols: minmax(0, 1fr) 80px 110px 32px"><span class="trunc">{{ a.feature }}</span><span class="muted trunc">{{ a.layer }}</span>
+        <span class="bar"><span class="bar__track"><span class="bar__fill bar__fill--{{ cls }}" style="width: {{ (a.avg * 100)|round }}%"></span></span><span class="bar__value">{{ '%.2f'|format(a.avg) }}</span></span><span class="r muted">{{ a.n }}</span></div>
+      {% else %}<p class="empty">No scored handoffs.</p>{% endfor %}
+    </div>
+  </section>
+
+  <section>
+    <h2>Plan items by outcome</h2>
+    <div class="entries entries--num">
+      <div class="entry entry--head" style="--cols: minmax(0, 1fr) repeat(4, 56px)"><span></span><span class="r">done</span><span class="r">partial</span><span class="r">changed</span><span class="r">skipped</span></div>
+      {% for f, c in i.plan_items.items() %}
+      <div class="entry entry--dense" style="--cols: minmax(0, 1fr) repeat(4, 56px)"><span class="trunc">{{ f }}</span>{% for s in ['done','partial','changed','skipped'] %}<span class="r{{ ' muted' if not c.get(s) }}">{{ c.get(s, 0) }}</span>{% endfor %}</div>
+      {% else %}<p class="empty">No plan items recorded.</p>{% endfor %}
+    </div>
+  </section>
+
+  <section>
+    <h2>Blocked</h2>
+    <div class="entries">
+      {% for b in i.blocked %}
+      <a class="entry entry--dense" style="--cols: minmax(0, 1fr)" href="/ui/p/{{ project }}/documents/{{ b.task_id }}">
+        <span class="entry__main"><span class="entry__title">{{ b.task_id|ref('task') }} {{ b.title }}</span><span class="entry__meta">{{ b.reason|truncate(200) }}</span></span></a>
       {% else %}<p class="empty">Nothing blocked.</p>{% endfor %}
     </div>
   </section>
