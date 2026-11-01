@@ -245,6 +245,61 @@ def test_a_playing_task_shows_what_its_session_is_doing(client, project, run_db,
     assert '<time datetime="' in log and 'data-fmt="clock"' in log
 
 
+def _task_in(run_db, indexer, project, *path):
+    async def go(conn):
+        plan_id = await plans.draft(conn, indexer, project, "live", [], PlanBody(title="L", goal="g", tasks=[TaskSpec(title="Routes", spec="s")]))
+        [task] = await plans.approve(conn, indexer, plan_id)
+        for to in path:
+            await rules.transition(conn, task, to, "runner")
+        await conn.commit()
+        return task
+    return run_db(go)
+
+
+def test_a_pending_task_page_refreshes_with_an_empty_live_section(client, project, run_db, indexer):
+    task = _task_in(run_db, indexer, project)
+    page = client.get(f"/ui/p/{project}/documents/{task}").text
+    assert 'data-refresh="3"' in page and 'class="live"' in page
+    assert 'id="live"' in page and "Waiting for the session's first step" in page
+
+
+def test_a_playing_task_page_swaps_the_header_the_live_log_and_the_runs(client, project, run_db, indexer):
+    task = _task_in(run_db, indexer, project, "playing")
+    page = client.get(f"/ui/p/{project}/documents/{task}").text
+    assert 'data-refresh="3"' in page and 'class="live"' in page
+    for region in ('id="task-meta" data-live', 'id="live" aria-labelledby="live-h" data-live', 'id="runs" data-live'):
+        assert region in page
+
+
+@pytest.mark.parametrize("path", [("playing", "done"), ("playing", "blocked"), ("playing", "on_hold")])
+def test_a_task_that_cannot_change_by_itself_does_not_refresh(client, project, run_db, indexer, path):
+    task = _task_in(run_db, indexer, project, *path)
+    page = client.get(f"/ui/p/{project}/documents/{task}").text
+    assert "data-refresh" not in page.split("<script", 1)[0] and 'class="live"' not in page
+
+
+def test_two_refresh_requests_return_the_same_regions(client, project, run_db, indexer):
+    import re
+
+    task = _task_in(run_db, indexer, project, "playing")
+    ids = []
+    for _ in range(2):
+        r = client.get(f"/ui/p/{project}/documents/{task}", headers={"X-Refresh": "1"})
+        assert r.status_code == 200
+        ids.append(re.findall(r'id="([^"]+)"[^>]*data-live', r.text))
+    assert ids[0] == ids[1] and {"task-meta", "live", "runs"} <= set(ids[0])
+
+
+def test_the_refresh_script_stops_when_done_fails_on_bad_responses_and_skips_only_form_fields():
+    from pathlib import Path
+
+    base = (Path(web.__file__).parent / "templates" / "base.html").read_text()
+    assert 'next.querySelector("[data-refresh]")' in base and "clearInterval(poll)" in base
+    assert "if (!res.ok) throw" in base
+    assert 'const field = "input, textarea, select, [contenteditable]"' in base and "active.matches(field)" in base
+    assert "el.contains(document.activeElement)" not in base
+
+
 def test_base_defines_the_time_formatter_and_the_tz_cookie():
     from pathlib import Path
 
