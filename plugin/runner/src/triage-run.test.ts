@@ -11,7 +11,7 @@ const json = (body: unknown) => new Response(JSON.stringify(body), { headers: { 
 const triage: Triage = { model: "jev-latest", fallback: "haiku", reject_at: 0.7, max_rounds: 2 };
 const config = (t: Triage | null | undefined) => ({ triage: t }) as unknown as GateConfig["config"];
 const answers = (o: Partial<Answers> = {}): Answers =>
-  ({ drops_coverage: 0, contradicts: 0, workaround: 0, required_by_plan: 0, narrower: 0, ...o });
+  ({ drops_coverage: 0, contradicts: 0, workaround: 0, required_by_plan: 0, narrower: 0, rule_conflict: 0, ...o });
 
 function fakeContext(items: unknown[]) {
   const calls: { url: string; body?: any }[] = [];
@@ -67,10 +67,25 @@ test("the verdict POST carries backend, answers, state and round", async () => {
   assert.match(post.url, /\/api\/decisions\/9\/triage$/);
   assert.deepEqual(post.body, {
     backend: "jev", model: "jev-latest", state: JSON.stringify({ deviation: { title: "t" } }),
-    answers: { drops_coverage: "0", contradicts: "0.91", workaround: "0", required_by_plan: "0", narrower: "0" },
+    answers: { drops_coverage: "0", contradicts: "0.91", workaround: "0", required_by_plan: "0", narrower: "0", rule_conflict: "0" },
     verdict: "reject", round: 2,
   });
   assert.deepEqual(log, ["triage D9: reject (jev, contradicts 0.91)"]);
+});
+
+test("a rule conflict is posted as escalate and logged with the conflict", async () => {
+  const calls = fakeContext([{ decision_id: 7, round: 1, state: { deviation: { title: "t" } } }]);
+  const log: string[] = [];
+  await triagePending("p", config(triage), {
+    log: (l) => log.push(l),
+    backends: { jev: async () => answers({ rule_conflict: 0.91, contradicts: 0.86, drops_coverage: 0.17 }) },
+  });
+  const post = calls.find((c) => c.body)!;
+  assert.match(post.url, /\/api\/decisions\/7\/triage$/);
+  assert.equal(post.body.verdict, "escalate");
+  assert.equal(post.body.answers.rule_conflict, "0.91");
+  assert.equal(log.length, 1);
+  assert.equal(log[0], "triage D7: escalate (jev, rule_conflict 0.91)");
 });
 
 /** A context whose first GET lists `screen` and whose later GETs list `after` deviations. */

@@ -12,7 +12,7 @@ export interface TriageRunOptions {
   backends?: Backends;
 }
 
-const FLAGS = ["drops_coverage", "contradicts", "workaround"] as const;
+const FLAGS = ["drops_coverage", "contradicts", "workaround", "rule_conflict"] as const;
 
 /** `triage D12: reject (jev, contradicts 0.91)`: the strongest flag is what decided, or came closest. */
 export function verdictLine(decisionId: number, j: Judgment): string {

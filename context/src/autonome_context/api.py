@@ -206,7 +206,7 @@ class TriageVerdict(BaseModel):
     # {question name: noul}; the values are the classifier's short answers, never free text
     answers: dict[Annotated[str, StringConstraints(min_length=1, max_length=80)],
                   Annotated[str, StringConstraints(min_length=1, max_length=32, pattern=r"^[A-Za-z0-9_.-]+$")]]
-    verdict: Literal["accept", "reject"]
+    verdict: Literal["accept", "reject", "escalate"]
     round: int = Field(ge=1)
 
 
@@ -239,6 +239,8 @@ async def post_triage(request: Request) -> JSONResponse:
             await store.add_version(conn, indexer, doc_id, body)
             if exhausted:
                 return _json({"status": "proposed", "triage_exhausted": True})
+            if v.verdict == "escalate":  # a rule conflict: the human fixes the rule; it waits in the queue, non-blocking
+                return _json({"status": "proposed", "escalated": True})
             if v.verdict == "reject":
                 await plans.reject_decision(conn, indexer, doc_id, "runner")
             else:

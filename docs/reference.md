@@ -109,7 +109,7 @@ connection errors.
 |---|---|
 | `GET /api/projects/{project}/triage` | `{deviations, screen}`. `deviations`: what the classifier has yet to judge at their current round, oldest first (50 at most): `[{decision_id, round, state}]`; `state` is what the classifier is shown (deviation, task, plan goal and out of scope, last gates, review findings, conventions), never diffs or transcripts. `screen`: accepted non-deviations made since the triage was first on and not yet screened, `[{decision_id, state}]` |
 | `POST /api/decisions/{id}/screen` | the screening: `{backend, model, is_deviation: 0..1, reject_at}`; always recorded in the body (`screening`). At or above `reject_at` the decision becomes a proposed deviation (`screened_as_deviation`) for the triage. 403 when the triage is off or the decision is not an accepted non-deviation; 409 when already screened |
-| `POST /api/decisions/{id}/triage` | the verdict: `{backend, model, state, answers, verdict: accept\|reject, round}`; the runner moves the decision (accepted, or rejected with an undo task; at `max_rounds` a rejection stays proposed, `triage_exhausted`). 403 when the triage is off or the decision is not a proposed deviation |
+| `POST /api/decisions/{id}/triage` | the verdict: `{backend, model, state, answers, verdict: accept\|reject\|escalate, round}`; the runner moves the decision (accepted, or rejected with an undo task; at `max_rounds` a rejection stays proposed, `triage_exhausted`). `escalate` (a rule conflict) records the verdict and leaves the decision proposed, for the human, in the approvals queue (non-blocking, labelled rule conflict); no undo task. 403 when the triage is off or the decision is not a proposed deviation |
 
 ### Handoffs and living docs
 

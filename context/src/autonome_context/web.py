@@ -183,9 +183,14 @@ async def _queue(conn, project: str) -> list[dict]:
               if (t["body"].get("playback_review") or {}).get("status") == "pending"]
     triage = await _triage_on(conn, project)  # with triage on, the classifier judges deviations only
     items += [{"kind": "decision", "doc": d} for d in await docs("decision", "proposed")
-              if not (triage and d["body"].get("deviation"))]
+              if not (triage and d["body"].get("deviation")) or _escalated(d)]
     items += [{"kind": "convention", "doc": d} for d in await docs("convention", "proposed")]
     return items
+
+
+def _escalated(d: dict) -> bool:
+    """The triage sent this deviation to the human: a rule conflict, not for it to undo."""
+    return (d["body"].get("triage") or {}).get("verdict") == "escalate"
 
 
 async def _triage_on(conn, project: str) -> bool:

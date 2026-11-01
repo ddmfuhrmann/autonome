@@ -10,6 +10,7 @@ export const QUESTIONS = {
   workaround: "The `deviation` silences or works around a problem (suppression, stub, ignore, allow) instead of solving it.",
   required_by_plan: "The task or plan in the state asks for exactly what the `deviation` did.",
   narrower: "The `deviation` keeps the change smaller than the task asked for, with the same result.",
+  rule_conflict: "The task or its plan asks for one thing and a convention or a gate (a linter or type-check rule) asks for another, and the `deviation` follows one of the two.",
 } as const;
 
 /** The screening question: asked of every decision recorded as within the plan. */
@@ -19,14 +20,18 @@ const SCREEN_NAME = "is_deviation";
 
 export type QuestionName = keyof typeof QUESTIONS;
 export type Answers = Record<QuestionName, number>;
-export type Verdict = "accept" | "reject";
+export type Verdict = "accept" | "reject" | "escalate";
 
 const NAMES = Object.keys(QUESTIONS) as QuestionName[];
 
-/** Workaround counts only when the plan did not ask for it; `narrower` is recorded, not used. */
+/** A weakened test rejects first, coverage is never traded for a rule conflict; then a rule conflict
+ * escalates to the human; then the other flags. Workaround counts only when the plan did not ask for
+ * it; `narrower` is recorded, not used. */
 export function verdict(answers: Answers, rejectAt: number): Verdict {
+  if (answers.drops_coverage >= rejectAt) return "reject";
+  if (answers.rule_conflict >= rejectAt) return "escalate";
   const workaround = answers.required_by_plan < rejectAt && answers.workaround >= rejectAt;
-  return answers.drops_coverage >= rejectAt || answers.contradicts >= rejectAt || workaround ? "reject" : "accept";
+  return answers.contradicts >= rejectAt || workaround ? "reject" : "accept";
 }
 
 /** Throws unless every question has a number in 0..1. */

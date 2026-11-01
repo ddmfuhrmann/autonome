@@ -81,6 +81,25 @@ def test_reject_queues_an_undo_task_like_the_human_path(client, project, run_db,
     assert undo["body"]["source"] == f"decision:{doc_id}" and undo["feature"] == "links"
 
 
+def test_escalate_keeps_the_deviation_proposed_and_shows_it_in_the_queue_as_a_rule_conflict(
+        client, project, run_db, indexer, deviation):
+    enable(run_db, indexer, project)
+    doc_id = deviation()
+    r = client.post(f"/api/decisions/{doc_id}/triage", json=verdict("escalate"))
+    assert r.status_code == 200 and r.json() == {"status": "proposed", "escalated": True}
+    d = run_db(lambda c: store.get_document(c, doc_id))
+    assert d["status"] == "proposed" and d["body"]["triage_history"][0]["verdict"] == "escalate"
+    assert run_db(lambda c: store.list_documents(c, project, type="task")) == []  # no undo task
+    assert not d["body"].get("triage_exhausted")
+    page = client.get(f"/ui/p/{project}/approvals").text
+    assert "Dict instead of a response model" in page and "rule conflict" in page
+    state = client.get(f"/api/projects/{project}/state").json()
+    [item] = [w for w in state["waiting"] if w["id"] == doc_id]
+    assert item["blocks"] is False
+    # the human can still settle it
+    assert client.post(f"/api/decisions/{doc_id}/triage", json=verdict("accept")).status_code == 200
+
+
 def test_a_decision_that_is_not_a_deviation_or_not_proposed_is_refused(client, project, run_db, indexer, deviation):
     enable(run_db, indexer, project)
     assert client.post(f"/api/decisions/{deviation(deviation=False)}/triage", json=verdict("reject")).status_code == 403

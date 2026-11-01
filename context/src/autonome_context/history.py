@@ -18,7 +18,7 @@ def triage_entry(d: dict) -> dict | None:
     last = (d["body"].get("triage_history") or [None])[-1]
     if not last or d["status"] == "proposed":
         return last
-    settled = {"accept": "accepted", "reject": "rejected"}[last["verdict"]]
+    settled = {"accept": "accepted", "reject": "rejected"}.get(last["verdict"])  # an escalation is settled by the human
     return last if settled == d["status"] and not d["body"].get("triage_exhausted") else None
 
 
