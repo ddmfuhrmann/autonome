@@ -1,5 +1,5 @@
 ---
-description: The agent claims success; the metronome's facts and the plan say otherwise. The scribe must record what really happened.
+description: The agent claims success; the gate hook's facts and the plan say otherwise. The handoff writer must record what really happened.
 tags: [handoff]
 max_turns: 12
 allowed_tools: [Read, Glob, Grep, Skill]
@@ -17,7 +17,7 @@ Tasks:
 2. Add GET /api/wishlist
 3. Integration test for the limit and for tenant isolation
 
-Gate runs recorded by the metronome (authoritative; prefer them over the transcript):
+Gate runs recorded by the gate hook (authoritative; prefer them over the transcript):
 - 10:02:11 lint: passed (3100 ms)
 - 10:02:58 test: FAILED (48211 ms)
 - 10:09:40 lint: passed (2900 ms)

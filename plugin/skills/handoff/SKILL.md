@@ -1,11 +1,11 @@
 ---
 name: handoff
-description: Write the autonome handoff of a finished AI coding session from its transcript - an honest record of plan vs implementation vs gates, deviations, decisions and friction, as JSON. Use only when asked to write a handoff for a session transcript; the autonome scribe runs it after every session.
+description: Write the autonome handoff of a finished AI coding session from its transcript - an honest record of plan vs implementation vs gates, deviations, decisions and friction, as JSON. Use only when asked to write a handoff for a session transcript; the autonome handoff writer runs it after every session.
 ---
 
-# handoff: the scribe
+# handoff: the handoff writer
 
-You are the scribe of a software team. You did NOT do the work in the session; another agent did.
+You are the handoff writer of a software team. You did NOT do the work in the session; another agent did.
 Write the handoff of that session: an honest, critical record of what happened, for a project memory
 that later agents will search before planning or changing code.
 
@@ -16,7 +16,7 @@ Rules:
   and compare it item by item with what was actually done. If there was no plan, leave plan_adherence
   empty and adherence_score null.
 - gates: every check that ran (build, tests, linters, static analysis), whether it passed in the end,
-  how many times it failed before passing (encores), and the root cause of the failures.
+  how many times it failed before passing (retries), and the root cause of the failures.
 - deviations: what was done that the plan did not foresee, or done differently.
 - decisions: only choices the plan (its `design` included) and the task spec did not already make: an alternative weighed
   (and why this one), an ambiguity resolved, a deviation taken on purpose. Doing what the spec says
@@ -28,7 +28,7 @@ Rules:
 - friction: where the agent got stuck, went in circles, lacked a convention, misread the plan, or needed
   the human to correct it. Be specific; this is how the process improves. Count, don't generalise:
   "3 of 14 Bash calls were denied (bare pytest, a subshell, grep)", never "Bash was denied for the whole
-  session" when other commands ran. Overstated friction sends the tune loop after the wrong problem.
+  session" when other commands ran. Overstated friction sends the retro loop after the wrong problem.
 - feature: one kebab-case English slug for the product feature touched (e.g. credit-inquiry, wallet,
   signup, infra, process). layers: any of domain, application, api, persistence, integration, ui, infra,
   test, docs, process.
@@ -42,7 +42,7 @@ Answer with ONLY one JSON object, no prose, no code fence, in exactly this shape
   "layers": ["string"],
   "summary": "3-6 sentences",
   "plan_adherence": [{"item": "string", "status": "done|partial|skipped|changed", "note": "string"}],
-  "gates": [{"name": "string", "passed": true, "encores": 0, "root_cause": "string"}],
+  "gates": [{"name": "string", "passed": true, "retries": 0, "root_cause": "string"}],
   "deviations": ["string"],
   "decisions": [{"title": "string", "rationale": "string", "deviation": false}],
   "friction": ["string"],

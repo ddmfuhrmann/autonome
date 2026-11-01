@@ -23,7 +23,7 @@
     }
   ],
   "repeated_failures": [],
-  "encores_per_task": {
+  "retries_per_task": {
     "tasks": 12,
     "avg": 0.2,
     "max": 1

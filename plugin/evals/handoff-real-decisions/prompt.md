@@ -17,7 +17,7 @@ and `.mypy_cache/` to .gitignore.
 Conventions for its layers: "Tests assert behaviour: a test exists to check a behaviour, never only
 to raise coverage."
 
-Gate runs recorded by the metronome (authoritative):
+Gate runs recorded by the gate hook (authoritative):
 - 12:51:02 ruff: passed (900 ms)
 - 12:51:40 coverage: passed (2100 ms)
 

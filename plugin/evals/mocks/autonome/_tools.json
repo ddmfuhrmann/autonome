@@ -49,9 +49,9 @@
                 "title": "Passed",
                 "type": "boolean"
               },
-              "encores": {
+              "retries": {
                 "default": 0,
-                "title": "Encores",
+                "title": "Retries",
                 "type": "integer"
               },
               "root_cause": {
@@ -307,7 +307,7 @@
     },
     {
       "name": "gate_config_get",
-      "description": "The project's current gate configuration: which gates run, in which order, encore and budget.",
+      "description": "The project's current gate configuration: which gates run, in which order, retries and budget.",
       "inputSchema": {
         "properties": {
           "project": {
@@ -706,7 +706,7 @@
     },
     {
       "name": "wave_draft",
-      "description": "Group draft plans of several features into a wave the human approves at once in the UI. Each\nfeature's plan is drafted first with plan_draft. Approved waves play in order; a feature that\ndepends on others is checked against the code (rehearsed) before it plays.",
+      "description": "Group draft plans of several features into a wave the human approves at once in the UI. Each\nfeature's plan is drafted first with plan_draft. Approved waves play in order; a feature that\ndepends on others is checked against the code (preflight) before it plays.",
       "inputSchema": {
         "properties": {
           "project": {
@@ -871,7 +871,7 @@
     },
     {
       "name": "history_get",
-      "description": "What went off plan before on the same subject (the feature and the closest related ones): plan\nitems changed or skipped, deviations, decisions taken against the plan and how the human judged them,\nrehearsal revisions, reviewer blocks, fixes from soundcheck, playback and rejected decisions, blocked\ntasks and friction. Read it before planning, and turn each pattern into acceptance, out of scope, a\nconvention or a question.",
+      "description": "What went off plan before on the same subject (the feature and the closest related ones): plan\nitems changed or skipped, deviations, decisions taken against the plan and how the human judged them,\npreflight revisions, reviewer blocks, fixes from smoke tests, after-merge reviews and rejected decisions, blocked\ntasks and friction. Read it before planning, and turn each pattern into acceptance, out of scope, a\nconvention or a question.",
       "inputSchema": {
         "properties": {
           "project": {
@@ -1304,7 +1304,7 @@
     },
     {
       "name": "insights_get",
-      "description": "How the process is going: adherence by feature and layer, plan items skipped or changed, gate\nfailure rates, failures that repeat across sessions, encores, blocked tasks, and friction grouped\nby meaning. The tune loop reads this.",
+      "description": "How the process is going: adherence by feature and layer, plan items skipped or changed, gate\nfailure rates, failures that repeat across sessions, retries, blocked tasks, and friction grouped\nby meaning. The retro loop reads this.",
       "inputSchema": {
         "properties": {
           "project": {
