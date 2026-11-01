@@ -110,6 +110,9 @@ async def _triage(conn: AsyncConnection, project: str, tasks: list[dict]) -> dic
     judged = [e for d in decisions.values() if (e := triage_entry(d))]
     exhausted = [{"decision_id": d["id"], "title": d["body"].get("title"), "feature": d["feature"]}
                  for d in decisions.values() if d["body"].get("triage_exhausted")]
+    conflicts = [{"decision_id": d["id"], "title": d["body"].get("title"), "feature": d["feature"],
+                  "rule_conflict": ((d["body"].get("triage_history") or [{}])[-1].get("answers") or {}).get("rule_conflict")}
+                 for d in decisions.values() if d["body"].get("triage_conflict")]
     undone = []
     for t in tasks:
         source = str(t["body"].get("source", ""))
@@ -127,7 +130,7 @@ async def _triage(conn: AsyncConnection, project: str, tasks: list[dict]) -> dic
     rejected = Counter(d["feature"] for d in decisions.values() if d["status"] == "rejected" and d["feature"])
     return {"by_verdict": dict(Counter(j["verdict"] for j in judged)),
             "by_backend": dict(Counter(j["backend"] for j in judged)),
-            "exhausted": exhausted, "undone": undone,
+            "exhausted": exhausted, "conflicts": conflicts, "undone": undone,
             "recurring": [{"feature": f, "rejected": n} for f, n in rejected.most_common() if n >= 2]}
 
 

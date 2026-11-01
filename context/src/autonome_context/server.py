@@ -202,8 +202,13 @@ async def _detail(conn, kind: str, doc: dict) -> str:
         return (f"Merged as {str(last.get('merged_sha', ''))[:10]}. Spec: {_cut(b.get('spec'), 800)}"
                 + ("\nLeft open at merge:\n" + "\n".join(f"- {_cut(e, 400)}" for e in ends) if ends else ""))
     if kind == "decision":
-        return "\n".join(filter(None, [f"Decision: {_cut(b.get('decision'))}", f"Context: {_cut(b.get('context'), 600)}",
-                                         f"Consequences: {_cut(b.get('consequences'), 600)}"]))
+        answers = (b.get("triage") or {}).get("answers") or {}
+        return "\n".join(filter(None, [
+            "Rule conflict: the task followed one rule against another; fix the rule, or settle the decision."
+            + (f" Flags: {', '.join(f'{q}={a}' for q, a in answers.items())}." if answers else "")
+            if b.get("triage_conflict") else "",
+            f"Decision: {_cut(b.get('decision'))}", f"Context: {_cut(b.get('context'), 600)}",
+            f"Consequences: {_cut(b.get('consequences'), 600)}"]))
     return f"Rule: {_cut(b.get('rule'))}\nWhy: {_cut(b.get('why'), 600)}\nLayers: {', '.join(doc['layers'] or []) or 'all'}"
 
 
