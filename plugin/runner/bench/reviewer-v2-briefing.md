@@ -46,4 +46,4 @@ Feature "links" lets a client shorten a URL and then follow the short code to th
 - Out of scope: auth, custom aliases, expiry, edit/delete, rate limiting, deduplication, click counting. `stats.py` is still a docstring-only placeholder for the later click-stats plan.
 
 ## Gates
-When you finish, the metronome runs every gate: ruff, pytest, ruff-format, mypy, coverage, import-linter. While working, run the fast ones (ruff, pytest, ruff-format, mypy, import-linter) with `autonome-gates --fast`. Never weaken, skip or edit a gate or its rules to make it pass.
+When you finish, the gate hook runs every gate: ruff, pytest, ruff-format, mypy, coverage, import-linter. While working, run the fast ones (ruff, pytest, ruff-format, mypy, import-linter) with `autonome-gates --fast`. Never weaken, skip or edit a gate or its rules to make it pass.

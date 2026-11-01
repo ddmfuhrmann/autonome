@@ -1,4 +1,4 @@
-// autonome doctor: what the maestro needs, checked before it plays instead of found out mid-wave.
+// autonome doctor: what the runner needs, checked before it runs instead of found out mid-wave.
 import { spawnSync } from "node:child_process";
 import { CONTEXT_URL, call, type GateConfig } from "./context.js";
 import { git, mainCheckout } from "./git.js";

@@ -48,7 +48,7 @@ test("triageRevisions: shape_changed skips Jev; a Jev failure is logged and the 
   }
   const posts = calls.filter((c) => c.body);
   assert.equal(posts.length, 1);
-  assert.match(posts[0].url, /\/api\/plans\/3\/rehearsal-triage$/);
+  assert.match(posts[0].url, /\/api\/plans\/3\/preflight-triage$/);
   assert.equal(posts[0].body.verdict, "hold");
   assert.ok(log.includes("triage P1: shape changed, left for you"));
   assert.ok(log.includes("triage P2: left for you: jev: HTTP 500"));

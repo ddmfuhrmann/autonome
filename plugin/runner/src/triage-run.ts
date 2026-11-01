@@ -1,5 +1,5 @@
-// Runs the triage in conduct: judges the deviations waiting in the context and posts each verdict.
-// It never stops conduct and never blocks a task: an item that fails stays proposed for the next run.
+// Runs the triage in the run: judges the deviations waiting in the context and posts each verdict.
+// It never stops the run and never blocks a task: an item that fails stays proposed for the next run.
 import type { EventStream } from "./events.js";
 import {
   context, type GateConfig, type RevisionItem, type RevisionVerdictBody, type ScreeningBody, type TriageItem,
@@ -57,9 +57,9 @@ export function revisionLine(planId: number, j: RevisionJudgment): string {
   return `triage P${planId}: ${j.verdict} (jev, ${top} ${j.answers[top]})`;
 }
 
-/** Judges the rehearsal revisions waiting on a held plan; returns the ids of the plans it accepted.
+/** Judges the preflight revisions waiting on a held plan; returns the ids of the plans it accepted.
  * A revision that changed shape is left for the human without calling Jev; a failure (no key included)
- * leaves the plan held. It never throws, so it never stops conduct. */
+ * leaves the plan held. It never throws, so it never stops the run. */
 export async function triageRevisions(project: string, cfg: GateConfig["config"], opts: TriageRunOptions & {
   /** Tests inject a fake of Jev's API. */
   ask?: typeof askJev;
@@ -87,7 +87,7 @@ export async function triageRevisions(project: string, cfg: GateConfig["config"]
       await context.triageRevision(item.plan_id, revisionBody(item, j));
       const line = revisionLine(item.plan_id, j);
       opts.log(line);
-      opts.events?.push({ role: "maestro", kind: "stage", text: line });
+      opts.events?.push({ role: "runner", kind: "stage", text: line });
       if (j.verdict === "accept") accepted.push(item.plan_id);
     } catch (e) {
       opts.log(`triage P${item.plan_id}: left for you: ${e instanceof Error ? e.message : String(e)}`);
@@ -122,7 +122,7 @@ export async function triagePending(project: string, cfg: GateConfig["config"], 
         reopened ||= r.deviation;
         const line = `triage screen D${item.decision_id}: ${s.isDeviation} (${s.backend})${r.deviation ? " → deviation" : ""}`;
         opts.log(line);
-        opts.events?.push({ role: "maestro", kind: "stage", text: line });
+        opts.events?.push({ role: "runner", kind: "stage", text: line });
       } catch (e) {
         opts.log(`triage screen D${item.decision_id}: left unscreened: ${e instanceof Error ? e.message : String(e)}`);
       }
@@ -141,7 +141,7 @@ export async function triagePending(project: string, cfg: GateConfig["config"], 
       await context.triageVerdict(item.decision_id, verdictBody(item, j));
       const line = verdictLine(item.decision_id, j);
       opts.log(line);
-      opts.events?.push({ role: "maestro", kind: "stage", text: line });
+      opts.events?.push({ role: "runner", kind: "stage", text: line });
     } catch (e) {
       opts.log(`triage D${item.decision_id}: left proposed: ${e instanceof Error ? e.message : String(e)}`);
     }

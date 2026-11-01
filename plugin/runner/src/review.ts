@@ -72,7 +72,7 @@ export function gatesSection(outcomes: GateOutcome[] | undefined): string {
     `- ${o.gate}: ${o.passed ? "passed" : "failed"}${last(o.output) ? `: ${last(o.output)}` : ""}`).join("\n");
 }
 
-/** For a review after an encore: the earlier findings, to check instead of starting over. A reviewer
+/** For a review after a retry: the earlier findings, to check instead of starting over. A reviewer
  * that raises new medium points every round never converges and asks for opposite things. */
 export function earlierFindingsSection(previous: Finding[] | undefined): string {
   if (!previous?.length) return "";
@@ -153,7 +153,7 @@ export function enforceConventions(findings: Finding[], titles: string[]): Findi
   });
 }
 
-export function findingsForEncore(r: ReviewResult, severity: Finding["severity"] = "high"): string {
+export function findingsForRetry(r: ReviewResult, severity: Finding["severity"] = "high"): string {
   return r.findings.filter((f) => f.severity === severity)
     .map((f) => `- ${f.file ? `${f.file}: ` : ""}${f.issue}`).join("\n");
 }
@@ -164,9 +164,9 @@ const FIX_OR_EXPLAIN = "Fix each one, or, when it is not a problem in the code (
 /** What goes back to the implementer after a review, or null when nothing does. High findings block;
  * medium ones go back too while review rounds remain, so debt is paid while the session has the
  * context, and become loose ends at merge once rounds run out. Low ones never go back. */
-export function encoreMessage(r: ReviewResult, roundsLeft: boolean): string | null {
-  const high = findingsForEncore(r, "high");
-  const medium = findingsForEncore(r, "medium");
+export function retryMessage(r: ReviewResult, roundsLeft: boolean): string | null {
+  const high = findingsForRetry(r, "high");
+  const medium = findingsForRetry(r, "medium");
   if (high) {
     return "An independent reviewer read your diff and found blocking issues. Fix them, then end your turn:\n" + high
       + (medium ? `\n\nAlso worth fixing now. ${FIX_OR_EXPLAIN}\n${medium}` : "");

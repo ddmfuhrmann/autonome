@@ -38,7 +38,7 @@ def user_turns(transcript: Path) -> int:
 
 def main() -> None:
     # Conduct sessions get their handoff from the runner, which knows the task.
-    if os.getenv("AUTONOME_HANDOFF_CHILD") or os.getenv("AUTONOME_CONDUCT"):
+    if os.getenv("AUTONOME_HANDOFF_CHILD") or os.getenv("AUTONOME_RUN"):
         return
     event = json.load(sys.stdin)
     transcript = Path(event.get("transcript_path", ""))

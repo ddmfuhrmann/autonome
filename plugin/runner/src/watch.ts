@@ -27,8 +27,8 @@ function waitingLine(i: Waiting, s: State): string | null {
 }
 
 const WAITING: Record<string, string> = {
-  plans: "to approve", held: "held by rehearsal", soundcheck: "blocked at the soundcheck", fermata: "held at the fermata",
-  blocked: "blocked", playback: "merged, playback to hear", decision: "decision to review", convention: "convention proposed",
+  plans: "to approve", held: "held by preflight", smoke_test: "blocked at the smoke test", hold_before_merge: "held before merge",
+  blocked: "blocked", after_merge: "merged, review after merge", decision: "decision to review", convention: "convention proposed",
 };
 
 /** What changed between two snapshots, as lines tagged `needs-you`, `review` or `info`. */
@@ -38,9 +38,9 @@ export function changes(prev: State, next: State): string[] {
   for (const t of next.tasks) {
     const was = before.get(t.id);
     if (was === t.status) continue;
-    if (t.status === "playing") out.push(`info T-${t.id} started: ${t.title}`);
+    if (t.status === "running") out.push(`info T-${t.id} started: ${t.title}`);
     else if (t.status === "done" && was) out.push(`info T-${t.id} merged: ${t.title}`);
-    else if (t.status === "pending" && was === "playing") out.push(`info T-${t.id} back to pending: ${t.title}`);
+    else if (t.status === "pending" && was === "running") out.push(`info T-${t.id} back to pending: ${t.title}`);
   }
   const plansBefore = new Map(prev.plans.map((p) => [p.id, p.status]));
   for (const p of next.plans) {
@@ -68,7 +68,7 @@ export function changes(prev: State, next: State): string[] {
 export function summary(s: State): string {
   const count = (status: string) => s.tasks.filter((t) => t.status === status).length;
   const blocking = s.waiting.filter((i) => i.blocks).length;
-  return `watching: ${count("playing")} playing, ${count("pending")} pending, ${count("done")} done; `
+  return `watching: ${count("running")} running, ${count("pending")} pending, ${count("done")} done; `
     + `${blocking} waiting on you, ${s.waiting.length - blocking} to review when you like`;
 }
 

@@ -14,9 +14,9 @@ export interface Task {
     acceptance: string[];
     plan_id: number;
     seq: number;
-    fermata: boolean;
+    hold_before_merge: boolean;
     /** Reviewed by the human after it merges (review forward). */
-    playback?: boolean;
+    after_merge?: boolean;
     after_plans?: number[];
     wave_id?: number;
     runs?: Run[];
@@ -31,7 +31,7 @@ export interface Plan {
   body: Record<string, unknown> & { title: string; tasks: unknown[] };
 }
 
-export interface Rehearsal {
+export interface Preflight {
   verdict: "ready" | "revise";
   notes: string;
   plan?: Record<string, unknown>;
@@ -65,14 +65,16 @@ export interface GateConfig {
   config: {
     gates: { name: string; run: string }[];
     allowed_commands?: string[];
-    encore: { max: number; stop_on_repeat: boolean };
+    retries: { max: number; stop_on_repeat: boolean };
     budget: { task_tokens: number; task_minutes: number; plan_tokens: number };
-    cues?: Cue[];
+    hold_before_merge?: { features: string[] };
+    review_after_merge?: { features: string[] };
+    schedules?: Schedule[];
     review: { enabled: boolean; max_rounds: number };
-    tune_after_wave?: boolean;
+    retro_after_wave?: boolean;
     models?: Record<string, RoleModel>;
     language?: string;
-    soundcheck: Soundcheck | null;
+    smoke_test: SmokeTest | null;
     triage?: Triage | null;
   };
 }
@@ -92,7 +94,7 @@ export interface TriageItem {
   state: Record<string, unknown>;
 }
 
-/** A held plan whose rehearsal revision the classifier has yet to judge. */
+/** A held plan whose preflight revision the classifier has yet to judge. */
 export interface RevisionItem {
   plan_id: number;
   state: Record<string, unknown>;
@@ -161,13 +163,13 @@ export function sdkModel(r: RoleModel): { model: string; effort: Effort; fallbac
   return { model: r.model, effort: r.effort, ...(r.fallback ? { fallbackModel: r.fallback } : {}) };
 }
 
-export interface Soundcheck {
+export interface SmokeTest {
   up: string;
   down: string;
   url: string;
   seed: string | null;
   checks: { name: string; run: string; timeout_s: number }[];
-  listener: boolean;
+  tester: boolean;
   max_fixes: number;
 }
 
@@ -177,7 +179,7 @@ export interface Fix {
   acceptance: string[];
 }
 
-export interface SoundcheckResult {
+export interface SmokeTestResult {
   passed: boolean;
   report: string;
   checks: { name: string; passed: boolean; output: string }[];
@@ -205,7 +207,7 @@ export interface ReviewResult {
   findings: Finding[];
 }
 
-export interface Cue {
+export interface Schedule {
   name: string;
   kind: "command" | "doc-drift" | "main-red";
   every_hours: number;
@@ -288,13 +290,13 @@ export async function call<T>(path: string, init?: RequestInit, attempts = 3): P
 export const context = {
   health: () => call<{ status: string }>("/health"),
   claim: (project: string) =>
-    call<{ task: Task | null; rehearse: Plan | null; soundcheck: Plan | null }>(
+    call<{ task: Task | null; preflight: Plan | null; smoke_test: Plan | null }>(
       `/api/projects/${project}/tasks/claim`, { method: "POST", body: "{}" }),
-  soundcheck: (planId: number, r: SoundcheckResult) =>
-    call<{ outcome: "done" | "fixing" | "blocked" }>(`/api/plans/${planId}/soundcheck`, {
+  smokeTest: (planId: number, r: SmokeTestResult) =>
+    call<{ outcome: "done" | "fixing" | "blocked" }>(`/api/plans/${planId}/smoke-test`, {
       method: "POST", body: JSON.stringify(r) }),
-  rehearsal: (planId: number, r: Rehearsal) =>
-    call<{ plan_status: string }>(`/api/plans/${planId}/rehearsal`, { method: "POST", body: JSON.stringify(r) }),
+  preflight: (planId: number, r: Preflight) =>
+    call<{ plan_status: string }>(`/api/plans/${planId}/preflight`, { method: "POST", body: JSON.stringify(r) }),
   transition: (taskId: number, to: string, run?: Run) =>
     call<{ status: string }>(`/api/tasks/${taskId}/transition`, {
       method: "POST",
@@ -303,16 +305,16 @@ export const context = {
   triageState: (project: string) =>
     call<{ deviations: TriageItem[]; screen?: ScreenItem[]; revisions?: RevisionItem[] }>(`/api/projects/${project}/triage`),
   triageRevision: (planId: number, v: RevisionVerdictBody) =>
-    call<{ status: string }>(`/api/plans/${planId}/rehearsal-triage`, { method: "POST", body: JSON.stringify(v) }),
+    call<{ status: string }>(`/api/plans/${planId}/preflight-triage`, { method: "POST", body: JSON.stringify(v) }),
   triageScreen: (decisionId: number, s: ScreeningBody) =>
     call<{ status: string; deviation: boolean }>(`/api/decisions/${decisionId}/screen`, {
       method: "POST", body: JSON.stringify(s) }),
   triageVerdict: (decisionId: number, v: TriageVerdictBody) =>
     call<{ status: string; triage_exhausted?: boolean }>(`/api/decisions/${decisionId}/triage`, {
       method: "POST", body: JSON.stringify(v) }),
-  untunedWaves: (project: string) => call<Plan[]>(`/api/projects/${project}/waves/untuned`),
-  waveTuned: (waveId: number, summary: string) =>
-    call<{ ok: boolean }>(`/api/waves/${waveId}/tuned`, { method: "POST", body: JSON.stringify({ summary }) }),
+  wavesWithoutRetro: (project: string) => call<Plan[]>(`/api/projects/${project}/waves/without-retro`),
+  waveRetroDone: (waveId: number, summary: string) =>
+    call<{ ok: boolean }>(`/api/waves/${waveId}/retro-done`, { method: "POST", body: JSON.stringify({ summary }) }),
   briefing: (project: string, taskId: number) =>
     call<{ text: string }>(`/api/projects/${project}/briefing?task_id=${taskId}`),
   gateConfig: (project: string) => call<GateConfig>(`/api/projects/${project}/gate-config`),

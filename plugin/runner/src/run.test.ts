@@ -4,9 +4,9 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { judgeTask, recordRunnerError, rehearsePlan, verdictLine, type ConductOptions, type JudgeSeams } from "./conduct.js";
+import { judgeTask, preflightPlan, recordRunnerError, verdictLine, type JudgeSeams, type RunOptions } from "./run.js";
 import type { Finding, GateConfig, Plan, ReviewResult, Run, Task } from "./context.js";
-import { earlierFindingsSection, encoreMessage, gatesSection, recordRound, settleOutcomes, settleRun } from "./review.js";
+import { earlierFindingsSection, gatesSection, recordRound, retryMessage, settleOutcomes, settleRun } from "./review.js";
 
 const realFetch = globalThis.fetch;
 const realKey = process.env.TYPESAFE_API_KEY;
@@ -17,15 +17,15 @@ afterEach(() => {
   if (realHome === undefined) delete process.env.AUTONOME_HOME; else process.env.AUTONOME_HOME = realHome;
 });
 
-/** A fake context for the rehearsal path: the rehearsal holds the plan, one revision waits for the triage. */
-function rehearsalContext(shapeChanged = false) {
+/** A fake context for the preflight path: the preflight holds the plan, one revision waits for the triage. */
+function preflightContext(shapeChanged = false) {
   const calls: { method: string; url: string; body?: any }[] = [];
   const json = (b: unknown) => new Response(JSON.stringify(b), { headers: { "content-type": "application/json" } });
   globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     const method = init?.method ?? "GET";
     calls.push({ method, url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
-    if (url.endsWith("/rehearsal")) return json({ plan_status: "held" });
+    if (url.endsWith("/preflight")) return json({ plan_status: "held" });
     if (url.endsWith("/gate-config")) {
       return json({ config: { triage: { model: "jev-latest", fallback: "haiku", reject_at: 0.7, max_rounds: 2 } } });
     }
@@ -39,17 +39,17 @@ function rehearsalContext(shapeChanged = false) {
 
 const plan = { id: 677, body: { title: "shortlink-v6" } } as unknown as Plan;
 const task = { id: 4, body: { title: "t" } } as unknown as Task;
-const rehearsalOpts = (log: string[]) => ({ project: "p", repo: ".", maxTasks: 1, push: false, log: (l: string) => log.push(l) }) as ConductOptions;
-const fakeRehearse = async () => ({ verdict: "revise" }) as never;
+const preflightOpts = (log: string[]) => ({ project: "p", repo: ".", maxTasks: 1, push: false, log: (l: string) => log.push(l) }) as RunOptions;
+const fakePreflight = async () => ({ verdict: "revise" }) as never;
 const noScores = { drops_acceptance: 0.01, adds_out_of_scope: 0.02, changes_design: 0.13 };
 
-test("a rehearsal that holds the plan is judged by Jev; an accept starts the plan in the same run", async () => {
+test("a preflight that holds the plan is judged by Jev; an accept starts the plan in the same run", async () => {
   process.env.TYPESAFE_API_KEY = "k";
-  const calls = rehearsalContext();
+  const calls = preflightContext();
   const log: string[] = [];
-  const ready = await rehearsePlan(plan, task, rehearsalOpts(log), { rehearse: fakeRehearse, ask: async () => noScores });
+  const ready = await preflightPlan(plan, task, preflightOpts(log), { preflight: fakePreflight, ask: async () => noScores });
   assert.equal(ready, false); // the claim loop goes round again, and the approved plan is claimed
-  const post = calls.find((c) => c.url.endsWith("/api/plans/677/rehearsal-triage"))!;
+  const post = calls.find((c) => c.url.endsWith("/api/plans/677/preflight-triage"))!;
   assert.equal(post.method, "POST");
   assert.equal(post.body.verdict, "accept");
   assert.deepEqual(post.body.answers, { drops_acceptance: "0.01", adds_out_of_scope: "0.02", changes_design: "0.13" });
@@ -59,23 +59,23 @@ test("a rehearsal that holds the plan is judged by Jev; an accept starts the pla
 
 test("a revision that changed shape does not call Jev and stays held", async () => {
   process.env.TYPESAFE_API_KEY = "k";
-  const calls = rehearsalContext(true);
+  const calls = preflightContext(true);
   const log: string[] = [];
   let asked = 0;
-  await rehearsePlan(plan, task, rehearsalOpts(log), { rehearse: fakeRehearse, ask: async () => { asked++; return noScores; } });
+  await preflightPlan(plan, task, preflightOpts(log), { preflight: fakePreflight, ask: async () => { asked++; return noScores; } });
   assert.equal(asked, 0);
-  assert.ok(!calls.some((c) => c.url.endsWith("/rehearsal-triage")));
+  assert.ok(!calls.some((c) => c.url.endsWith("/preflight-triage")));
   assert.ok(log.includes("triage P677: shape changed, left for you"));
 });
 
-test("without a Jev key the plan stays held and conduct goes on", async () => {
+test("without a Jev key the plan stays held and the run goes on", async () => {
   delete process.env.TYPESAFE_API_KEY;
   process.env.AUTONOME_HOME = mkdtempSync(join(tmpdir(), "autonome-nokey-"));
-  const calls = rehearsalContext();
+  const calls = preflightContext();
   const log: string[] = [];
-  const ready = await rehearsePlan(plan, task, rehearsalOpts(log), { rehearse: fakeRehearse });
+  const ready = await preflightPlan(plan, task, preflightOpts(log), { preflight: fakePreflight });
   assert.equal(ready, false);
-  assert.ok(!calls.some((c) => c.url.endsWith("/rehearsal-triage")));
+  assert.ok(!calls.some((c) => c.url.endsWith("/preflight-triage")));
   assert.ok(log.some((l) => l.startsWith("triage P677: left for you: ")));
   assert.ok(log.includes("  the plan needs revising; held for your approval"));
 });
@@ -116,7 +116,7 @@ test("a block that is not the reviewer's leaves the last round's findings unmark
   assert.equal(medium.outcome, undefined);
 });
 
-/** Runs the real review loop of conduct over a temp repo, with a scripted reviewer and fake gates. */
+/** Runs the real review loop of the run over a temp repo, with a scripted reviewer and fake gates. */
 async function runLoop(rounds: ReviewResult[], maxRounds: number, briefings: string[] = []) {
   const dir = mkdtempSync(join(tmpdir(), "judge-"));
   const sh = (...a: string[]) => execFileSync("git", a, { cwd: dir, encoding: "utf8" }).trim();
@@ -131,10 +131,10 @@ async function runLoop(rounds: ReviewResult[], maxRounds: number, briefings: str
 
   const run: Run = { at: "", branch: "", worktree: dir, base, outcome: "" };
   const task = { id: 1, project: "p", body: { title: "t", spec: "s" } } as unknown as Task;
-  const cfg = { review: { enabled: true, max_rounds: maxRounds }, encore: { max: 1 }, models: {} } as unknown as GateConfig["config"];
-  const opts = { project: "p", repo: dir, maxTasks: 1, push: false, log: () => {} } as ConductOptions;
+  const cfg = { review: { enabled: true, max_rounds: maxRounds }, retries: { max: 1 }, models: {} } as unknown as GateConfig["config"];
+  const opts = { project: "p", repo: dir, maxTasks: 1, push: false, log: () => {} } as RunOptions;
   let call = 0;
-  let encores = 0;
+  let retries = 0;
   const seams: JudgeSeams = {
     gates: () => ({ passed: true, summary: "all gates passed", outcomes: [
       { gate: "lint", passed: true, output: "" },
@@ -148,19 +148,19 @@ async function runLoop(rounds: ReviewResult[], maxRounds: number, briefings: str
     }) as JudgeSeams["review"],
   };
   const judged = await judgeTask({ task, cfg, opts, run, worktree: dir, base, current: () => ({ sessionId: "", stop: "" }),
-    encore: async () => { encores++; } }, seams);
-  return { run, judged, encores: () => encores };
+    retry: async () => { retries++; } }, seams);
+  return { run, judged, retries: () => retries };
 }
 
-test("conduct's review loop keeps every round; fixed findings resolve and the last round's merge", async () => {
+test("the review loop keeps every round; fixed findings resolve and the last round's merge", async () => {
   const f = (severity: "high" | "medium" | "low", issue: string): Finding => ({ kind: "missing", severity, issue });
   const r1: ReviewResult = { verdict: "fail", findings: [f("high", "no test")] };
   const r2: ReviewResult = { verdict: "pass", findings: [f("medium", "weak name")] };
   const r3: ReviewResult = { verdict: "pass", findings: [f("low", "nit")] };
-  const { run, judged, encores } = await runLoop([r1, r2, r3], 3);
+  const { run, judged, retries } = await runLoop([r1, r2, r3], 3);
   assert.equal(judged.failure, null);
   assert.equal(judged.blockedOnReview, false);
-  assert.equal(encores(), 2); // round 1 high, round 2 medium once; round 3 only has a low one
+  assert.equal(retries(), 2); // round 1 high, round 2 medium once; round 3 only has a low one
   const rounds = run.reviews!;
   assert.equal(rounds.length, 3);
   assert.equal(new Set(rounds).size, 3); // each round is its own result
@@ -171,11 +171,11 @@ test("conduct's review loop keeps every round; fixed findings resolve and the la
   assert.deepEqual(rounds.map((r) => r.findings[0].outcome), ["resolved", "resolved", "merged"]);
 });
 
-test("conduct's review loop blocks when the reviewer keeps failing until max_rounds", async () => {
+test("the review loop blocks when the reviewer keeps failing until max_rounds", async () => {
   const bad: Finding = { kind: "missing", severity: "high", issue: "raw 500" };
   const fail = (): ReviewResult => ({ verdict: "fail", findings: [{ ...bad }] });
   const { run, judged } = await runLoop([fail(), fail(), fail()], 2);
-  assert.match(judged.failure!, /still blocking after 2 encore/);
+  assert.match(judged.failure!, /still blocking after 2 retries/);
   assert.equal(judged.blockedOnReview, true);
   assert.equal(run.reviews?.length, 3);
   settleRun(run, judged.blockedOnReview ? "blocked" : undefined);
@@ -209,11 +209,11 @@ test("the reviewer's verdict reads as a short list in the live view", () => {
 test("medium findings go back while rounds remain; high ones always; low ones never", () => {
   const f = (severity: "high" | "medium" | "low", issue: string) => ({ kind: "missing" as const, severity, issue });
   const mediumOnly = { verdict: "pass" as const, findings: [f("medium", "weak test"), f("low", "nit")] };
-  assert.match(encoreMessage(mediumOnly, true)!, /passed your diff[\s\S]*- weak test$/);
-  assert.ok(!encoreMessage(mediumOnly, true)!.includes("nit"));
-  assert.equal(encoreMessage(mediumOnly, false), null); // rounds spent: it becomes a loose end at merge
-  assert.equal(encoreMessage({ verdict: "pass", findings: [f("low", "nit")] }, true), null);
-  const both = encoreMessage({ verdict: "fail", findings: [f("high", "stray file"), f("medium", "weak test")] }, false)!;
+  assert.match(retryMessage(mediumOnly, true)!, /passed your diff[\s\S]*- weak test$/);
+  assert.ok(!retryMessage(mediumOnly, true)!.includes("nit"));
+  assert.equal(retryMessage(mediumOnly, false), null); // rounds spent: it becomes a loose end at merge
+  assert.equal(retryMessage({ verdict: "pass", findings: [f("low", "nit")] }, true), null);
+  const both = retryMessage({ verdict: "fail", findings: [f("high", "stray file"), f("medium", "weak test")] }, false)!;
   assert.match(both, /blocking issues[\s\S]*stray file[\s\S]*Also worth fixing now[\s\S]*weak test/);
 });
 

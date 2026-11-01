@@ -1,7 +1,7 @@
 """Stop hook: the gate hook. Exit code 2 sends the failure back to the agent and keeps it working.
 
-Runs in conduct sessions (AUTONOME_CONDUCT=1), and in interactive ones only when the project's
-gate config says interactive: true. In conduct it fails closed: no context, no green light.
+Runs in runner sessions (AUTONOME_RUN=1), and in interactive ones only when the project's
+gate config says interactive: true. In a runner session it fails closed: no context, no green light.
 """
 
 import json
@@ -19,14 +19,14 @@ def main() -> int:
         return 0
     event = json.load(sys.stdin)
     cwd, session_id = event.get("cwd") or os.getcwd(), event["session_id"]
-    conduct = os.getenv("AUTONOME_CONDUCT") == "1"
+    in_run = os.getenv("AUTONOME_RUN") == "1"
 
     fetched = gate_hook.fetch_config(cwd)
     if fetched is None:
-        if conduct:
+        if in_run:
             gate_hook.save_state(session_id, {"status": "blocked", "reason": "context unreachable"})
         return 0
-    if not conduct and not fetched["config"].get("interactive"):
+    if not in_run and not fetched["config"].get("interactive"):
         return 0
 
     verdict = gate_hook.check(

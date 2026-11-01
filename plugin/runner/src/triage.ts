@@ -260,7 +260,7 @@ export async function screen(state: Record<string, unknown>, cfg: Triage, backen
   throw new Error(`screening failed (${errors.join("; ")})`);
 }
 
-/** Questions on a rehearsal's revision: the state carries the plan's `original` and `revised` tasks,
+/** Questions on a preflight's revision: the state carries the plan's `original` and `revised` tasks,
  * its `out_of_scope` and its `design`. */
 export const REVISION_QUESTIONS = {
   drops_acceptance: "A task in `revised` drops or weakens an acceptance criterion that the same task in `original` had.",

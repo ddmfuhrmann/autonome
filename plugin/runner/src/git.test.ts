@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { allowedTools, rehearsalPrompt, summary } from "./conduct.js";
+import { allowedTools, preflightPrompt, summary } from "./run.js";
 import { parseConfigs, table } from "./bench.js";
 import { roleModel, sdkModel } from "./context.js";
 import { commitMessage, fastForwardMain, git, stageWork, strayFiles } from "./git.js";
@@ -73,7 +73,7 @@ test("main is updated by ref when it is not checked out anywhere", () => {
   assert.equal(git(dir, "rev-parse", "main"), git(dir, "rev-parse", "task"));
 });
 
-test("a musician may run the gates' commands and nothing else in the shell", () => {
+test("an implementer may run the gates' commands and nothing else in the shell", () => {
   const tools = allowedTools({
     gates: [{ name: "lint", run: "./mvnw -q checkstyle:check" }, { name: "neg", run: "! grep -q TODO x" }],
     allowed_commands: ["pnpm"],
@@ -85,7 +85,7 @@ test("a musician may run the gates' commands and nothing else in the shell", () 
 });
 
 test("a feature's docs drift when work landed after its doc, or it has work and no doc", async () => {
-  const { drifted } = await import("./cues.js");
+  const { drifted } = await import("./schedules.js");
   assert.deepEqual(drifted([
     { slug: "fresh", handoffs: 2, documented: true, last_work_at: "2026-10-01", doc_updated_at: "2026-10-02" },
     { slug: "stale", handoffs: 2, documented: true, last_work_at: "2026-10-03", doc_updated_at: "2026-10-02" },
@@ -126,8 +126,8 @@ test("stray files: ignored-but-tracked and unasked-for binaries are flagged, ask
   assert.deepEqual(strayFiles(dir, base, "Add the logo.png to the header"), []);
 });
 
-test("the rehearsal sees the gates a plan must pass, with their commands", () => {
-  const text = rehearsalPrompt(
+test("the preflight sees the gates a plan must pass, with their commands", () => {
+  const text = preflightPrompt(
     { id: 16, project: "shortlink", status: "approved", feature: "links",
       body: { title: "Links", tasks: [{ title: "Routes", spec: "app imports db" }], preflight: { verdict: "ready" } } },
     "shortlink", [{ name: "imports", run: "uv run lint-imports" }, { name: "pytest", run: "uv run pytest -q" }]);
@@ -136,7 +136,7 @@ test("the rehearsal sees the gates a plan must pass, with their commands", () =>
   assert.doesNotMatch(text, /"preflight"/);
 });
 
-test("the conductor's summary counts outcomes and totals time and tokens", () => {
+test("the runner's summary counts outcomes and totals time and tokens", () => {
   const text = summary([
     { id: 24, title: "SQLite schema", outcome: "merged", review_rounds: 1, duration_s: 312, tokens: 41000 },
     { id: 25, title: "POST /links", outcome: "blocked", review_rounds: 3, duration_s: 95, tokens: 9000,
@@ -148,23 +148,23 @@ test("the conductor's summary counts outcomes and totals time and tokens", () =>
 });
 
 test("each role runs on its own model and effort, and the command line overrides them all", () => {
-  const cfg = { gates: [], encore: { max: 3, stop_on_repeat: true }, budget: { task_tokens: 1, task_minutes: 1, plan_tokens: 1 },
-    review: { enabled: true, max_rounds: 2 }, soundcheck: null,
-    models: { musician: { model: "sonnet", effort: "medium" as const }, reviewer: { model: "sonnet", effort: "high" as const } } };
+  const cfg = { gates: [], retries: { max: 3, stop_on_repeat: true }, budget: { task_tokens: 1, task_minutes: 1, plan_tokens: 1 },
+    review: { enabled: true, max_rounds: 2 }, smoke_test: null,
+    models: { implementer: { model: "sonnet", effort: "medium" as const }, reviewer: { model: "sonnet", effort: "high" as const } } };
   assert.deepEqual(roleModel(cfg, "reviewer"), { model: "sonnet", effort: "high" });
-  assert.deepEqual(roleModel(cfg, "musician", { model: "opus" }), { model: "opus", effort: "medium" });
-  assert.deepEqual(roleModel(cfg, "musician", { effort: "low" }), { model: "sonnet", effort: "low" });
-  assert.deepEqual(roleModel({ ...cfg, models: undefined }, "tune"), { model: "sonnet", effort: "medium" });
+  assert.deepEqual(roleModel(cfg, "implementer", { model: "opus" }), { model: "opus", effort: "medium" });
+  assert.deepEqual(roleModel(cfg, "implementer", { effort: "low" }), { model: "sonnet", effort: "low" });
+  assert.deepEqual(roleModel({ ...cfg, models: undefined }, "retro"), { model: "sonnet", effort: "medium" });
 });
 
 test("a role's fallback model reaches the SDK, unless it is the model itself", () => {
-  const cfg = { gates: [], encore: { max: 3, stop_on_repeat: true }, budget: { task_tokens: 1, task_minutes: 1, plan_tokens: 1 },
-    review: { enabled: true, max_rounds: 2 }, soundcheck: null,
-    models: { musician: { model: "sonnet", effort: "medium" as const, fallback: "haiku" } } };
-  const musician = roleModel(cfg, "musician");
-  assert.deepEqual(musician, { model: "sonnet", effort: "medium", fallback: "haiku" });
-  assert.deepEqual(sdkModel(musician), { model: "sonnet", effort: "medium", fallbackModel: "haiku" });
-  assert.deepEqual(roleModel(cfg, "musician", { model: "haiku" }), { model: "haiku", effort: "medium" });
+  const cfg = { gates: [], retries: { max: 3, stop_on_repeat: true }, budget: { task_tokens: 1, task_minutes: 1, plan_tokens: 1 },
+    review: { enabled: true, max_rounds: 2 }, smoke_test: null,
+    models: { implementer: { model: "sonnet", effort: "medium" as const, fallback: "haiku" } } };
+  const implementer = roleModel(cfg, "implementer");
+  assert.deepEqual(implementer, { model: "sonnet", effort: "medium", fallback: "haiku" });
+  assert.deepEqual(sdkModel(implementer), { model: "sonnet", effort: "medium", fallbackModel: "haiku" });
+  assert.deepEqual(roleModel(cfg, "implementer", { model: "haiku" }), { model: "haiku", effort: "medium" });
   assert.deepEqual(sdkModel({ model: "sonnet", effort: "low" }), { model: "sonnet", effort: "low" });
 });
 
