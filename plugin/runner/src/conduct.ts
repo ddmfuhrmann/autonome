@@ -133,7 +133,7 @@ export const PLAN_SCHEMA = {
 /** The rehearsal: a read-only session checks a wave plan against main before its first task plays. */
 export function rehearsalPrompt(plan: Plan, project: string, gates: GateConfig["config"]["gates"]): string {
   const { title, ...rest } = plan.body;
-  delete rest.rehearsal;
+  delete rest.preflight;
   return `Rehearse plan #${plan.id} (feature ${plan.feature ?? "-"}, project ${project}):\n\n` +
     JSON.stringify({ title, ...rest }, null, 2) +
     `\n\n## Gates it must pass\n${gates.map((g) => `- ${g.name}: \`${g.run}\``).join("\n") || "- (none configured)"}`;

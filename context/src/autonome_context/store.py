@@ -214,7 +214,6 @@ _BROWSE_FROM = """
     join lateral (select v.body from document_version v where v.document_id = d.id
                   order by v.version desc limit 1) dv on true
 """
-PREFLIGHT_KEY = "rehearsal"  # where a plan's body keeps its preflight; renamed with the plan body, not here
 
 _REF = re.compile(r"^\s*(?:[A-Za-z]-|#)?(\d+)\s*$")
 

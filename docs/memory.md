@@ -128,7 +128,7 @@ stateDiagram-v2
     [*] --> draft
     draft --> approved: human
     approved --> held: rehearsal needs a revision
-    held --> approved: human (accept or keep), or the runner when Jev accepts the revision (rehearsal.triage)
+    held --> approved: human (accept or keep), or the runner when Jev accepts the revision (preflight.triage)
     approved --> blocked: soundcheck keeps failing
     blocked --> approved: human retries
     blocked --> done: human accepts as is

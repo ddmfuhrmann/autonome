@@ -1,6 +1,6 @@
 {# Renders a document body as readable sections; raw JSON stays one click away. Keys already shown in
    the page head are left out, the summary comes first, and code-like strings stay verbatim. #}
-{% set hidden = ('title', 'rehearsal', 'features', 'soundchecks', 'runs', 'project', 'feature', 'layers', 'session_id',
+{% set hidden = ('title', 'preflight', 'features', 'soundchecks', 'runs', 'project', 'feature', 'layers', 'session_id',
                  'plan_id', 'seq', 'wave_id', 'kind') %}
 {% set code_keys = ('yaml', 'diff', 'diff_stat', 'output', 'mermaid', 'last_output', 'transcript') %}
 {% set keys = (['summary'] if body.summary else []) + body.keys()|reject('equalto', 'summary')|list %}

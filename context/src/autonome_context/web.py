@@ -324,7 +324,7 @@ APPROVE = {"approved", "accepted", "released", "revised", "active"}
 def actions(doc: dict, in_wave: dict | None = None) -> list[dict]:
     type_, status = doc["type"], doc["status"] or ""
     if type_ == "plan" and status == "held":
-        tos = ["revised", "approved", "abandoned"] if doc["body"].get("rehearsal", {}).get("plan") \
+        tos = ["revised", "approved", "abandoned"] if doc["body"].get("preflight", {}).get("plan") \
             else ["approved", "abandoned"]
     elif in_wave and status == "draft":
         tos = []  # approved with its wave

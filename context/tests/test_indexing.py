@@ -79,5 +79,5 @@ def test_a_failed_embedding_never_fails_the_write_and_reindex_picks_it_up(run_db
 
     doc, indexed_before, reindexed = run_db(after)
     assert r.status_code == 200 and r.json() == {"plan_status": "approved"}
-    assert doc["body"]["rehearsal"]["notes"] == "ok" and indexed_before == 0
+    assert doc["body"]["preflight"]["notes"] == "ok" and indexed_before == 0
     assert reindexed >= 1

@@ -77,8 +77,8 @@ def test_accept_approves_as_the_runner_and_queues_the_revised_tasks(client, proj
     r = client.post(url(plan_id), json=verdict("accept"))
     assert r.status_code == 200 and r.json() == {"status": "approved"}
     plan = run_db(lambda c: store.get_document(c, plan_id))
-    assert plan["status"] == "approved" and plan["body"]["rehearsal"]["verdict"] == "revised"
-    t = plan["body"]["rehearsal"]["triage"]
+    assert plan["status"] == "approved" and plan["body"]["preflight"]["verdict"] == "revised"
+    t = plan["body"]["preflight"]["triage"]
     assert t["verdict"] == "accept" and t["model"] == "jev-latest" and t["at"] and t["answers"]["drops_acceptance"] == "0.09"
     tasks = run_db(lambda c: store.list_documents(c, project, type="task", status="pending", limit=None))
     assert sorted(x["body"]["spec"] for x in tasks if x["body"]["plan_id"] == plan_id) == ["do Stats 1", "do Stats 2 better"]
@@ -92,7 +92,7 @@ def test_hold_keeps_the_plan_held_and_leaves_the_pending_list(client, project, r
     r = client.post(url(plan_id), json=verdict("hold", answers={"changes_design": "0.94"}))
     assert r.status_code == 200 and r.json() == {"status": "held"}
     plan = run_db(lambda c: store.get_document(c, plan_id))
-    assert plan["status"] == "held" and plan["body"]["rehearsal"]["triage"]["verdict"] == "hold"
+    assert plan["status"] == "held" and plan["body"]["preflight"]["triage"]["verdict"] == "hold"
     assert revisions(client, project) == []
     assert all(status(run_db, i) == "pending" for i in old)
     assert client.post(url(plan_id), json=verdict("accept")).status_code == 403  # judged once
@@ -148,7 +148,7 @@ def test_a_verdict_names_the_jev_that_answered_and_is_kept_as_such(client, proje
     plan_id, _ = held(t2={"spec": "do Stats 2 better"})
     assert client.post(url(plan_id), json=verdict("accept", model="jev-1.14.0")).status_code == 200
     plan = run_db(lambda c: store.get_document(c, plan_id))
-    assert plan["status"] == "approved" and plan["body"]["rehearsal"]["triage"]["model"] == "jev-1.14.0"
+    assert plan["status"] == "approved" and plan["body"]["preflight"]["triage"]["model"] == "jev-1.14.0"
 
 
 def test_two_verdicts_at_once_let_only_one_through(client, project, run_db, indexer, held):
@@ -161,7 +161,7 @@ def test_two_verdicts_at_once_let_only_one_through(client, project, run_db, inde
             pool.submit(client.post, url(plan_id), json=verdict("accept")) for _ in range(2)])
     assert codes == [200, 403]
     plan = run_db(lambda c: store.get_document(c, plan_id))
-    assert plan["status"] == "approved" and plan["body"]["rehearsal"]["triage"]["verdict"] == "accept"
+    assert plan["status"] == "approved" and plan["body"]["preflight"]["triage"]["verdict"] == "accept"
     assert plan["version"] == run_db(lambda c: store.get_document(c, plan_id))["version"]
 
 
@@ -190,7 +190,7 @@ def test_the_human_still_resolves_a_plan_judged_hold(client, project, run_db, in
     r = client.post(f"/ui/p/{project}/documents/{plan_id}/transition", data={"to": "revised"}, headers=FETCH)
     assert r.status_code == 200
     plan = run_db(lambda c: store.get_document(c, plan_id))
-    assert plan["status"] == "approved" and plan["body"]["rehearsal"]["verdict"] == "revised"
+    assert plan["status"] == "approved" and plan["body"]["preflight"]["verdict"] == "revised"
 
 
 def test_the_human_keeps_the_original_of_a_plan_judged_hold(client, project, run_db, indexer, held):
@@ -200,7 +200,7 @@ def test_the_human_keeps_the_original_of_a_plan_judged_hold(client, project, run
     r = client.post(f"/ui/p/{project}/documents/{plan_id}/transition", data={"to": "approved"}, headers=FETCH)
     assert r.status_code == 200
     plan = run_db(lambda c: store.get_document(c, plan_id))
-    assert plan["status"] == "approved" and plan["body"]["rehearsal"]["verdict"] == "kept"
+    assert plan["status"] == "approved" and plan["body"]["preflight"]["verdict"] == "kept"
     assert all(status(run_db, i) == "pending" for i in old)
 
 

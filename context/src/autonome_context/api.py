@@ -287,13 +287,13 @@ async def post_rehearsal_triage(request: Request) -> JSONResponse:
                 # The config asks for the alias; the verdict names the Jev that answered (`jev-1.14.0`).
                 if not cfg.get("triage") or cfg["triage"]["model"] != "jev-latest" or not _JEV.fullmatch(v.model):
                     raise _Refused("only jev-latest judges revisions")
-                r = plan["body"].get("rehearsal") or {}
+                r = plan["body"].get("preflight") or {}
                 if plan["status"] != "held" or not r.get("plan"):
                     raise _Refused("only a held plan with a proposed revision is triaged")
                 if r.get("triage"):
                     raise _Refused("this revision was already judged")
                 triage = {"model": v.model, "answers": v.answers, "verdict": v.verdict, "at": plans._now()}
-                await store.add_version(conn, indexer, plan_id, {**plan["body"], "rehearsal": {**r, "triage": triage}})
+                await store.add_version(conn, indexer, plan_id, {**plan["body"], "preflight": {**r, "triage": triage}})
                 if v.verdict == "accept":
                     await plans.resolve_rehearsal(conn, indexer, plan_id, accept=True, actor="runner")
         except (_Refused, rules.Forbidden) as e:  # the transaction rolled back: nothing changed
@@ -303,7 +303,7 @@ async def post_rehearsal_triage(request: Request) -> JSONResponse:
 
 def _revision_state(plan: dict) -> tuple[dict, bool]:
     """What the classifier is shown of a held plan's revision: only the tasks that changed, by position."""
-    r = plan["body"]["rehearsal"]
+    r = plan["body"]["preflight"]
     old, new = plan["body"].get("tasks") or [], r["plan"].get("tasks") or []
 
     def part(t: dict | None, i: int) -> dict | None:
@@ -336,7 +336,7 @@ async def _pending_revisions(conn, project: str) -> list[dict]:
     """Held plans with a revision the classifier has yet to judge, oldest first."""
     out = []
     for p in await store.list_documents(conn, project, type="plan", status="held", limit=None, oldest_first=True):
-        r = p["body"].get("rehearsal") or {}
+        r = p["body"].get("preflight") or {}
         if not r.get("plan") or r.get("triage"):
             continue
         state, shape_changed = _revision_state(p)
@@ -544,7 +544,7 @@ async def get_events(request: Request) -> JSONResponse:
 
 def _triage_hold_flag(plan: dict) -> str | None:
     """The question that weighed most when the classifier held a plan's revision, else None."""
-    triage = (plan["body"].get("rehearsal") or {}).get("triage") or {}
+    triage = (plan["body"].get("preflight") or {}).get("triage") or {}
     if triage.get("verdict") != "hold":
         return None
 

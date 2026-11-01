@@ -105,7 +105,7 @@ def test_a_revised_plan_is_held_until_the_human_accepts_it(run_db, project, inde
     status, held_claim, plan, old, new = run_db(go)
     assert status == "held" and held_claim is None
     assert plan["status"] == "approved" and plan["body"]["title"] == "Stats v2"
-    assert plan["body"]["rehearsal"]["verdict"] == "revised" and len(plan["body"]["tasks"]) == 3
+    assert plan["body"]["preflight"]["verdict"] == "revised" and len(plan["body"]["tasks"]) == 3
     assert all(t["status"] == "abandoned" for t in old)
     assert new["body"]["title"] == "Stats v2 1" and new["body"]["after_plans"] == [old[0]["body"]["after_plans"][0]]
 

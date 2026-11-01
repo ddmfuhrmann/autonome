@@ -47,7 +47,7 @@
               <div class="feat__deps">
                 {% if f.after %}<span>after</span><span class="mono">{% for a in f.after %}{{ a|ref('plan') }}{{ ', ' if not loop.last }}{% endfor %}</span>{% else %}<span>no dependencies</span>{% endif %}
                 {% if p %}<span>·</span>{{ ui.st(p.status, sm=true) }}{% endif %}
-                {% if p and p.body.rehearsal %}<span>·</span>{{ ui.st(p.body.rehearsal.verdict, sm=true, text='Rehearsal ' ~ p.body.rehearsal.verdict) }}{% endif %}
+                {% if p and p.body.preflight %}<span>·</span>{{ ui.st(p.body.preflight.verdict, sm=true, text='Rehearsal ' ~ p.body.preflight.verdict) }}{% endif %}
                 {% if p and p.status == 'held' %}<a href="/ui/p/{{ project }}/approvals">revision waiting on you</a>{% endif %}
               </div>
             </div>

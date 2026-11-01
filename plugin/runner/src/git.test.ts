@@ -129,11 +129,11 @@ test("stray files: ignored-but-tracked and unasked-for binaries are flagged, ask
 test("the rehearsal sees the gates a plan must pass, with their commands", () => {
   const text = rehearsalPrompt(
     { id: 16, project: "shortlink", status: "approved", feature: "links",
-      body: { title: "Links", tasks: [{ title: "Routes", spec: "app imports db" }], rehearsal: { verdict: "ready" } } },
+      body: { title: "Links", tasks: [{ title: "Routes", spec: "app imports db" }], preflight: { verdict: "ready" } } },
     "shortlink", [{ name: "imports", run: "uv run lint-imports" }, { name: "pytest", run: "uv run pytest -q" }]);
   assert.match(text, /## Gates it must pass\n- imports: `uv run lint-imports`\n- pytest: `uv run pytest -q`/);
   assert.match(text, /app imports db/);
-  assert.doesNotMatch(text, /"rehearsal"/);
+  assert.doesNotMatch(text, /"preflight"/);
 });
 
 test("the conductor's summary counts outcomes and totals time and tokens", () => {

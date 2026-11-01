@@ -21,7 +21,7 @@
 
 <nav class="tabs" aria-label="Plan sections">
   <a href="#objective" aria-current="page">Overview</a>{% if b.design %}<a href="#design">Design <span class="count-pill">{{ b.design|length }}</span></a>{% endif %}<a href="#tasks">Tasks <span class="count-pill">{{ tasks|length or b.tasks|length }}</span></a>
-  {% if b.rehearsal %}<a href="#rehearsal">Rehearsal</a>{% endif %}<a href="#soundchecks">Soundchecks <span class="count-pill">{{ sounds|length }}</span></a>
+  {% if b.preflight %}<a href="#rehearsal">Rehearsal</a>{% endif %}<a href="#soundchecks">Soundchecks <span class="count-pill">{{ sounds|length }}</span></a>
 </nav>
 
 <div class="grid grid--main-aside">
@@ -79,7 +79,7 @@
     </table></div>
   </section>
 
-  {% if b.rehearsal %}{% set r = b.rehearsal %}
+  {% if b.preflight %}{% set r = b.preflight %}
   <section class="card" id="rehearsal">
     <div class="card__head"><h2 class="card__title">Rehearsal</h2>{{ ui.st(r.verdict, sm=true) }}<span class="push muted mono" style="font-size: 12px">{{ r.at|when }}</span></div>
     <div class="card__body">
