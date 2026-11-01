@@ -123,6 +123,13 @@ test("an out-of-range answer throws", async () => {
 const askHaiku = (answer: unknown, seen: any[] = []) =>
   (async (c: unknown) => { seen.push(c); return { answer, cost: 0 }; }) as unknown as typeof consult;
 
+test("haiku passes consult's cost to onCost", async () => {
+  const ask = (async () => ({ answer: { answers: ans({}) }, cost: 0.012 })) as unknown as typeof consult;
+  const costs: number[] = [];
+  await haiku(state, ask, "low", (c) => costs.push(c));
+  assert.deepEqual(costs, [0.012]);
+});
+
 test("haiku asks on the haiku/low role and returns valid answers", async () => {
   const seen: any[] = [];
   const got = await haiku(state, askHaiku({ answers: ans({ workaround: 0.4 }) }, seen));

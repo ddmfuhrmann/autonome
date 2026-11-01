@@ -1,7 +1,7 @@
 [
   {
     "id": "shortlink-180",
-    "expected": "accept",
+    "expected": "escalate",
     "state": {
       "deviation": {
         "title": "Keep briefing exception names and suppress N818 with noqa",
@@ -78,7 +78,7 @@
   },
   {
     "id": "shortlink-4-217",
-    "expected": "accept",
+    "expected": "escalate",
     "state": {
       "deviation": {
         "title": "Wrap non-conflict IntegrityError in LinkStorageError instead of re-raising",
