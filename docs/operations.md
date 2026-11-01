@@ -48,8 +48,12 @@ play: abandon or re-plan them too).
 ## A plan waits
 
 - **Held by rehearsal**: before a wave feature played, the rehearsal found the plan out of date
-  with the code or the gates. Compare the original and the proposed revision on Approvals; accept
-  the revision, keep the original, or abandon.
+  with the code or the gates. With the triage on and a Jev key, Jev judges the revision first: if it
+  drops no acceptance, adds no excluded scope and keeps the design, the runner approves the plan and
+  it plays in the same run. Otherwise (a risky revision, one that adds, removes or reorders tasks,
+  no key, Jev down) the plan stays held, with Jev's flag shown when it held it. Compare the original
+  and the proposed revision on Approvals; accept the revision, keep the original, or abandon. If you
+  resolve it first, the runner leaves it alone.
 - **Blocked at the soundcheck**: the finished feature failed in the running environment and the
   fix rounds ran out, or the environment did not start. Read the report; **Try again** runs one more
   soundcheck with fresh rounds, **Accept as is** closes the plan, **Abandon** drops it.

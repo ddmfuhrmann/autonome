@@ -174,6 +174,13 @@ conventions and gates instead.
   `reject_at` or above it drops to medium (`downgraded`). Every checked finding keeps Jev's answer
   (`advisory`) or the failure (`advisory_error`) in the run's review rounds, and each round with a
   check adds a `triage advisory: …` line to the task's events (or `skipped, no Jev key`).
+- **Rehearsal revisions**: with `model: jev-latest` and a key, the runner also judges the revision a
+  rehearsal proposes for a held plan (only the tasks that changed, in the same position), after the
+  rehearsal and at the start of `conduct`. Three questions, `drops_acceptance`, `adds_out_of_scope`
+  and `changes_design`: all below `reject_at` → the runner approves the plan; otherwise the verdict
+  `hold` is recorded and the plan stays held for you. A revision that adds, removes or reorders tasks
+  is held without calling Jev. Jev only: `fallback` does not apply, and with no key or on failure the
+  plan stays held. After updating, rebuild the context (`docker compose up -d --build context`).
 - **The key**: `TYPESAFE_API_KEY` in the runner's environment, else in `~/.autonome/secrets.env`
   (mode `0600`; a more open file is ignored with a warning). It is never in the gate config, the
   context or the UI, and it is removed from the environment of agent sessions. `autonome doctor`
