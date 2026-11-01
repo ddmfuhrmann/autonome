@@ -154,6 +154,10 @@ export interface Finding {
   issue: string;
   /** Triage's Jev check found the text advisory and took the finding from high to medium. */
   downgraded?: boolean;
+  /** Jev's probability that the finding's text calls itself advisory, on every high finding it checked. */
+  advisory?: number;
+  /** The Jev check of this finding failed; the finding kept its severity. */
+  advisory_error?: string;
   /** Set when the run ends: what became of the finding (see `settleOutcomes`). */
   outcome?: "resolved" | "repeated" | "merged" | "blocked";
 }

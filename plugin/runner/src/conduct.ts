@@ -14,6 +14,7 @@ import { encoreMessage, findingsForEncore, gatesSection, recordRound, review, se
 import { soundcheck } from "./soundcheck.js";
 import { jevKey, sessionEnv } from "./secrets.js";
 import { triagePending } from "./triage-run.js";
+import { advisoryLine } from "./triage.js";
 import { isUsageLimit, UsageLimitError, untilReset } from "./limits.js";
 import { tuneFinishedWaves } from "./tune.js";
 import { EventStream, fromMessage } from "./events.js";
@@ -381,12 +382,17 @@ export async function judgeTask(input: JudgeInput, seams: JudgeSeams): Promise<{
     if (!cfg.review.enabled) return { failure: null, blockedOnReview: false };
     const briefing = [await seams.briefing(), gatesSection(check.outcomes)].filter(Boolean).join("\n\n");
     stage(opts, { task_id: task.id }, `review, round ${round + 1}`);
+    const key = cfg.triage?.model === "jev-latest" ? jevKey((l) => opts.log(`triage: ${l}`)) : undefined;
     const rv = await seams.review(task, briefing, worktree, base,
       { ...roleModel(cfg, "reviewer", opts), language: languageRule(cfg) },
-      live(opts, "reviewer", { task_id: task.id }), run.review?.findings,
-      { cfg: cfg.triage, key: cfg.triage?.model === "jev-latest" ? jevKey((l) => opts.log(`triage: ${l}`)) : undefined });
+      live(opts, "reviewer", { task_id: task.id }), run.review?.findings, { cfg: cfg.triage, key });
     recordRound(run, rv.result, round + 1);
     opts.events?.push({ task_id: task.id, role: "reviewer", kind: "say", text: verdictLine(rv.result) });
+    const checked = advisoryLine(rv.result.findings, cfg.triage?.model === "jev-latest" && !key ? "no Jev key" : undefined);
+    if (checked) {
+      log(`  ${checked}`);
+      opts.events?.push({ task_id: task.id, role: "triage", kind: "say", text: checked });
+    }
     run.cost_usd = (run.cost_usd ?? 0) + rv.cost;
     // Medium findings go back once; after that only high ones do, so rounds converge.
     const message = encoreMessage(rv.result, round < cfg.review.max_rounds && !mediumSent);
