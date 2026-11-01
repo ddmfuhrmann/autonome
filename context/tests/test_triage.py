@@ -185,12 +185,12 @@ def test_the_state_snapshot_says_triage_is_off_for_model_off(client, project, ru
     assert client.get(f"/api/projects/{project}/state").json()["triage"] is False
 
 
-def deviation_two(run_db, indexer, project):
+def deviation_two(run_db, indexer, project, deviation=True):
     from autonome_context.handoff import Decision
 
     async def go(conn):
         await store.put_handoff(conn, indexer, make_handoff(project, feature="links", session_id="s2", decisions=[
-            Decision(title="Another one", rationale="r", deviation=True)]), None)
+            Decision(title="Another one", rationale="r", deviation=deviation)]), None)
         await conn.commit()
         return next(d["id"] for d in await store.list_documents(conn, project, type="decision")
                     if d["body"]["title"] == "Another one")
@@ -249,7 +249,7 @@ def seed(run_db, indexer, project, *, session="s-1", title="Dict", source=None, 
 
 
 def pending(client, project):
-    return client.get(f"/api/projects/{project}/triage").json()
+    return client.get(f"/api/projects/{project}/triage").json()["deviations"]
 
 
 def test_state_of_a_deviation_with_a_plan_has_every_field(client, project, run_db, indexer):
@@ -373,6 +373,90 @@ def test_a_human_settling_an_exhausted_deviation_is_the_judge(client, project, r
     [item] = h["deviation_decisions"]
     assert item["judged_by"] == "human" and "verdict" not in item
     assert data["triage"]["by_verdict"] == {} and data["triage"]["by_backend"] == {}
+
+
+def screen_body(is_deviation, reject_at=0.7):
+    return {"backend": "haiku", "model": "claude-haiku-5-5", "is_deviation": is_deviation, "reject_at": reject_at}
+
+
+def screen_list(client, project):
+    return client.get(f"/api/projects/{project}/triage").json()["screen"]
+
+
+def test_with_triage_off_screening_is_refused_and_nothing_is_listed(client, project, run_db, indexer, deviation):
+    doc_id = deviation(deviation=False)
+    assert screen_list(client, project) == []
+    assert client.post(f"/api/decisions/{doc_id}/screen", json=screen_body(0.9)).status_code == 403
+    enable(run_db, indexer, project, "triage: {model: off}\n")
+    assert screen_list(client, project) == []
+    assert client.post(f"/api/decisions/{doc_id}/screen", json=screen_body(0.9)).status_code == 403
+    assert run_db(lambda c: store.get_document(c, doc_id))["version"] == 1
+
+
+def test_decisions_made_before_triage_was_on_are_not_listed(client, project, run_db, indexer, deviation):
+    before = deviation(deviation=False)
+    enable(run_db, indexer, project)
+    after = deviation_two(run_db, indexer, project, deviation=False)
+    assert [i["decision_id"] for i in screen_list(client, project)] == [after]
+    assert before != after
+
+
+def test_a_low_score_records_the_screening_and_keeps_the_decision_accepted(client, project, run_db, indexer, deviation):
+    enable(run_db, indexer, project)
+    doc_id = deviation(deviation=False)
+    [item] = screen_list(client, project)
+    assert item["decision_id"] == doc_id and item["state"]["deviation"]["title"] == "Dict instead of a response model"
+    r = client.post(f"/api/decisions/{doc_id}/screen", json=screen_body(0.2))
+    assert r.status_code == 200
+    d = run_db(lambda c: store.get_document(c, doc_id))
+    assert d["status"] == "accepted" and not d["body"].get("deviation")
+    assert d["body"]["screening"]["is_deviation"] == 0.2 and d["body"]["screening"]["at"]
+    assert screen_list(client, project) == []
+
+
+def test_a_high_score_reopens_it_as_a_proposed_deviation_for_the_triage(client, project, run_db, indexer, deviation):
+    enable(run_db, indexer, project)
+    doc_id = deviation(deviation=False)
+    assert client.post(f"/api/decisions/{doc_id}/screen", json=screen_body(0.7)).status_code == 200
+    d = run_db(lambda c: store.get_document(c, doc_id))
+    assert d["status"] == "proposed" and d["body"]["deviation"] is True and d["body"]["screened_as_deviation"] is True
+    assert [i["decision_id"] for i in pending(client, project)] == [doc_id]
+    assert screen_list(client, project) == []
+    assert client.post(f"/api/decisions/{doc_id}/triage", json=verdict("accept")).status_code == 200
+
+
+def test_a_second_screening_is_a_409_and_changes_nothing(client, project, run_db, indexer, deviation):
+    enable(run_db, indexer, project)
+    doc_id = deviation(deviation=False)
+    assert client.post(f"/api/decisions/{doc_id}/screen", json=screen_body(0.1)).status_code == 200
+    version = run_db(lambda c: store.get_document(c, doc_id))["version"]
+    assert client.post(f"/api/decisions/{doc_id}/screen", json=screen_body(0.9)).status_code == 409
+    d = run_db(lambda c: store.get_document(c, doc_id))
+    assert d["version"] == version and d["status"] == "accepted"
+
+
+def test_a_second_screening_of_a_reopened_deviation_is_a_409_too(client, project, run_db, indexer, deviation):
+    enable(run_db, indexer, project)
+    doc_id = deviation(deviation=False)
+    assert client.post(f"/api/decisions/{doc_id}/screen", json=screen_body(0.7)).status_code == 200
+    version = run_db(lambda c: store.get_document(c, doc_id))["version"]
+    assert client.post(f"/api/decisions/{doc_id}/screen", json=screen_body(0.9)).status_code == 409
+    d = run_db(lambda c: store.get_document(c, doc_id))
+    assert d["version"] == version and d["status"] == "proposed"
+
+
+def test_a_deviation_is_not_screened(client, project, run_db, indexer, deviation):
+    enable(run_db, indexer, project)
+    doc_id = deviation()
+    assert client.post(f"/api/decisions/{doc_id}/screen", json=screen_body(0.9)).status_code == 403
+
+
+def test_the_queue_has_no_reopened_deviations_with_triage_on(client, project, run_db, indexer, deviation):
+    enable(run_db, indexer, project)
+    doc_id = deviation(deviation=False)
+    assert client.post(f"/api/decisions/{doc_id}/screen", json=screen_body(0.9)).status_code == 200
+    assert "Dict instead of a response model" not in client.get(f"/ui/p/{project}/approvals").text
+    assert client.get(f"/api/projects/{project}/state").json()["waiting"] == []
 
 
 def test_the_human_path_is_unchanged(client, project, run_db, indexer, deviation):
