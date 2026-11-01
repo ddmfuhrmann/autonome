@@ -18,7 +18,7 @@ function fakeContext(items: unknown[]) {
   globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
-    return url.endsWith("/triage") && !init?.method ? json(items) : json({ status: "accepted" });
+    return url.endsWith("/triage") && !init?.method ? json({ deviations: items, screen: [] }) : json({ status: "accepted" });
   };
   return calls;
 }

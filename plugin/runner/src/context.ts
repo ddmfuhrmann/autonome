@@ -272,7 +272,8 @@ export const context = {
       method: "POST",
       body: JSON.stringify({ to, run }),
     }),
-  triageState: (project: string) => call<TriageItem[]>(`/api/projects/${project}/triage`),
+  triageState: async (project: string) =>
+    (await call<{ deviations: TriageItem[] }>(`/api/projects/${project}/triage`)).deviations,
   triageVerdict: (decisionId: number, v: TriageVerdictBody) =>
     call<{ status: string; triage_exhausted?: boolean }>(`/api/decisions/${decisionId}/triage`, {
       method: "POST", body: JSON.stringify(v) }),

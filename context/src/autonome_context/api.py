@@ -322,7 +322,83 @@ async def get_triage(request: Request) -> JSONResponse:
             out.append({"decision_id": d["id"], "round": round_, "state": await _triage_state(conn, d, task)})
             if len(out) == 50:
                 break
-    return _json(out)
+        screen = await _screen_pending(conn, project)
+    return _json({"deviations": out, "screen": screen})
+
+
+async def _triage_since(conn, project: str) -> str | None:
+    """When the project first had the triage on: the oldest gate config version whose triage model is not off."""
+    async with conn.cursor() as cur:
+        await cur.execute(
+            "select dv.body, dv.created_at from document d join project p on p.id = d.project_id"
+            " join document_version dv on dv.document_id = d.id"
+            " where p.slug = %s and d.type = 'gate_config' order by dv.version", (project,))
+        rows = await cur.fetchall()
+    for body, at in rows:
+        try:
+            triage = GateConfig.from_yaml(body["yaml"]).triage
+        except ValueError:  # an invalid old version never turned anything on
+            continue
+        if triage and triage.model != "off":
+            return at
+    return None
+
+
+async def _screen_pending(conn, project: str) -> list[dict]:
+    """Accepted non-deviations made since the triage was on, not yet screened, oldest first."""
+    since = await _triage_since(conn, project)
+    if since is None:
+        return []
+    out = []
+    for d in await store.list_documents(conn, project, type="decision", status="accepted", limit=None,
+                                        oldest_first=True):
+        if d["body"].get("deviation") or d["body"].get("screening") or d["created_at"] <= since:
+            continue
+        out.append({"decision_id": d["id"], "state": await _triage_state(conn, d, await _decision_task(conn, d["id"]))})
+        if len(out) == 50:
+            break
+    return out
+
+
+class Screening(BaseModel):
+    backend: str
+    model: str
+    is_deviation: float = Field(ge=0, le=1)
+    reject_at: float = Field(gt=0, le=1)
+
+
+async def post_screen(request: Request) -> JSONResponse:
+    """The runner's classifier screened an accepted decision: keep the result and, when it is really a
+    deviation, reopen it as one so the triage judges it."""
+    try:
+        s = Screening.model_validate(await request.json())
+    except ValueError as e:
+        detail = e.errors(include_context=False, include_input=False) if isinstance(e, ValidationError) else str(e)
+        return _json({"error": "invalid_screening", "detail": detail}, 422)
+    doc_id = int(request.path_params["doc_id"])
+    pool, indexer = await services.get()
+    async with pool.connection() as conn:
+        async with conn.transaction():
+            await conn.execute("select 1 from document where id = %s for update", (doc_id,))
+            d = await store.get_document(conn, doc_id)
+            if not d or d["type"] != "decision":
+                return _json({"error": "not a decision"}, 404)
+            cfg = (await gate_config_body(conn, d["project"]))["config"]
+            if not cfg.get("triage") or cfg["triage"]["model"] == "off":
+                return _json({"error": "triage is off for this project"}, 403)
+            if d["body"].get("screening"):
+                return _json({"error": "already screened"}, 409)
+            if d["status"] != "accepted" or d["body"].get("deviation"):
+                return _json({"error": "only an accepted non-deviation is screened"}, 403)
+            reopen = s.is_deviation >= s.reject_at
+            body = {**d["body"], "screening": {"backend": s.backend, "model": s.model,
+                                               "is_deviation": s.is_deviation, "at": plans._now()}}
+            if reopen:
+                body |= {"deviation": True, "screened_as_deviation": True}
+            await store.add_version(conn, indexer, doc_id, body)
+            if reopen:
+                await rules.transition(conn, doc_id, "proposed", "runner")
+    return _json({"status": "proposed" if reopen else "accepted", "deviation": reopen})
 
 
 async def untuned_waves(request: Request) -> JSONResponse:
@@ -411,6 +487,7 @@ def routes() -> list:
         Route("/api/projects/{project}/waves/untuned", untuned_waves),
         Route("/api/projects/{project}/triage", get_triage),
         Route("/api/decisions/{doc_id:int}/triage", post_triage, methods=["POST"]),
+        Route("/api/decisions/{doc_id:int}/screen", post_screen, methods=["POST"]),
         Route("/api/waves/{doc_id:int}/tuned", wave_tuned, methods=["POST"]),
         Route("/api/projects/{project}/briefing", get_briefing),
         Route("/api/projects/{project}/gate-config", get_gate_config),

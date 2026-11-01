@@ -42,6 +42,7 @@ TRANSITIONS: dict[tuple[str, str, str], set[str]] = {
     ("convention", "proposed", "rejected"): {"human"},
     ("decision", "proposed", "accepted"): {"human", "runner"},  # the runner only with a triage verdict
     ("decision", "proposed", "rejected"): {"human", "runner"},
+    ("decision", "accepted", "proposed"): {"runner"},  # the screening found a deviation the scribe missed
     ("decision", "accepted", "superseded"): {"human"},
 }
 
