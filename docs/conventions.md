@@ -27,7 +27,9 @@ for proposed ones). No agent can.
    compose proposes two to four in the plan; approving the plan makes them active before its tasks
    play. A plan never replaces or loosens an existing one.
 4. **tune.** After each wave, it turns what repeated (reviewer findings, fixes, friction) into
-   proposed conventions linked to their evidence; you adopt or reject them.
+   proposed conventions linked to their evidence; you adopt or reject them. It also measures the
+   conventions you adopted (`convention_effects`: findings and friction before and after adoption),
+   escalates the ones that do not hold to a gate or a rewrite, and gives each problem one remedy.
 
 ## Who reads them
 
@@ -37,7 +39,7 @@ for proposed ones). No agent can.
 | musician | the briefing injected at session start: the conventions of the task's layers | follows them while implementing |
 | reviewer | the same briefing, next to the diff | a **missing** finding against a named convention **blocks the merge**, whatever severity the model gave it |
 | rehearsal | `conventions_get`, `history_get` | revises a waiting plan that would break one |
-| tune | `insights_get` | proposes new ones from repeated findings |
+| tune | `insights_get` | proposes new ones from repeated findings; reads `convention_effects` to escalate the ones that do not hold |
 
 ## Conventions, gates, decisions: which one
 
