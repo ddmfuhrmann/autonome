@@ -103,6 +103,13 @@ keep them true when behaviour changes.
 Install the plugin locally: `claude plugin marketplace add ~/git/autonome` then
 `claude plugin install autonome@autonome`.
 
+**Bump the plugin version with every change under `plugin/`** (skills, agents, hooks, scripts, the
+runner): the patch in `plugin/.claude-plugin/plugin.json` for fixes, the minor for new behaviour, in
+the same commit. Claude Code caches an installed plugin by version, so without a bump
+`claude plugin update autonome@autonome` keeps the old copy and interactive sessions run stale skills
+(conduct sessions load `plugin/` from the repo and do not notice). After the commit, run
+`claude plugin update autonome@autonome` and start a new session.
+
 ## Conventions
 
 English everywhere in code, commits and this file. Conventional Commits with scopes `context`,
