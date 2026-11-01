@@ -72,6 +72,11 @@ allowed_commands: []      # commands (first word) a run session may run besides 
                           # -delete or -exec; VAR=value or env before an allowed command; bash,
                           # sh or python3 running a gate's script. Chained commands are denied
 
+permissions: allowlist    # how the implementer's sessions are allowed to act: `allowlist` (default,
+                          # only the commands above) or `auto` (the Agent SDK's classifier judges each
+                          # call, so the session may run a script for a mechanical change). Opt-in per
+                          # project; see "Permissions" below
+
 retries: {max: 3, stop_on_repeat: true}  # gate failures sent back to the implementer before a task
                                          # blocks; the same failure twice blocks at once
 budget: {task_tokens: 400000, task_minutes: 30, plan_tokens: 3000000}
@@ -140,6 +145,29 @@ A worked example for a FastAPI service, smoke test included, is in
 
 Plans can propose `gates` (with `with_task`, the task that sets their tooling up) and
 `conventions`. Approving the plan adds them; a gate never replaces an existing one by name.
+
+### Permissions
+
+`permissions` sets how the implementer's sessions act. Only the implementer is affected; the
+reviewer, preflight, retro, handoff and docs sessions stay read-only, and so do your interactive
+sessions.
+
+- `allowlist` (default): `dontAsk` with an allowlist (read and edit files, the gates' own commands,
+  `allowed_commands`, read-only git). Anything else is denied.
+- `auto`: the Agent SDK's classifier approves or denies each call, so a session can run a script for
+  a mechanical change (a rename across many files) instead of hundreds of edits. Calls that would
+  become a question are denied on the spot, with no human. The classifier also decides about the
+  network (installing a dependency, for example). The implementer's model must support the mode;
+  `autonome doctor` checks it.
+
+Hard limits, the same in both modes (by rule and by the fsguard hook, above the classifier):
+
+- git history: commit, push, branch switches, reset, stash and the like. Only the runner commits.
+- `~/.autonome`, including `secrets.env`.
+- paths outside the task's worktree.
+- `bypassPermissions` is never used.
+
+Turn it on only after [measuring it](operations.md#turning-on-auto-permissions).
 
 ### The triage
 
