@@ -41,7 +41,7 @@ def make_handoff(project: str, **kw) -> Handoff:
         layers=["domain", "persistence"],
         summary="Implemented the append-only ledger for the wallet balance.",
         plan_adherence=[PlanItem(item="LedgerEntry entity", status="done")],
-        gates=[GateResult(name="test", passed=False, encores=1, root_cause="missing tenant filter")],
+        gates=[GateResult(name="test", passed=False, retries=1, root_cause="missing tenant filter")],
         decisions=[Decision(title="Balance is derived", rationale="never stored, summed from entries")],
         friction=["no convention for money rounding"],
         adherence_score=0.8,

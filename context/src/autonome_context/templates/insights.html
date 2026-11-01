@@ -5,13 +5,13 @@
 {% macro secs(ms) %}{{ '%.1f s'|format(ms / 1000) if ms >= 1000 else (ms|round|int) ~ ' ms' }}{% endmacro %}
 <header class="page-head">
   <div class="page-head__text"><h1>Insights</h1>
-    <p class="subtitle">How the process is going, from {{ i.handoffs }} handoffs and every recorded gate run. <span class="mono" style="font-size: 15px">/autonome:tune</span> reads the same data to propose gates and conventions.</p></div>
+    <p class="subtitle">How the process is going, from {{ i.handoffs }} handoffs and every recorded gate run. <span class="mono" style="font-size: 15px">/autonome:retro</span> reads the same data to propose gates and conventions.</p></div>
 </header>
 <div class="stats">
   <div class="stat"><span class="stat__value">{{ i.task_outcomes.get('done', 0) }}</span><span class="stat__label">tasks done</span>
     <span class="stat__delta">{{ i.task_outcomes.values()|sum }} in all{% for s, n in i.task_outcomes.items() if s not in ('done', 'blocked') %} · {{ n }} {{ s }}{% endfor %}</span></div>
   <div class="stat"><span class="stat__value">{{ i.task_outcomes.get('blocked', 0) }}</span><span class="stat__label">blocked</span></div>
-  <div class="stat"><span class="stat__value">{{ '%.1f'|format(i.encores_per_task.avg) }}</span><span class="stat__label">encores per task, max {{ i.encores_per_task.max }}</span><span class="stat__delta">over {{ i.encores_per_task.tasks }} tasks</span></div>
+  <div class="stat"><span class="stat__value">{{ '%.1f'|format(i.retries_per_task.avg) }}</span><span class="stat__label">retries per task, max {{ i.retries_per_task.max }}</span><span class="stat__delta">over {{ i.retries_per_task.tasks }} tasks</span></div>
   <div class="stat"><span class="stat__value">{{ gate_failures }}</span><span class="stat__label">gate failures</span></div>
   <div class="stat"><span class="stat__value">{{ '%.2f'|format(avg_adherence) if avg_adherence is not none else '—' }}</span><span class="stat__label">adherence overall</span><span class="stat__delta">plan vs handoff</span></div>
 </div>

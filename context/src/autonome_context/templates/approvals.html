@@ -5,12 +5,12 @@
 {# What each item is, in one meta line: type and ref, feature, and the one fact that explains why it is here. #}
 {% macro meta(item) %}{% set d = item.doc %}{{ d.type|label|lower }} {{ d|ref }}{% if d.feature %} · {{ d.feature }}{% endif %}
 {%- if d.type == 'wave' %} · {{ item.plans|length }} plans, {{ item.plans|select|map(attribute='body')|map(attribute='tasks')|map('length')|sum }} tasks{% set gates = item.plans|select|map(attribute='body')|map(attribute='gates')|select|sum(start=[])|map(attribute='name')|list %}{% if gates %} · proposes gate{{ 's' if gates|length > 1 }} {{ gates|join(', ') }}{% endif %}
-{%- elif item.kind == 'held' %} · rehearsal {{ 'proposed a revision' if d.body.preflight and d.body.preflight.plan else 'held it' }}
-{%- elif item.kind == 'soundcheck' %} · soundcheck failed
-{%- elif item.kind == 'fermata' %} · gates passed{% if item.last and item.last.review %}, reviewer {{ item.last.review.verdict }}{% endif %}
+{%- elif item.kind == 'held' %} · preflight {{ 'proposed a revision' if d.body.preflight and d.body.preflight.plan else 'held it' }}
+{%- elif item.kind == 'smoke_test' %} · smoke_test failed
+{%- elif item.kind == 'hold_before_merge' %} · gates passed{% if item.last and item.last.review %}, reviewer {{ item.last.review.verdict }}{% endif %}
 {%- elif item.kind == 'blocked' %}{% set run = (d.body.runs or [none])[-1] %}{% if run and (run.reason or run.outcome) %} · {{ (run.reason or run.outcome).split('\n')[0]|truncate(90) }}{% endif %}
 {%- elif item.kind == 'decision' and d.body.triage_conflict %} · rule conflict
-{%- elif item.kind == 'playback' %} · {{ 'loose ends at merge' if (d.body.playback_review or {}).loose_ends else 'merged' }}
+{%- elif item.kind == 'after_merge' %} · {{ 'loose ends at merge' if (d.body.after_merge_review or {}).loose_ends else 'merged' }}
 {%- endif %}{% if item.plan %} · {{ item.plan|ref }}{% endif %}{% endmacro %}
 
 {% macro qitem(item, here) %}{% set d = item.doc %}
@@ -21,8 +21,8 @@
   </div>
   <span class="entry__side">{{ d.updated_at|ago }}</span>
   <div class="entry__detail">
-    {% if item.kind == 'fermata' %}
-      <div class="callout callout--hold"><div><strong>Why it stopped:</strong> its feature is on the fermata list, so a green task waits for you before merging.
+    {% if item.kind == 'hold_before_merge' %}
+      <div class="callout callout--hold"><div><strong>Why it stopped:</strong> its feature is on the hold_before_merge list, so a green task waits for you before merging.
         {% if item.last and item.last.review %}Reviewer: {{ item.last.review.verdict }}{% if item.last.review.findings %}, {{ item.last.review.findings|length }} finding{{ 's' if item.last.review.findings|length > 1 }}{% endif %}.{% endif %}</div></div>
       {% if item.last and item.last.diff %}{{ ui.diff(item.last.diff, open_files=1) }}
       {% elif item.last and item.last.diff_stat %}<pre class="code">{{ item.last.diff_stat }}</pre>{% endif %}
@@ -34,7 +34,7 @@
         <details style="width: 100%" open><summary class="muted" style="font-size: 12px; cursor: pointer">Last output</summary><pre class="log">{{ g.output }}</pre></details></li></ul>
       {% endif %}
     {% elif item.kind == 'held' %}{% set r = d.body.preflight %}
-      <p class="muted">The rehearsal checked the plan against <span class="mono">main</span> before its first task and {{ 'proposes a revision' if r.plan else 'held it' }}.</p>
+      <p class="muted">The preflight checked the plan against <span class="mono">main</span> before its first task and {{ 'proposes a revision' if r.plan else 'held it' }}.</p>
       {% if r.triage %}<p class="muted">{{ r.triage|revision_triage }}</p>{% endif %}
       {% if r.notes %}<div class="callout callout--hold"><div class="prose">{{ r.notes|md }}</div></div>{% endif %}
       {% if r.plan %}
@@ -45,7 +45,7 @@
           <div class="split__body"><ol>{% for t in r.plan.tasks %}{% set same = d.body.tasks|selectattr('title', 'equalto', t.title)|list %}<li>{% if same %}{{ t.title }}{% else %}<mark class="add">{{ t.title }}</mark>{% endif %}</li>{% endfor %}</ol></div></div>
       </div>
       {% endif %}
-    {% elif item.kind == 'soundcheck' %}{% set runs = (d.body.soundchecks or [])|rejectattr('retry')|list %}{% set sc = runs[-1] if runs else none %}
+    {% elif item.kind == 'smoke_test' %}{% set runs = (d.body.smoke_tests or [])|rejectattr('retry')|list %}{% set sc = runs[-1] if runs else none %}
       {% if sc %}
       <ul class="gates">{% for c in sc.checks %}<li>{{ ui.st('passed' if c.passed else 'failed', sm=true) }}{{ c.name }}</li>{% endfor %}</ul>
       <div class="callout callout--block"><div class="wrap"><strong>Report:</strong> {{ sc.report|truncate(600) }}</div></div>
@@ -65,18 +65,18 @@
     {% elif d.type == 'plan' %}
       <div class="prose prose--sm">{{ d.body.goal|truncate(300)|md }}</div>
       <p class="footnote">{{ item.tasks_count if item.tasks_count is defined else d.body.tasks|length }} tasks{% if d.body.gates %} · adds gates {{ d.body.gates|map(attribute='name')|join(', ') }}{% endif %}{% if d.body.conventions %} · adds conventions {{ d.body.conventions|map(attribute='title')|join(', ') }}{% endif %}</p>
-    {% elif item.kind == 'playback' %}{% set run = (d.body.runs or [none])[-1] %}
-      {% set ends = (d.body.playback_review or {}).loose_ends or [] %}
+    {% elif item.kind == 'after_merge' %}{% set run = (d.body.runs or [none])[-1] %}
+      {% set ends = (d.body.after_merge_review or {}).loose_ends or [] %}
       {% if ends %}<div class="callout callout--hold"><div><strong>Left open at merge</strong><ul>{% for e in ends %}<li>{{ e }}</li>{% endfor %}</ul></div></div>{% endif %}
       <p class="muted" style="font-size: 13px">Merged{% if run and run.merged_sha %} as <span class="mono">{{ run.merged_sha[:7] }}</span>{% endif %}; review when you like. Nothing waits on it.
         {% if run and run.review %}Reviewer: {{ run.review.verdict }}{% if run.review.findings %} · {{ run.review.findings|length }} note{{ 's' if run.review.findings|length > 1 }}{% endif %}.{% endif %}
         Gates: {{ item.gate_failures }} failure{{ 's' if item.gate_failures != 1 }} before green.</p>
       {% if run and run.diff %}<details><summary class="muted" style="cursor: pointer; font-size: 13px">Diff{% if run.diff_stat %} · {{ run.diff_stat.strip().splitlines()[-1] }}{% endif %}</summary>{{ ui.diff(run.diff, open_files=0) }}</details>{% endif %}
       <div class="decision__actions">
-        <form method="post" action="/ui/p/{{ project }}/documents/{{ d.id }}/playback"><input type="hidden" name="next" value="{{ here }}"><button class="btn btn--approve" name="verdict" value="heard" type="submit">Sounds right</button></form>
+        <form method="post" action="/ui/p/{{ project }}/documents/{{ d.id }}/after-merge-review"><input type="hidden" name="next" value="{{ here }}"><button class="btn btn--approve" name="verdict" value="reviewed" type="submit">Looks right</button></form>
         <details class="confirm"><summary class="btn">Needs a fix…</summary>
           <div class="confirm__panel"><h4>What needs fixing in {{ d|ref }}?</h4>
-            <form class="stack stack--sm" method="post" action="/ui/p/{{ project }}/documents/{{ d.id }}/playback"><input type="hidden" name="next" value="{{ here }}">
+            <form class="stack stack--sm" method="post" action="/ui/p/{{ project }}/documents/{{ d.id }}/after-merge-review"><input type="hidden" name="next" value="{{ here }}">
               <textarea name="reason" rows="4" required placeholder="It becomes the fix task's instruction"></textarea>
               <button class="btn btn--primary" name="verdict" value="fix" type="submit">Queue the fix</button></form></div>
         </details>
@@ -90,8 +90,8 @@
 
     {% call ui.decision(project, d, item.actions, next=here) %}
       {% if d.type == 'wave' %}<a class="note" href="/ui/p/{{ project }}/documents/{{ d.id }}">Review plans</a>
-      {% elif item.kind == 'fermata' %}<a class="note" href="/ui/p/{{ project }}/documents/{{ d.id }}#diff">Full diff</a>
-      {% elif item.kind == 'held' %}<a class="note" href="/ui/p/{{ project }}/documents/{{ d.id }}#rehearsal">Rehearsal</a>{% endif %}
+      {% elif item.kind == 'hold_before_merge' %}<a class="note" href="/ui/p/{{ project }}/documents/{{ d.id }}#diff">Full diff</a>
+      {% elif item.kind == 'held' %}<a class="note" href="/ui/p/{{ project }}/documents/{{ d.id }}#preflight">Preflight</a>{% endif %}
     {% endcall %}
   </div>
 </article>
@@ -108,19 +108,19 @@
 {% set groups = [
   ('g-waves', 'Waves to approve', items|selectattr('kind', 'equalto', 'plans')|selectattr('doc.type', 'equalto', 'wave')|list, 'is-accent', 'waves to approve'),
   ('g-plans', 'Plans to approve', items|selectattr('kind', 'equalto', 'plans')|rejectattr('doc.type', 'equalto', 'wave')|list, '', 'plans to approve'),
-  ('g-held', 'Plans held after rehearsal', items|selectattr('kind', 'equalto', 'held')|list, 'is-warn', 'plans held after rehearsal'),
-  ('g-soundcheck', 'Plans blocked at the soundcheck', items|selectattr('kind', 'equalto', 'soundcheck')|list, 'is-stop', 'plans blocked at the soundcheck'),
-  ('g-fermata', 'Held at the fermata', items|selectattr('kind', 'equalto', 'fermata')|list, 'is-warn', 'tasks held at the fermata'),
+  ('g-held', 'Plans held after preflight', items|selectattr('kind', 'equalto', 'held')|list, 'is-warn', 'plans held after preflight'),
+  ('g-smoke-test', 'Plans blocked at the smoke_test', items|selectattr('kind', 'equalto', 'smoke_test')|list, 'is-stop', 'plans blocked at the smoke_test'),
+  ('g-hold-before-merge', 'Held before merge', items|selectattr('kind', 'equalto', 'hold_before_merge')|list, 'is-warn', 'tasks held before merge'),
   ('g-blocked', 'Blocked tasks', items|selectattr('kind', 'equalto', 'blocked')|list, 'is-stop', 'blocked tasks'),
-  ('g-playback', 'Playback', items|selectattr('kind', 'equalto', 'playback')|list, '', 'playback'),
+  ('g-after-merge', 'Review after merge', items|selectattr('kind', 'equalto', 'after_merge')|list, '', 'after_merge'),
   ('g-decision', 'Proposed decisions', items|selectattr('kind', 'equalto', 'decision')|list, '', 'proposed decisions'),
   ('g-convention', 'Proposed conventions', items|selectattr('kind', 'equalto', 'convention')|list, '', 'proposed conventions'),
 ] %}
 <header class="page-head">
   <div class="page-head__text">
     <h1>Approvals</h1>
-    <p class="subtitle">{% if kind %}{{ kinds[kind] }} · {{ items|length }}{% else %}{{ total }} waiting on you{% if counts['fermata'] %} · {{ counts['fermata'] }} held{% endif %}{% if counts['blocked'] %} · {{ counts['blocked'] }} blocked{% endif %}{% set np = counts['plans'] + counts['held'] + counts['soundcheck'] %}{% if np %} · {{ np }} plan{{ 's' if np > 1 }}{% endif %}{% if oldest %} · oldest {{ oldest.doc.created_at|ago }}{% endif %}{% endif %}</p>
-    <p class="footnote">Only you can approve, release or reject; nothing here moves until you decide. Fermata, rehearsal and soundcheck items block the setlist; decisions and conventions don’t.</p>
+    <p class="subtitle">{% if kind %}{{ kinds[kind] }} · {{ items|length }}{% else %}{{ total }} waiting on you{% if counts['hold_before_merge'] %} · {{ counts['hold_before_merge'] }} held{% endif %}{% if counts['blocked'] %} · {{ counts['blocked'] }} blocked{% endif %}{% set np = counts['plans'] + counts['held'] + counts['smoke_test'] %}{% if np %} · {{ np }} plan{{ 's' if np > 1 }}{% endif %}{% if oldest %} · oldest {{ oldest.doc.created_at|ago }}{% endif %}{% endif %}</p>
+    <p class="footnote">Only you can approve, release or reject; nothing here moves until you decide. Hold before merge, preflight and smoke_test items block the queue; decisions and conventions don’t.</p>
   </div>
 </header>
 <nav class="filters" aria-label="Filter">
@@ -139,9 +139,9 @@
 <section aria-labelledby="review-h" class="stack stack--lg">
   <div class="stack stack--sm">
     <h2 id="review-h">To review when you like <span class="n">{{ review|length }}</span></h2>
-    <p class="footnote">Nothing waits on these. Playback: merged work of the features you review forward; a fix becomes a new task. Decisions that departed from a plan or a convention, and conventions the process proposes: accepting one makes it a rule later plans follow; rejecting a decision queues a task to undo it.</p>
+    <p class="footnote">Nothing waits on these. Review after merge: merged work of the features you review forward; a fix becomes a new task. Decisions that departed from a plan or a convention, and conventions the process proposes: accepting one makes it a rule later plans follow; rejecting a decision queues a task to undo it.</p>
   </div>
-  {% for kind_, title in [('playback', 'Playback'), ('decision', 'Proposed decisions'), ('convention', 'Proposed conventions')] %}
+  {% for kind_, title in [('after_merge', 'Review after merge'), ('decision', 'Proposed decisions'), ('convention', 'Proposed conventions')] %}
   {% set list = review|selectattr('kind', 'equalto', kind_)|list %}{% if list %}{{ group('r-' ~ kind_, title, list) }}{% endif %}
   {% endfor %}
 </section>

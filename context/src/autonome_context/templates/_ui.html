@@ -1,7 +1,7 @@
 {# Shared pieces of the "Score" UI. Import with {% import "_ui.html" as ui %}. #}
 
 {% macro st(status, sm=false, live=false, text=none) -%}
-<span class="st st--{{ status }}{{ ' st--sm' if sm }}{{ ' st--live' if live and status == 'playing' }}">{{ text or status|label }}</span>
+<span class="st st--{{ status }}{{ ' st--sm' if sm }}{{ ' st--live' if live and status == 'running' }}">{{ text or status|label }}</span>
 {%- endmacro %}
 
 {% macro icon_st(status, text=none) -%}
@@ -79,7 +79,7 @@
 {% endmacro %}
 
 {% macro progress(p, height=none) -%}
-<div class="progress"{% if height %} style="height: {{ height }}"{% endif %} aria-hidden="true">{% for k in ['done', 'playing', 'held', 'blocked'] if p.bar[k] %}<span class="p-{{ k }}" style="width: {{ '%.1f'|format(p.bar[k]) }}%"></span>{% endfor %}</div>
+<div class="progress"{% if height %} style="height: {{ height }}"{% endif %} aria-hidden="true">{% for k in ['done', 'running', 'held', 'blocked'] if p.bar[k] %}<span class="p-{{ k }}" style="width: {{ '%.1f'|format(p.bar[k]) }}%"></span>{% endfor %}</div>
 {%- endmacro %}
 
 {% macro meter(name, used, limit, fmt=none) -%}

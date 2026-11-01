@@ -67,31 +67,31 @@ async def get_briefing(request: Request) -> JSONResponse:
 
 
 async def claim_task(request: Request) -> JSONResponse:
-    """The runner asks for work. A pending task is moved to playing; a released one is returned as is."""
+    """The runner asks for work. A pending task is moved to running; a released one is returned as is."""
     pool, _ = await services.get()
     async with pool.connection() as conn:
         # A feature whose tasks are all merged is tried in a running environment before anything else.
-        if soundcheck := await plans.soundcheck_due(conn, request.path_params["project"]):
-            return _json({"task": None, "rehearse": None, "soundcheck": soundcheck})
+        if smoke_test := await plans.smoke_test_due(conn, request.path_params["project"]):
+            return _json({"task": None, "preflight": None, "smoke_test": smoke_test})
         async with conn.transaction():
             task = await store.next_task(conn, request.path_params["project"])
             if task and task["status"] == "pending":
-                task = await rules.transition(conn, task["id"], "playing", "runner")
+                task = await rules.transition(conn, task["id"], "running", "runner")
             plan = await store.get_document(conn, task["body"]["plan_id"]) if task else None
-    # A wave plan whose turn has come is rehearsed against the code before its first task plays.
-    rehearse = plan if task and task["status"] == "playing" and plans.needs_rehearsal(task, plan) else None
-    return _json({"task": task, "rehearse": rehearse, "soundcheck": None})
+    # A wave plan whose turn has come is checked in preflight against the code before its first task plays.
+    preflight = plan if task and task["status"] == "running" and plans.needs_preflight(task, plan) else None
+    return _json({"task": task, "preflight": preflight, "smoke_test": None})
 
 
-async def post_rehearsal(request: Request) -> JSONResponse:
+async def post_preflight(request: Request) -> JSONResponse:
     try:
-        r = plans.Rehearsal.model_validate(await request.json())
+        r = plans.Preflight.model_validate(await request.json())
     except ValidationError as e:
-        return _json({"error": "invalid_rehearsal", "detail": e.errors()}, 422)
+        return _json({"error": "invalid_preflight", "detail": e.errors()}, 422)
     pool, indexer = await services.get()
     async with pool.connection() as conn:
         try:
-            outcome = await plans.rehearse(conn, indexer, int(request.path_params["doc_id"]), r)
+            outcome = await plans.preflight(conn, indexer, int(request.path_params["doc_id"]), r)
         except rules.Forbidden as e:
             return _json({"error": str(e)}, 409)
     return _json({"plan_status": "held" if outcome == "held" else "approved"})
@@ -109,10 +109,10 @@ async def task_transition(request: Request) -> JSONResponse:
             except rules.Forbidden as e:
                 return _json({"error": str(e)}, 409)
             ends = plans.loose_ends(body.get("run")) if body["to"] == "done" else []
-            if body.get("run") or (body["to"] == "done" and task["body"].get("playback")):
+            if body.get("run") or (body["to"] == "done" and task["body"].get("after_merge")):
                 new = {**task["body"], "runs": task["body"].get("runs", []) + ([body["run"]] if body.get("run") else [])}
-                if body["to"] == "done" and task["body"].get("playback"):
-                    new["playback_review"] = {"status": "pending"}  # merged; the human hears it when they like
+                if body["to"] == "done" and task["body"].get("after_merge"):
+                    new["after_merge_review"] = {"status": "pending"}  # merged; the human hears it when they like
                 # What the reviewer let through waits for the human too, instead of vanishing.
                 await store.add_version(conn, None, doc_id, plans.with_loose_ends(new, ends))
             if body["to"] == "done":
@@ -124,7 +124,7 @@ async def task_transition(request: Request) -> JSONResponse:
 
 
 async def feature_dossier(request: Request) -> JSONResponse:
-    """Everything the scribe needs to (re)write a feature's living doc."""
+    """Everything the handoff writer needs to (re)write a feature's living doc."""
     project, feature = request.path_params["project"], request.path_params["feature"]
     pool, _ = await services.get()
     async with pool.connection() as conn:
@@ -186,15 +186,15 @@ async def post_task(request: Request) -> JSONResponse:
     return _json(result, 201)
 
 
-async def post_soundcheck(request: Request) -> JSONResponse:
+async def post_smoke_test(request: Request) -> JSONResponse:
     try:
-        r = plans.SoundcheckResult.model_validate(await request.json())
+        r = plans.SmokeTestResult.model_validate(await request.json())
     except ValidationError as e:
-        return _json({"error": "invalid_soundcheck", "detail": e.errors()}, 422)
+        return _json({"error": "invalid_smoke_test", "detail": e.errors()}, 422)
     pool, indexer = await services.get()
     async with pool.connection() as conn:
         try:
-            outcome = await plans.record_soundcheck(conn, indexer, int(request.path_params["doc_id"]), r)
+            outcome = await plans.record_smoke_test(conn, indexer, int(request.path_params["doc_id"]), r)
         except rules.Forbidden as e:
             return _json({"error": str(e)}, 409)
     return _json({"outcome": outcome})
@@ -266,8 +266,8 @@ class _Refused(Exception):
     pass
 
 
-async def post_rehearsal_triage(request: Request) -> JSONResponse:
-    """The runner's classifier judged a rehearsal's revision: keep the verdict; accepting starts the plan."""
+async def post_preflight_triage(request: Request) -> JSONResponse:
+    """The runner's classifier judged a preflight's revision: keep the verdict; accepting starts the plan."""
     try:
         v = RevisionVerdict.model_validate(await request.json())
     except ValueError as e:
@@ -295,7 +295,7 @@ async def post_rehearsal_triage(request: Request) -> JSONResponse:
                 triage = {"model": v.model, "answers": v.answers, "verdict": v.verdict, "at": plans._now()}
                 await store.add_version(conn, indexer, plan_id, {**plan["body"], "preflight": {**r, "triage": triage}})
                 if v.verdict == "accept":
-                    await plans.resolve_rehearsal(conn, indexer, plan_id, accept=True, actor="runner")
+                    await plans.resolve_preflight(conn, indexer, plan_id, accept=True, actor="runner")
         except (_Refused, rules.Forbidden) as e:  # the transaction rolled back: nothing changed
             return _json({"error": str(e)}, 403)
     return _json({"status": "approved" if v.verdict == "accept" else "held"})
@@ -505,15 +505,15 @@ async def post_screen(request: Request) -> JSONResponse:
     return _json({"status": "proposed" if reopen else "accepted", "deviation": reopen})
 
 
-async def untuned_waves(request: Request) -> JSONResponse:
-    """Finished waves the tune loop has not looked at yet."""
+async def waves_without_retro(request: Request) -> JSONResponse:
+    """Finished waves the retro loop has not looked at yet."""
     pool, _ = await services.get()
     async with pool.connection() as conn:
         waves = await store.list_documents(conn, request.path_params["project"], type="wave", status="done", limit=50)
-    return _json([w for w in waves if "tuned" not in w["body"]])
+    return _json([w for w in waves if "retro_done" not in w["body"]])
 
 
-async def wave_tuned(request: Request) -> JSONResponse:
+async def wave_retro_done(request: Request) -> JSONResponse:
     body = await request.json()
     pool, indexer = await services.get()
     async with pool.connection() as conn:
@@ -521,7 +521,7 @@ async def wave_tuned(request: Request) -> JSONResponse:
             wave = await store.get_document(conn, int(request.path_params["doc_id"]))
             if not wave or wave["type"] != "wave":
                 return _json({"error": "not a wave"}, 404)
-            await store.add_version(conn, None, wave["id"], {**wave["body"], "tuned": {
+            await store.add_version(conn, None, wave["id"], {**wave["body"], "retro_done": {
                 "at": plans._now(), "summary": str(body.get("summary", ""))[:4000]}})
     return _json({"ok": True})
 
@@ -577,7 +577,7 @@ async def project_state(request: Request) -> JSONResponse:
     return _json({
         "tasks": [{"id": t["id"], "title": t["body"]["title"], "status": t["status"], "feature": t["feature"],
                    "plan_id": t["body"].get("plan_id"), "reason": (last(t).get("reason") or "")[:300],
-                   "playback": (t["body"].get("playback_review") or {}).get("status")} for t in tasks],
+                   "after_merge": (t["body"].get("after_merge_review") or {}).get("status")} for t in tasks],
         "plans": [{"id": p["id"], "title": p["body"].get("title"), "status": p["status"], "feature": p["feature"]}
                   for p in plans_],
         "waves": [{"id": w["id"], "title": w["body"].get("title"), "status": w["status"]} for w in waves],
@@ -603,14 +603,14 @@ def routes() -> list:
         Route("/api/projects/{project}/overview", get_overview),
         Route("/api/projects/{project}/tasks/claim", claim_task, methods=["POST"]),
         Route("/api/tasks/{doc_id:int}/transition", task_transition, methods=["POST"]),
-        Route("/api/plans/{doc_id:int}/rehearsal", post_rehearsal, methods=["POST"]),
-        Route("/api/plans/{doc_id:int}/soundcheck", post_soundcheck, methods=["POST"]),
-        Route("/api/projects/{project}/waves/untuned", untuned_waves),
+        Route("/api/plans/{doc_id:int}/preflight", post_preflight, methods=["POST"]),
+        Route("/api/plans/{doc_id:int}/smoke-test", post_smoke_test, methods=["POST"]),
+        Route("/api/projects/{project}/waves/without-retro", waves_without_retro),
         Route("/api/projects/{project}/triage", get_triage),
         Route("/api/decisions/{doc_id:int}/triage", post_triage, methods=["POST"]),
-        Route("/api/plans/{doc_id:int}/rehearsal-triage", post_rehearsal_triage, methods=["POST"]),
+        Route("/api/plans/{doc_id:int}/preflight-triage", post_preflight_triage, methods=["POST"]),
         Route("/api/decisions/{doc_id:int}/screen", post_screen, methods=["POST"]),
-        Route("/api/waves/{doc_id:int}/tuned", wave_tuned, methods=["POST"]),
+        Route("/api/waves/{doc_id:int}/retro-done", wave_retro_done, methods=["POST"]),
         Route("/api/projects/{project}/briefing", get_briefing),
         Route("/api/projects/{project}/gate-config", get_gate_config),
         Route("/api/events", post_events, methods=["POST"]),

@@ -15,9 +15,9 @@
     <span class="entry__main">
       <span class="entry__title">{{ p.slug }}</span>
       <span class="entry__meta">{{ p.handoffs }} handoff{{ 's' if p.handoffs != 1 }}
-        {%- if p.playing %} · <span class="accent">{{ p.playing }} playing</span>{% endif %}
+        {%- if p.running %} · <span class="accent">{{ p.running }} running</span>{% endif %}
         {%- if p.waiting %} · {{ p.waiting }} waiting for you{% endif %}
-        {%- if not p.playing and not p.waiting %} · idle{% endif %}</span>
+        {%- if not p.running and not p.waiting %} · idle{% endif %}</span>
     </span>
     <span class="entry__side">{{ p.last_activity|ago }}</span>
   </a>

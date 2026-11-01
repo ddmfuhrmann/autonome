@@ -26,11 +26,11 @@ TRANSITIONS: dict[tuple[str, str, str], set[str]] = {
     ("wave", "draft", "abandoned"): {"human", "agent"},
     ("wave", "approved", "abandoned"): {"human"},
     ("wave", "approved", "done"): {"runner"},
-    ("task", "pending", "playing"): {"runner"},
-    ("task", "playing", "done"): {"runner"},
-    ("task", "playing", "blocked"): {"runner"},
-    ("task", "playing", "on_hold"): {"runner"},
-    ("task", "playing", "pending"): {"runner"},  # interrupted run, try again later
+    ("task", "pending", "running"): {"runner"},
+    ("task", "running", "done"): {"runner"},
+    ("task", "running", "blocked"): {"runner"},
+    ("task", "running", "on_hold"): {"runner"},
+    ("task", "running", "pending"): {"runner"},  # interrupted run, try again later
     ("task", "on_hold", "released"): {"human"},
     ("task", "on_hold", "pending"): {"human"},  # rejected at the hold before merge: run it again
     ("task", "released", "done"): {"runner"},
@@ -38,11 +38,11 @@ TRANSITIONS: dict[tuple[str, str, str], set[str]] = {
     ("task", "blocked", "pending"): {"human"},
     ("task", "blocked", "abandoned"): {"human"},
     ("task", "pending", "abandoned"): {"human"},
-    ("convention", "proposed", "active"): {"human"},  # suggested by the tune loop
+    ("convention", "proposed", "active"): {"human"},  # suggested by the retro loop
     ("convention", "proposed", "rejected"): {"human"},
     ("decision", "proposed", "accepted"): {"human", "runner"},  # the runner only with a triage verdict
     ("decision", "proposed", "rejected"): {"human", "runner"},
-    ("decision", "accepted", "proposed"): {"runner"},  # the screening found a deviation the scribe missed
+    ("decision", "accepted", "proposed"): {"runner"},  # the screening found a deviation the handoff writer missed
     ("decision", "accepted", "superseded"): {"human"},
 }
 

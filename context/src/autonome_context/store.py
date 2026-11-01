@@ -674,7 +674,7 @@ async def next_task(conn: AsyncConnection, project: str) -> dict | None:
 
 
 async def review_flags(conn: AsyncConnection, project: str, feature: str | None) -> tuple[bool, bool]:
-    """(fermata, playback) for a task of this feature, from the gate config's feature patterns."""
+    """(hold_before_merge, after_merge) for a task of this feature, from the gate config's feature patterns."""
     doc = await latest_of_type(conn, project, "gate_config")
     if not doc or not feature:
         return False, False
@@ -704,18 +704,18 @@ async def finish_plan_if_complete(conn: AsyncConnection, plan_id: int) -> bool:
            where l.from_id = %s and l.kind = 'has_task' and t.status not in ('done', 'abandoned')""",
         (plan_id,),
     )).fetchone()
-    if open_tasks[0] == 0 and not await awaits_soundcheck(conn, plan):
+    if open_tasks[0] == 0 and not await awaits_smoke_test(conn, plan):
         await conn.execute("update document set status = 'done' where id = %s and status = 'approved'", (plan_id,))
         return True
     return False
 
 
-async def awaits_soundcheck(conn: AsyncConnection, plan: dict) -> bool:
-    """With a soundcheck configured, a plan is done only once its feature passed one."""
+async def awaits_smoke_test(conn: AsyncConnection, plan: dict) -> bool:
+    """With a smoke_test configured, a plan is done only once its feature passed one."""
     doc = await latest_of_type(conn, plan["project"], "gate_config")
     if not doc or GateConfig.from_yaml(doc["body"]["yaml"]).smoke_test is None:
         return False
-    runs = plan["body"].get("soundchecks", [])
+    runs = plan["body"].get("smoke_tests", [])
     return not (runs and runs[-1].get("passed"))
 
 
@@ -795,7 +795,7 @@ async def enqueue_task(
         task_id = await create_document(
             conn, indexer, project=project, type="task", status="pending", feature=feature, layers=layers,
             body={"title": title, "spec": spec, "acceptance": [], "plan_id": plan["id"], "seq": len(existing) + 1,
-                  "depends_on": [], "fermata": False, "playback": (await review_flags(conn, project, feature))[1],
+                  "depends_on": [], "hold_before_merge": False, "after_merge": (await review_flags(conn, project, feature))[1],
                   "source": source},
         )
         await link(conn, plan["id"], task_id, "has_task")

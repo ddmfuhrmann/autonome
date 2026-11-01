@@ -67,7 +67,7 @@ def test_a_failed_embedding_never_fails_the_write_and_reindex_picks_it_up(run_db
 
     monkeypatch.setattr(services, "get", get)
     with TestClient(build_app(), base_url="http://127.0.0.1:8765") as client:
-        r = client.post(f"/api/plans/{plan_id}/rehearsal", json={"verdict": "ready", "notes": "ok"})
+        r = client.post(f"/api/plans/{plan_id}/preflight", json={"verdict": "ready", "notes": "ok"})
 
     async def after(conn):
         doc = await store.get_document(conn, plan_id)

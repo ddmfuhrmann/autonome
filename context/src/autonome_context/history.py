@@ -1,4 +1,4 @@
-"""What went off plan before, on the same subject: the lessons compose and the rehearsal read before
+"""What went off plan before, on the same subject: the lessons compose and the preflight read before
 planning. Everything here is already in the memory, spread over handoffs, decisions, plans and tasks;
 this gathers it for the features a subject touches."""
 
@@ -42,8 +42,8 @@ async def build(conn: AsyncConnection, project: str, subject: str, embedder: Emb
                 feature: str | None = None) -> dict:
     features = await related_features(conn, project, subject, embedder, feature)
     out: dict = {"subject": subject, "features": features, "plan_changes": [], "deviations": [],
-                 "deviation_decisions": [], "rehearsal_revisions": [], "review_blocks": [], "fixes": [],
-                 "blocked": [], "soundcheck_failures": [], "friction": []}
+                 "deviation_decisions": [], "preflight_revisions": [], "review_blocks": [], "fixes": [],
+                 "blocked": [], "smoke_test_failures": [], "friction": []}
     for f in features:
         for h in await store.list_documents(conn, project, type="handoff", feature=f, limit=30):
             b = h["body"]
@@ -65,11 +65,11 @@ async def build(conn: AsyncConnection, project: str, subject: str, embedder: Emb
         for p in await store.list_documents(conn, project, type="plan", feature=f, limit=30):
             r = p["body"].get("preflight") or {}
             if r.get("verdict") in ("revise", "revised", "kept"):
-                out["rehearsal_revisions"].append({"feature": f, "plan": p["id"], "verdict": r["verdict"],
+                out["preflight_revisions"].append({"feature": f, "plan": p["id"], "verdict": r["verdict"],
                                                    "notes": _cut(r.get("notes"))})
-            for s in p["body"].get("soundchecks", []):
+            for s in p["body"].get("smoke_tests", []):
                 if not s.get("retry") and not s.get("passed"):
-                    out["soundcheck_failures"].append({"feature": f, "plan": p["id"], "report": _cut(s.get("report"))})
+                    out["smoke_test_failures"].append({"feature": f, "plan": p["id"], "report": _cut(s.get("report"))})
         for t in await store.list_documents(conn, project, type="task", feature=f, limit=200):
             b = t["body"]
             runs = b.get("runs") or []
@@ -87,7 +87,7 @@ async def build(conn: AsyncConnection, project: str, subject: str, embedder: Emb
                 out["blocked"].append({"feature": f, "task": t["id"], "title": _cut(b["title"]),
                                        "reason": _cut(runs[-1].get("reason"))})
             source = b.get("source") or ""
-            if source.startswith(("soundcheck", "playback:", "decision:")):
+            if source.startswith(("smoke_test", "after_merge:", "decision:")):
                 out["fixes"].append({"feature": f, "task": t["id"], "source": source.split(":")[0],
                                      "title": _cut(b["title"]), "why": _cut(b.get("spec"))})
     for kind, items in out.items():

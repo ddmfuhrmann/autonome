@@ -15,7 +15,7 @@
   --fg-2: #D1D1D6;      /* body prose */
   --muted: #98989D;     /* secondary text */
   --faint: #636366;     /* tertiary: counts, timestamps, hints; never the only copy of a fact */
-  --accent: #409CFF;    /* links that act, the active state, "playing" */
+  --accent: #409CFF;    /* links that act, the active state, "running" */
   --ok: #4CD964;
   --warn: #FFB340;
   --stop: #FF6961;
@@ -197,21 +197,21 @@ a.entry:hover .entry__title, .entry a.entry__title:hover { color: var(--accent);
 /* Status word: plain text, colored. */
 .st { font-size: 13px; font-weight: 500; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .st--sm { font-size: 12px; }
-.st--playing, .st--approved, .st--active, .st--accepted, .st--revised, .st--released { color: var(--accent); }
+.st--running, .st--approved, .st--active, .st--accepted, .st--revised, .st--released { color: var(--accent); }
 .st--done, .st--merged, .st--passed, .st--final, .st--ready, .st--kept, .st--pass { color: var(--ok); }
-.st--fermata, .st--on_hold, .st--held, .st--proposed, .st--rehearsing, .st--revise, .st--encore { color: var(--warn); }
+.st--hold-before-merge, .st--on_hold, .st--held, .st--proposed, .st--preflighting, .st--revise, .st--retry { color: var(--warn); }
 .st--blocked, .st--failed, .st--rejected, .st--error, .st--merge-failed, .st--fail { color: var(--stop); }
 .st--draft, .st--pending, .st--superseded, .st--skipped, .st--archived { color: var(--muted); }
 .st--abandoned { color: var(--faint); text-decoration: line-through; text-decoration-thickness: 1px; }
-.st--live.st--playing::before, .dot { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+.st--live.st--running::before, .dot { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
   margin-right: 7px; vertical-align: 1px; animation: breathe 1.6s ease-in-out infinite; }
 /* icon-only status (timelines, tracks): a small dot in the status color, the word for screen readers */
 .st--icon::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.st--icon.st--live.st--playing::before { width: 7px; height: 7px; margin: 0; }
+.st--icon.st--live.st--running::before { width: 7px; height: 7px; margin: 0; }
 .st--bare { background: none; }
 @keyframes breathe { 50% { opacity: .35; } }
 
-/* equalizer — "is playing right now" (beside text, never alone) */
+/* equalizer — "is running right now" (beside text, never alone) */
 .eq { display: inline-flex; align-items: flex-end; gap: 2px; height: 11px; width: 11px; color: var(--accent); flex: none; }
 .eq i { display: block; width: 3px; height: 100%; background: currentColor; border-radius: 1px; transform-origin: bottom; animation: eq 1s ease-in-out infinite; }
 .eq i:nth-child(2) { animation-delay: -.4s; } .eq i:nth-child(3) { animation-delay: -.7s; }
@@ -372,7 +372,7 @@ pre.code, .code, .log { margin: 0; padding: 16px 18px; background: var(--bg-2); 
 .diff tr.ctx td:not(.n) { color: var(--fg-2); }
 .diff details > summary { list-style: none; }
 
-/* side-by-side (rehearsal: original vs proposed revision) */
+/* side-by-side (preflight: original vs proposed revision) */
 .split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px; }
 .split__col { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .split__head { font-size: 13px; font-weight: 600; color: var(--muted); padding-bottom: 6px; border-bottom: 1px solid var(--line); }
@@ -413,7 +413,7 @@ pre.code, .code, .log { margin: 0; padding: 16px 18px; background: var(--bg-2); 
 
 .progress { display: flex; gap: 1px; height: 3px; border-radius: 4px; overflow: hidden; background: var(--bg-2); min-width: 80px; }
 .progress span { display: block; height: 100%; }
-.progress .p-done { background: var(--ok); } .progress .p-playing { background: var(--accent); } .progress .p-held { background: var(--warn); }
+.progress .p-done { background: var(--ok); } .progress .p-running { background: var(--accent); } .progress .p-held { background: var(--warn); }
 .progress .p-blocked { background: var(--stop); } .progress .p-pending { background: transparent; }
 
 /* ---------- 10. Wave: dependency track, lane strip ---------- */

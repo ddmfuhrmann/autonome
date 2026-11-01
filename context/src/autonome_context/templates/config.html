@@ -10,7 +10,7 @@
   <div class="section-head">
     <h2>gates.yaml <span class="n">{% if doc %}v{{ doc.version }} · saved {{ doc.updated_at|ago }}{% else %}not saved yet: an example below{% endif %}</span></h2>
   </div>
-  {% if not doc and not error %}<div class="callout callout--block"><div class="wrap"><strong>Not saved yet.</strong> The text below is an example for a Maven project, not this project's config. Replace it with this project's gates and save: until then autonome is not active here (no briefing, no handoffs, no conduct).</div></div>
+  {% if not doc and not error %}<div class="callout callout--block"><div class="wrap"><strong>Not saved yet.</strong> The text below is an example for a Maven project, not this project's config. Replace it with this project's gates and save: until then autonome is not active here (no briefing, no handoffs, no run).</div></div>
   {% endif %}
   <div class="yaml">
     <pre class="yaml__lines" aria-hidden="true"></pre>

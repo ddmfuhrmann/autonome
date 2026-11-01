@@ -109,10 +109,10 @@ def blocked(run_db, project, indexer):
         plan_id = await plans.draft(conn, indexer, project, "links", [], PlanBody(
             title="Links", goal="g", tasks=[TaskSpec(title="Routes", spec="add the routes")]))
         [task] = await plans.approve(conn, indexer, plan_id)
-        await rules.transition(conn, task, "playing", "runner")
+        await rules.transition(conn, task, "running", "runner")
         doc = await store.get_document(conn, task)
         await store.add_version(conn, indexer, task, {**doc["body"], "runs": [
-            {"branch": "autonome/task-1", "outcome": "blocked", "reason": "metronome: build: the same failure repeated"}]})
+            {"branch": "autonome/task-1", "outcome": "blocked", "reason": "gate hook: build: the same failure repeated"}]})
         await rules.transition(conn, task, "blocked", "runner")
         await conn.commit()
         return task
@@ -124,7 +124,7 @@ def test_waiting_items_come_with_what_to_decide_and_their_actions(server, projec
     items = items if isinstance(items, list) else [items]
     [item] = [i for i in items if i["id"] == blocked]
     assert item["kind"] == "blocked" and item["blocks"]
-    assert "metronome: build" in item["detail"] and "autonome/task-1" in item["detail"]
+    assert "gate hook: build" in item["detail"] and "autonome/task-1" in item["detail"]
     assert {a["action"] for a in item["actions"]} == {"pending", "abandoned"}
 
 

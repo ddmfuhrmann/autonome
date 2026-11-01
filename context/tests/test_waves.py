@@ -2,7 +2,7 @@ import pytest
 
 from autonome_context import briefing, plans, rules, store
 from autonome_context.gates import GateConfig
-from autonome_context.plans import PlanBody, ProposedGate, Rehearsal, TaskSpec, WaveBody, WaveFeature
+from autonome_context.plans import PlanBody, ProposedGate, Preflight, TaskSpec, WaveBody, WaveFeature
 
 
 def body(title: str, tasks=1, **kw) -> PlanBody:
@@ -11,7 +11,7 @@ def body(title: str, tasks=1, **kw) -> PlanBody:
 
 
 async def play(conn, task_id):
-    await rules.transition(conn, task_id, "playing", "runner")
+    await rules.transition(conn, task_id, "running", "runner")
     await rules.transition(conn, task_id, "done", "runner")
 
 
@@ -39,7 +39,7 @@ def test_a_wave_is_approved_at_once_and_plays_features_in_order(run_db, project,
         queued = await plans.approve_wave(conn, indexer, wave)
         [links_task] = queued[links]
         first = await store.next_task(conn, project)
-        await rules.transition(conn, links_task, "playing", "runner")
+        await rules.transition(conn, links_task, "running", "runner")
         while_links_plays = await store.next_task(conn, project)  # stats waits for the links plan
         await rules.transition(conn, links_task, "done", "runner")
         await store.finish_plan_if_complete(conn, links)
@@ -71,16 +71,16 @@ def test_a_plan_cannot_join_two_waves_and_dependencies_point_back(run_db, projec
     assert "already belongs" in errors[0] and "earlier features" in errors[1]
 
 
-def test_rehearsal_ready_adds_notes_to_the_briefing(run_db, project, indexer):
+def test_preflight_ready_adds_notes_to_the_briefing(run_db, project, indexer):
     async def go(conn):
         links, stats, wave = await two_feature_wave(conn, indexer, project)
         queued = await plans.approve_wave(conn, indexer, wave)
         await play(conn, queued[links][0])
         await store.finish_plan_if_complete(conn, links)
         task = await store.get_document(conn, queued[stats][0])
-        before = plans.needs_rehearsal(task, await store.get_document(conn, stats))
-        await plans.rehearse(conn, indexer, stats, Rehearsal(verdict="ready", notes="links live in links.py"))
-        after = plans.needs_rehearsal(task, await store.get_document(conn, stats))
+        before = plans.needs_preflight(task, await store.get_document(conn, stats))
+        await plans.preflight(conn, indexer, stats, Preflight(verdict="ready", notes="links live in links.py"))
+        after = plans.needs_preflight(task, await store.get_document(conn, stats))
         return before, after, await briefing.build(conn, project, task["id"])
 
     before, after, text = run_db(go)
@@ -93,10 +93,10 @@ def test_a_revised_plan_is_held_until_the_human_accepts_it(run_db, project, inde
         queued = await plans.approve_wave(conn, indexer, wave)
         await play(conn, queued[links][0])
         await store.finish_plan_if_complete(conn, links)
-        status = await plans.rehearse(conn, indexer, stats, Rehearsal(
+        status = await plans.preflight(conn, indexer, stats, Preflight(
             verdict="revise", notes="the counter belongs in the redirect", plan=body("Stats v2", tasks=3)))
         held_claim = await store.next_task(conn, project)
-        await plans.resolve_rehearsal(conn, indexer, stats, accept=True)
+        await plans.resolve_preflight(conn, indexer, stats, accept=True)
         plan = await store.get_document(conn, stats)
         old = [await store.get_document(conn, t) for t in queued[stats]]
         new = await store.next_task(conn, project)
@@ -200,7 +200,7 @@ def test_a_plan_keeps_the_backlog_items_it_delivers_in_step(run_db, project, ind
     assert run_db(status) == {"w2-ledger": "doing", "w2-audit": "doing"}
 
     async def finish(conn):
-        await rules.transition(conn, task, "playing", "runner")
+        await rules.transition(conn, task, "running", "runner")
         await rules.transition(conn, task, "done", "runner")
         assert await store.finish_plan_if_complete(conn, done_plan)
         await plans.finish_wave_if_complete(conn, done_plan)
@@ -236,8 +236,8 @@ def test_the_design_reaches_the_briefing_the_summary_and_survives_a_revision(run
         text = await briefing.build(conn, project, queued[stats][0])
         await play(conn, queued[links][0])
         await store.finish_plan_if_complete(conn, links)
-        await plans.rehearse(conn, indexer, stats, Rehearsal(verdict="revise", notes="n", plan=body("Stats v2")))
-        await plans.resolve_rehearsal(conn, indexer, stats, accept=True)
+        await plans.preflight(conn, indexer, stats, Preflight(verdict="revise", notes="n", plan=body("Stats v2")))
+        await plans.resolve_preflight(conn, indexer, stats, accept=True)
         return summary, text, (await store.get_document(conn, stats))["body"]
 
     summary, text, revised = run_db(go)

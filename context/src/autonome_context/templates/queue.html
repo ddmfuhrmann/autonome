@@ -1,33 +1,33 @@
 {% extends "base.html" %}
 {% import "_ui.html" as ui %}
-{% block title %}Setlist{% endblock %}
+{% block title %}Queue{% endblock %}
 {% block topbar %}<span class="live" aria-live="polite">Live</span>{% endblock %}
 {% block main %}
 {% set done_ids = status_of|dictsort|selectattr(1, "equalto", "done")|map(attribute=0)|list %}
 {% macro plan_of(t) %}{% if t.body.plan_id in plans %}plan {{ plans[t.body.plan_id]|ref }}{% endif %}{% endmacro %}
 {% macro more(status) %}{% if totals[status] > columns[status]|length %}<a class="more" href="/ui/p/{{ project }}/documents?type=task&status={{ status }}">{{ totals[status] - columns[status]|length }} more</a>{% endif %}{% endmacro %}
 <div class="stack stack--lg" data-refresh="5">
-<header class="page-head" id="setlist-head" data-live>
+<header class="page-head" id="queue-head" data-live>
   <div class="page-head__text">
-    <h1>Setlist</h1>
+    <h1>Queue</h1>
     <p class="subtitle">
-      <span>{{ progress.total }} tasks in the set · {{ progress.done }} done · {{ playing|length }} playing · {{ totals.on_hold }} held{% if totals.blocked %} · {{ totals.blocked }} blocked{% endif %}</span>
+      <span>{{ progress.total }} tasks in the set · {{ progress.done }} done · {{ running|length }} running · {{ totals.on_hold }} held{% if totals.blocked %} · {{ totals.blocked }} blocked{% endif %}</span>
       <span class="num">{{ progress.tokens|tokens }} tokens · {{ progress.cost|money }}</span>
     </p>
-    {% if wave %}<p class="footnote">Conducting <a href="/ui/p/{{ project }}/documents/{{ wave.id }}">{{ wave|ref }} · {{ wave.body.title }}</a>{% if side.waiting %} · <a class="accent" href="/ui/p/{{ project }}/approvals">{{ side.waiting }} waiting on you</a>{% endif %}</p>
+    {% if wave %}<p class="footnote">Running <a href="/ui/p/{{ project }}/documents/{{ wave.id }}">{{ wave|ref }} · {{ wave.body.title }}</a>{% if side.waiting %} · <a class="accent" href="/ui/p/{{ project }}/approvals">{{ side.waiting }} waiting on you</a>{% endif %}</p>
     {% elif side.waiting %}<p class="footnote"><a class="accent" href="/ui/p/{{ project }}/approvals">{{ side.waiting }} waiting on you</a></p>{% endif %}
   </div>
 </header>
 
 <section aria-labelledby="now-h" id="now" data-live>
-  <h2 id="now-h" class="{{ 'is-accent' if playing }}">Playing now</h2>
-  {% if playing %}
+  <h2 id="now-h" class="{{ 'is-accent' if running }}">Running now</h2>
+  {% if running %}
   <div class="entries">
-    {% for t in playing %}
+    {% for t in running %}
     <div class="entry entry--big">
       <div class="entry__main">
         <a class="entry__title" href="/ui/p/{{ project }}/documents/{{ t.id }}"><span class="dot" aria-hidden="true"></span>{{ t.body.title }}</a>
-        <span class="entry__meta">{{ t|ref }}{% if t.feature %} · {{ t.feature }}{% endif %}{% if t.body.plan_id in plans %} · {{ plans[t.body.plan_id]|ref }} {{ plans[t.body.plan_id].body.title }}{% endif %} · since {{ t.updated_at|ago }}{% if t.body.runs %} · attempt {{ t.body.runs|length + 1 }}{% endif %}{% if t.body.fermata %} · ends at the fermata{% endif %}</span>
+        <span class="entry__meta">{{ t|ref }}{% if t.feature %} · {{ t.feature }}{% endif %}{% if t.body.plan_id in plans %} · {{ plans[t.body.plan_id]|ref }} {{ plans[t.body.plan_id].body.title }}{% endif %} · since {{ t.updated_at|ago }}{% if t.body.runs %} · attempt {{ t.body.runs|length + 1 }}{% endif %}{% if t.body.hold_before_merge %} · ends at the hold_before_merge{% endif %}</span>
         {% set ev = now_doing.get(t.id) %}{% if ev %}
         <a class="now__doing" href="/ui/p/{{ project }}/documents/{{ t.id }}#live"><span class="now__role">{{ ev.role }}</span>
           <span class="now__what{{ ' is-error' if ev.kind == 'error' }}">{{ ev.text|truncate(120) }}</span><span class="faint">{{ ev.at|ago }}</span></a>
@@ -38,7 +38,7 @@
     {% endfor %}
   </div>
   {% else %}
-  <p class="empty">Nothing is playing.</p>
+  <p class="empty">Nothing is running.</p>
   {% endif %}
 </section>
 
@@ -86,7 +86,7 @@
       <span class="entry__n">—</span>
       <span class="entry__main"><span class="entry__title">{{ t.body.title }}</span>
         <span class="entry__meta">{{ t|ref }}{% if t.feature %} · {{ t.feature }}{% endif %} · gates passed{{ ', review clean' if run and run.review and run.review.verdict == 'pass' }}; needs your eyes on the diff · {{ t.updated_at|ago }}</span></span>
-      {{ ui.st('fermata') }}
+      {{ ui.st('hold_before_merge') }}
     </a>
     {% endfor %}
   </div>
@@ -126,6 +126,6 @@
 </section>
 </div>
 
-<p class="footnote">{{ plans|length }} plans in this project. Start the maestro with <span class="mono">autonome conduct --project {{ project }}</span></p>
+<p class="footnote">{{ plans|length }} plans in this project. Start the runner with <span class="mono">autonome run --project {{ project }}</span></p>
 </div>
 {% endblock %}
