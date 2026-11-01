@@ -544,6 +544,33 @@ async function soundcheckPlan(plan: Plan, opts: ConductOptions): Promise<void> {
     : `  failed; the plan is blocked for your decision`);
 }
 
+/** Runner errors in a row (this one included) that block a task: fewer are infrastructure, not the task. */
+export const ERROR_STREAK = 3;
+
+/**
+ * An exception of the runner itself (not the usage limit) is not the task's fault: the run is recorded as
+ * an error and the task goes back to pending. The third error in a row blocks it, so a bug is not hidden.
+ */
+export async function recordRunnerError(
+  task: Task,
+  e: unknown,
+  transition: (taskId: number, to: string, run?: Run) => Promise<unknown>,
+): Promise<"pending" | "blocked"> {
+  const message = String(e);
+  let streak = 1;
+  for (const r of [...(task.body.runs ?? [])].reverse()) {
+    if (r.outcome !== "error") break;
+    streak++;
+  }
+  const blocked = streak >= ERROR_STREAK;
+  const reason = blocked ? `runner error (${ERROR_STREAK} in a row): ${message}` : message;
+  const to = blocked ? "blocked" : "pending";
+  await transition(task.id, to, {
+    at: now(), branch: "", worktree: "", base: "", outcome: "error", reason: reason.slice(0, 2000),
+  }).catch(() => undefined);
+  return to;
+}
+
 export async function conduct(opts: ConductOptions): Promise<number> {
   if (!(await waitForContext(Number(process.env.AUTONOME_CONTEXT_WAIT_S ?? 30)))) {
     throw new Error("autonome-context is unreachable; the conductor does not play without it");
@@ -627,9 +654,8 @@ export async function conduct(opts: ConductOptions): Promise<number> {
         }
         opts.log(`#${task.id} failed unexpectedly: ${String(e)}`);
         tally.push({ id: task.id, title: task.body.title, outcome: "error", reason: String(e), review_rounds: 0, duration_s: 0, tokens: 0 });
-        await context.transition(task.id, task.status === "released" ? "pending" : "blocked", {
-          at: now(), branch: "", worktree: "", base: "", outcome: "error", reason: String(e).slice(0, 2000),
-        }).catch(() => undefined);
+        const to = await recordRunnerError(task, e, (id, status, run) => context.transition(id, status, run));
+        if (to === "blocked") opts.log(`  #${task.id} failed ${ERROR_STREAK} times in a row; blocked`);
       }
       played++;
       sinceOverview++;

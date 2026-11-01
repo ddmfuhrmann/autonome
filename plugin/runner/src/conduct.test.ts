@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { judgeTask, verdictLine, type ConductOptions, type JudgeSeams } from "./conduct.js";
+import { judgeTask, recordRunnerError, verdictLine, type ConductOptions, type JudgeSeams } from "./conduct.js";
 import type { Finding, GateConfig, ReviewResult, Run, Task } from "./context.js";
 import { earlierFindingsSection, encoreMessage, gatesSection, recordRound, settleOutcomes, settleRun } from "./review.js";
 
@@ -143,6 +143,39 @@ test("medium findings go back while rounds remain; high ones always; low ones ne
   assert.equal(encoreMessage({ verdict: "pass", findings: [f("low", "nit")] }, true), null);
   const both = encoreMessage({ verdict: "fail", findings: [f("high", "stray file"), f("medium", "weak test")] }, false)!;
   assert.match(both, /blocking issues[\s\S]*stray file[\s\S]*Also worth fixing now[\s\S]*weak test/);
+});
+
+function errorsFor(outcomes: string[]) {
+  const run = (outcome: string): Run => ({ at: "", branch: "", worktree: "", base: "", outcome });
+  const task = { id: 7, body: { title: "t", runs: outcomes.map(run) } } as unknown as Task;
+  const calls: { to: string; run?: Run }[] = [];
+  const transition = async (_id: number, to: string, run?: Run) => { calls.push({ to, run }); };
+  return { task, calls, transition };
+}
+
+test("a runner exception sends the task back to pending with the error run recorded", async () => {
+  const { task, calls, transition } = errorsFor([]);
+  const to = await recordRunnerError(task, new TypeError("x.map is not a function"), transition);
+  assert.equal(to, "pending");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].to, "pending");
+  assert.equal(calls[0].run?.outcome, "error");
+  assert.match(calls[0].run!.reason!, /TypeError: x\.map is not a function/);
+});
+
+test("the third runner exception in a row blocks the task", async () => {
+  const { task, calls, transition } = errorsFor(["error", "error"]);
+  const to = await recordRunnerError(task, new TypeError("boom"), transition);
+  assert.equal(to, "blocked");
+  assert.equal(calls[0].to, "blocked");
+  assert.equal(calls[0].run?.outcome, "error");
+  assert.match(calls[0].run!.reason!, /^runner error \(3 in a row\): TypeError: boom/);
+});
+
+test("a merged run between two errors resets the count", async () => {
+  const { task, calls, transition } = errorsFor(["error", "merged", "error"]);
+  assert.equal(await recordRunnerError(task, new Error("boom"), transition), "pending");
+  assert.equal(calls[0].to, "pending");
 });
 
 test("a later review round gets the earlier findings to check, and no new medium ones", () => {

@@ -1,7 +1,7 @@
 // The account's usage limit: an outage of the orchestra, not a wrong note. A task that hits it goes
 // back to pending; the conductor waits for the reset (with --watch) or stops and says when to resume.
 
-const LIMIT = /hit your (session|usage|weekly|daily) limit|usage limit (reached|exceeded)|rate.?limit(ed)? exceeded/i;
+const LIMIT = /hit your (session|usage|weekly|daily|monthly spend) limit|spend limit|usage limit (reached|exceeded)|rate.?limit(ed)? exceeded/i;
 
 export class UsageLimitError extends Error {}
 
