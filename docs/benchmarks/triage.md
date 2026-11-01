@@ -28,7 +28,7 @@ All 14 real deviations, Jev once, Haiku three times:
 above. Haiku's verbalized probabilities vary between runs; Jev's answers do not.
 
 Cost: Jev's input is a few thousand tokens per deviation at US$ 0.042 per million, about US$ 0.0002.
-The bench does not record Haiku's cost yet.
+The bench now records Haiku's cost too (see the section below once it is run).
 
 **What it shows**
 
@@ -51,4 +51,11 @@ deviation through, it is 20× faster, and its answers are stable. Next:
    theirs, instead of being rejected.
 2. Judge every decision the scribe records, not only those it marks as deviations: shortlink-v5's
    594 weakened a test and was recorded as within the plan.
-3. Record Haiku's cost in the bench.
+3. Record Haiku's cost in the bench (done).
+
+## Rule conflicts escalated
+
+Pending: the bench has not been run with the rule-conflict question and the `escalate` verdict yet;
+Haiku's cost will be reported then.
+Order: weakened test, rule conflict, other flags. Measured before planning (Jev, the 14 real states):
+false rejects 3 → 1, two deviations go to the human, the 3 true rejects are still undone.
