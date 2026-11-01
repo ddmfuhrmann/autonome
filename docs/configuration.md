@@ -217,20 +217,24 @@ the task as `runner error`. It prints a summary when it stops. A merge it could 
 By default the context gets its embeddings from the Ollama container. Docker on a Mac gives
 containers no GPU, so that Ollama runs on the CPU. Every save (a plan, a handoff, a new version)
 embeds the document before it returns, so saves get slower as documents grow. The Ollama installed
-on the host runs on the GPU (Metal) and gives the same vectors, so switching modes needs no reindex.
-Measured on an M5 with 60 chunks of real plans:
+on the host runs on the GPU (Metal). At the same Ollama version as the container (`0.24.0`, pinned in
+`compose.yml`) it gives the same vectors, so switching modes needs no reindex. Another version does
+not: Ollama.app 0.32 gives vectors at 0.96 cosine from the stored ones, which mixes two embedding
+spaces in search. Measured on an M5 with 60 chunks of real plans:
 
 | Mode | 60 chunks | per chunk |
 |---|---|---|
 | container (CPU) | 44.9 s | 749 ms |
 | host (Metal) | 4.1 s | 68 ms |
 
-To use the host's Ollama, install it (`brew install ollama`, or the app) and switch with one line
-in `.env` at the repo root (`.env` is not committed):
+To use the host's Ollama, install the container's version and keep it there (Ollama.app updates
+itself, so quit it and keep it from opening at login), then switch with one line in `.env` at the
+repo root (`.env` is not committed):
 
 ```bash
+brew install ollama && brew pin ollama                       # check `ollama --version` matches compose.yml
 docker compose stop ollama                                  # it holds :11434, which the host's Ollama needs
-ollama serve                                                 # or open Ollama.app
+brew services start ollama                                   # runs at login
 echo 'COMPOSE_FILE=compose.yml:compose.native.yml' >> .env
 docker compose up -d --wait                                  # pulls nomic-embed-text into the host's Ollama
 ```
