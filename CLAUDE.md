@@ -25,8 +25,9 @@ plugin/runner/  the maestro (TypeScript, Claude Agent SDK): one session + worktr
 - **Human-only transitions** (approve a plan or wave, release a hold, judge a playback, edit
   conventions or gate config) belong to the human: in the UI, or for approval in a dialog the context
   shows the human through MCP elicitation, which the agent cannot answer. No agent may make them, and
-  an unanswered or unsupported dialog leaves things as they were. The human aligns by rules (plans,
-  conventions, gates), not by items.
+  an unanswered or unsupported dialog leaves things as they were. The one exception is the rehearsal's
+  revision of a held plan, which the runner accepts when Jev judges it safe (see Triage); without Jev
+  the hold waits for the human. The human aligns by rules (plans, conventions, gates), not by items.
 - **Only real decisions.** A handoff records a decision only for a choice the plan did not make; one
   within the plan is in effect. A `deviation` is judged by the triage when it is on (the runner moves
   the decision with the verdict; a rejection queues an undo task), else it waits for review.
@@ -45,14 +46,20 @@ plugin/runner/  the maestro (TypeScript, Claude Agent SDK): one session + worktr
   runner commits, and main only moves by fast-forward, never over uncommitted work.
 - **Waves**: several features planned in one compose, each with a full plan, approved together; a plan
   waits for the plans it depends on, and the runner rehearses it against main before its first task
-  (ready with notes, or held with a revision the human accepts). Plans propose missing gates, added to
+  (ready with notes, or held with a revision that Jev accepts when it drops no acceptance, adds no
+  excluded scope and keeps the design, else the human accepts). Plans propose missing gates, added to
   the gate config on approval or when the task that sets their tooling up is merged.
 - **Verification beyond gates**: a reviewer agent reads each task's diff before merge (high findings
   send the musician back to the same session); a soundcheck (`soundcheck` in the gate config) tries a
   finished feature in a running environment (checks + a listener agent) and turns failures into fix
   tasks in the same plan, blocking it for a human after `max_fixes` rounds. Environments use fakes,
   never real external services.
-- **Triage**: `triage` in the gate config (opt-in) lets a classifier judge deviations in the runner:
+- **Triage**: Jev also judges a held plan's rehearsal revision (only the changed tasks; three
+  questions: drops acceptance, adds out-of-scope, changes design) and the runner approves it when none
+  reaches `reject_at`. Jev only, no Haiku fallback: no key, a failure, a changed task list, or a plan
+  the human already resolved stays held for the human. After updating, rebuild the context
+  (`docker compose up -d --build context`).
+  `triage` in the gate config (opt-in) lets a classifier judge deviations in the runner:
   Jev (Typesafe, `jev-latest`) with a Haiku fallback. Atomic questions, verdict decided in code from
   thresholds, in order: a weakened test is rejected, then a rule conflict (the task and a convention or
   gate ask for different things) is escalated, then the other flags. An escalated deviation stays

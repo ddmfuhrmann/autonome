@@ -59,3 +59,25 @@ Pending: the bench has not been run with the rule-conflict question and the `esc
 Haiku's cost will be reported then.
 Order: weakened test, rule conflict, other flags. Measured before planning (Jev, the 14 real states):
 false rejects 3 → 1, two deviations go to the human, the 3 true rejects are still undone.
+
+## Rehearsal revisions
+
+The runner also asks Jev about a revision the rehearsal proposes for a held plan: only the tasks that
+changed, original and revised side by side, with three questions (`drops_acceptance`,
+`adds_out_of_scope`, `changes_design`). At `reject_at` (0.7) or above on any of them the plan stays
+held for the human; otherwise the runner accepts the revision. Jev only: no Haiku fallback, since
+the revision changes the human's plan.
+
+Measured in the context of this plan (Jev, `reject_at: 0.7`):
+
+| Case | Highest score | Verdict |
+|---|---|---|
+| shortlink-v5 P532 (task 3 copies a protected-dependency pattern and gains a test), real | 0.09 | accept |
+| shortlink-v6 P677 (task 4 fixes a test the catch-all `GET /{code}` would break), real | 0.13 | accept |
+| P677 with 2 acceptance criteria removed, synthetic | `drops_acceptance` 0.93 | hold |
+| P677 plus a rate limit (out of scope), synthetic | `adds_out_of_scope` 0.88 | hold |
+| P677 with sync swapped for async, synthetic | `changes_design` 0.94 | hold |
+
+5 of 5 right at 0.7. The humans accepted both real revisions. Only 2 real cases exist and the
+negatives are derived from one of them, so this shows the questions separate the cases, not how they
+behave on revisions of other shapes. `autonome bench --only triage/revisions` replays them.
