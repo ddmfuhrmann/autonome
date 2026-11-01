@@ -87,6 +87,19 @@ def test_preflight_ready_adds_notes_to_the_briefing(run_db, project, indexer):
     assert before and not after and "links live in links.py" in text
 
 
+def test_the_briefing_reads_the_preflight_notes_from_body_preflight_notes(run_db, project, indexer):
+    async def go(conn):
+        plan = await plans.draft(conn, indexer, project, "notes", [], body("Notes"))
+        [task] = await plans.approve(conn, indexer, plan)
+        await plans.preflight(conn, indexer, plan, Preflight(verdict="ready", notes="X-from-preflight"))
+        stored = await store.get_document(conn, plan)
+        return stored["body"]["preflight"]["notes"], await briefing.build(conn, project, task)
+
+    notes, text = run_db(go)
+    assert notes == "X-from-preflight"
+    assert "## Preflight notes" in text and "X-from-preflight" in text
+
+
 def test_a_revised_plan_is_held_until_the_human_accepts_it(run_db, project, indexer):
     async def go(conn):
         links, stats, wave = await two_feature_wave(conn, indexer, project)
