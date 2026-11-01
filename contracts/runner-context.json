@@ -1,0 +1,32 @@
+{
+  "about": "What the runner POSTs to the context for the triage. plugin/runner tests build each body from its input and compare it with `body`; context tests validate each `body` with the endpoint's model. Change both sides and this file together.",
+  "triage_verdict": {
+    "endpoint": "POST /api/decisions/{id}/triage",
+    "item": {"decision_id": 713, "round": 1, "state": {"deviation": {"title": "Keep ValueError", "decision": "The plan asks for it."}}},
+    "judgment": {"backend": "jev", "model": "jev-latest", "verdict": "escalate",
+      "answers": {"drops_coverage": 0.17, "contradicts": 0.86, "workaround": 0.55, "required_by_plan": 0.09, "narrower": 0.3, "rule_conflict": 0.91}},
+    "body": {
+      "backend": "jev", "model": "jev-latest",
+      "state": "{\"deviation\":{\"title\":\"Keep ValueError\",\"decision\":\"The plan asks for it.\"}}",
+      "answers": {"drops_coverage": "0.17", "contradicts": "0.86", "workaround": "0.55", "required_by_plan": "0.09", "narrower": "0.3", "rule_conflict": "0.91"},
+      "verdict": "escalate", "round": 1
+    }
+  },
+  "screening": {
+    "endpoint": "POST /api/decisions/{id}/screen",
+    "screening": {"backend": "jev", "model": "jev-latest", "isDeviation": 0.19},
+    "reject_at": 0.7,
+    "body": {"backend": "jev", "model": "jev-latest", "is_deviation": 0.19, "reject_at": 0.7}
+  },
+  "revision_verdict": {
+    "endpoint": "POST /api/plans/{id}/rehearsal-triage",
+    "item": {"plan_id": 678, "shape_changed": false, "state": {"plan": {"goal": "Count clicks"}, "original": [{"position": 3, "title": "API"}], "revised": [{"position": 3, "title": "API"}]}},
+    "judgment": {"model": "jev-latest", "verdict": "accept", "answers": {"drops_acceptance": 0.08, "adds_out_of_scope": 0.08, "changes_design": 0.13}},
+    "body": {
+      "model": "jev-latest",
+      "state": "{\"plan\":{\"goal\":\"Count clicks\"},\"original\":[{\"position\":3,\"title\":\"API\"}],\"revised\":[{\"position\":3,\"title\":\"API\"}]}",
+      "answers": {"drops_acceptance": "0.08", "adds_out_of_scope": "0.08", "changes_design": "0.13"},
+      "verdict": "accept"
+    }
+  }
+}

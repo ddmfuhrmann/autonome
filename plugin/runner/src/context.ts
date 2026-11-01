@@ -101,6 +101,8 @@ export interface RevisionItem {
 
 export interface RevisionVerdictBody {
   model: string;
+  /** What Jev was shown, as JSON text: the context keeps it with the verdict. */
+  state: string;
   answers: Record<string, string>;
   verdict: "accept" | "hold";
 }

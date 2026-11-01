@@ -340,7 +340,7 @@ def pending(client, project):
 def test_state_of_a_deviation_with_a_plan_has_every_field(client, project, run_db, indexer):
     decision, _ = seed(run_db, indexer, project)
     [item] = pending(client, project)
-    assert (item["decision_id"], item["round"]) == (decision, 0)
+    assert (item["decision_id"], item["round"]) == (decision, 1)
     s = item["state"]
     assert s["deviation"] == {"title": "Dict", "decision": "faster"}
     assert s["task"] == {"title": "Task Dict", "spec": "do it", "acceptance": ["works"]}
@@ -372,7 +372,7 @@ def test_an_undo_tasks_deviation_is_one_round_later(client, project, run_db, ind
     first, _ = seed(run_db, indexer, project, title="First")
     second, _ = seed(run_db, indexer, project, session="s-2", title="Second", source=f"decision:{first}")
     third, _ = seed(run_db, indexer, project, session="s-3", title="Third", source=f"decision:{second}")
-    assert {i["decision_id"]: i["round"] for i in pending(client, project)} == {first: 0, second: 1, third: 2}
+    assert {i["decision_id"]: i["round"] for i in pending(client, project)} == {first: 1, second: 2, third: 3}
 
 
 def test_decided_exhausted_and_already_judged_decisions_are_not_returned(client, project, run_db, indexer):
@@ -593,7 +593,7 @@ def test_the_undo_of_a_runner_reject_is_judged_again_with_the_round(client, proj
     assert dev["status"] == "proposed" and "undo_of_human_reject" not in dev["body"]
     assert "undo_of_human_reject" not in plain["body"]
     [item] = [i for i in pending(client, project) if i["decision_id"] == dev["id"]]
-    assert item["round"] == 1
+    assert item["round"] == 2
     assert plain["id"] in [i["decision_id"] for i in screen_list(client, project)]
 
 

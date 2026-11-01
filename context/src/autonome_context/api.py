@@ -351,9 +351,10 @@ async def _decision_task(conn, decision_id: int) -> dict | None:
 
 
 async def _triage_round(conn, task: dict | None) -> int:
-    """0, or 1 + the round of decision Y when the task is the undo of Y (`source` is `decision:Y`)."""
+    """1, or 1 + the round of decision Y when the task is the undo of Y (`source` is `decision:Y`).
+    Counted from 1, as the verdict endpoint takes it (`TriageVerdict.round`): the first judgment is round 1."""
     seen: set[int] = set()
-    rounds = 0
+    rounds = 1
     while task and str(task["body"].get("source", "")).startswith("decision:"):
         try:
             y = int(task["body"]["source"].split(":", 1)[1])

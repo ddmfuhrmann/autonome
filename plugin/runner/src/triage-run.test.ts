@@ -66,8 +66,8 @@ test("with triage off or absent nothing is fetched", async () => {
 
 test("a backend error on one item leaves it and judges the next", async () => {
   const calls = fakeContext([
-    { decision_id: 1, round: 0, state: { deviation: { title: "bad" } } },
-    { decision_id: 2, round: 0, state: { deviation: { title: "good" } } },
+    { decision_id: 1, round: 1, state: { deviation: { title: "bad" } } },
+    { decision_id: 2, round: 1, state: { deviation: { title: "good" } } },
   ]);
   const log: string[] = [];
   const boom = async (s: Record<string, unknown>) => {
