@@ -1,5 +1,5 @@
-"""The metronome: runs a project's gates over what changed, cheapest first, and decides whether
-the agent may stop, must play again (encore), or is going in circles (blocked)."""
+"""The gate hook: runs a project's gates over what changed, cheapest first, and decides whether
+the agent may stop, must try again (retry), or is going in circles (blocked)."""
 
 import fnmatch
 import hashlib
@@ -105,7 +105,7 @@ def check(
     cwd: str, session_id: str, config: dict, *, base: str = "HEAD", config_version: int | None = None,
     task_id: int | None = None, record: bool = True,
 ) -> Verdict:
-    """One beat of the metronome at the end of an agent turn. Keeps encore state per session."""
+    """One run of the gate hook at the end of an agent turn. Keeps retry state per session."""
     state = load_state(session_id)
     files = changed_files(cwd, base)
     fp = fingerprint(cwd, base)
@@ -129,11 +129,11 @@ def check(
         save_state(session_id, {"status": "green", "green_fingerprint": fp, "attempts": 0})
         return Verdict("green", f"{len(outcomes)} gates passed", outcomes)
 
-    encore = config.get("encore", {})
+    retries = config.get("retries") or {}
     attempts = state.get("attempts", 0)
-    repeated = encore.get("stop_on_repeat", True) and failed.signature == state.get("last_signature")
-    if repeated or attempts >= encore.get("max", 3):
-        reason = "the same failure repeated" if repeated else f"{attempts} encores used"
+    repeated = retries.get("stop_on_repeat", True) and failed.signature == state.get("last_signature")
+    if repeated or attempts >= retries.get("max", 3):
+        reason = "the same failure repeated" if repeated else f"{attempts} retries used"
         save_state(session_id, {**state, "status": "blocked", "reason": f"{failed.gate}: {reason}",
                                 "last_signature": failed.signature})
         return Verdict("blocked", f"Gate '{failed.gate}' still failing ({reason}). Stopping; the task is blocked.",
@@ -143,7 +143,7 @@ def check(
     tail = "\n".join(failed.output.strip().splitlines()[-60:])
     return Verdict(
         "failing",
-        f"Metronome: gate '{failed.gate}' failed (encore {attempts + 1}/{encore.get('max', 3)}). "
+        f"Gate hook: gate '{failed.gate}' failed (retry {attempts + 1}/{retries.get('max', 3)}). "
         f"Fix the cause, then finish again. Do not weaken or skip the gate.\n\n{tail}",
         outcomes,
     )

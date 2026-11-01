@@ -19,7 +19,7 @@ from autonome import common  # noqa: E402
 
 MAX_CHARS = 150_000
 TOOL_RESULT_CHARS = 400
-# One source for the scribe's instructions: the handoff skill, which the evals also exercise.
+# One source for the handoff writer's instructions: the handoff skill, which the evals also exercise.
 SKILL = Path(__file__).resolve().parent.parent / "skills" / "handoff" / "SKILL.md"
 
 
@@ -74,13 +74,13 @@ def condense(transcript: Path) -> str:
 
 
 def gate_facts(session_id: str) -> str:
-    """What the metronome recorded for this session: facts, not the agent's account of them."""
+    """What the gate hook recorded for this session: facts, not the agent's account of them."""
     runs = common.get_json(f"/api/gate-runs?session_id={session_id}") or []
     if not runs:
-        return "No gate runs were recorded by the metronome for this session."
+        return "No gate runs were recorded by the gate hook for this session."
     lines = [f"- {r['created_at']} {r['gate']}: {'passed' if r['passed'] else 'FAILED'} ({r['duration_ms']} ms)"
              for r in reversed(runs)]
-    return "Gate runs recorded by the metronome (authoritative; prefer them over the transcript):\n" + "\n".join(lines)
+    return "Gate runs recorded by the gate hook (authoritative; prefer them over the transcript):\n" + "\n".join(lines)
 
 
 def write(condensed: str, cwd: str, facts: str) -> dict:

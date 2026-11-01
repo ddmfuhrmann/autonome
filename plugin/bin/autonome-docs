@@ -30,7 +30,7 @@ def main() -> int:
             print(f"overview: document #{docs.update_overview(project, cwd)}")
         else:
             print(f"{args.feature}: document #{docs.update_feature(project, args.feature, cwd)}")
-    except (OSError, RuntimeError) as e:  # one line for the maestro's log, not a traceback
+    except (OSError, RuntimeError) as e:  # one line for the runner's log, not a traceback
         print(f"autonome-docs: {e}", file=sys.stderr)
         return 1
     return 0

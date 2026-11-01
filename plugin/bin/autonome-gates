@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from autonome import metronome  # noqa: E402
+from autonome import gate_hook  # noqa: E402
 
 
 def main() -> int:
@@ -26,15 +26,15 @@ def main() -> int:
     args = parser.parse_args()
 
     cwd = os.getcwd()
-    fetched = metronome.fetch_config(cwd)
+    fetched = gate_hook.fetch_config(cwd)
     if fetched is None:
         print("autonome-context is unreachable", file=sys.stderr)
         return 3
     config = fetched["config"]
     if args.all_files:
         config = {**config, "gates": [{**g, "when": []} for g in config.get("gates", [])]}
-    files = metronome.changed_files(cwd, args.base)
-    outcomes = metronome.run_gates(cwd, config, files, only_fast=args.fast)
+    files = gate_hook.changed_files(cwd, args.base)
+    outcomes = gate_hook.run_gates(cwd, config, files, only_fast=args.fast)
     ok = all(o.passed for o in outcomes)
     if args.json:
         print(json.dumps({"passed": ok, "config_version": fetched["version"],

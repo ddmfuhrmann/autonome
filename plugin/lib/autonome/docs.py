@@ -1,4 +1,4 @@
-"""The scribe's second job: keep each feature's living doc and the system overview true to the code.
+"""The handoff writer's second job: keep each feature's living doc and the system overview true to the code.
 
 A headless Claude reads the dossier (current doc, recent handoffs, plans, decisions) and the code
 itself (read-only tools), and rewrites the doc. Updates, not rewrites from scratch.
