@@ -31,9 +31,13 @@ An orchestra doesn't need the composer on stage.
 
 ## Principles
 
-- **Humans approve, agents execute.** Only a human approves a plan, in the UI or in a dialog the
-  context shows them directly (MCP elicitation) that the agent cannot answer. No tool lets an agent
-  approve its own work.
+- **Humans set the rules, the process applies them.** Only a human approves a plan or changes a
+  convention or the gate config, in the UI or in a dialog the context shows them directly (MCP
+  elicitation) that the agent cannot answer. Deviations are judged against those rules by the
+  triage, never by the agent that made them.
+- **Judgment in small, auditable pieces.** The triage asks a classifier (Jev, with a Haiku
+  fallback) atomic yes/no questions and decides in code from thresholds you set; every verdict
+  keeps the state it saw and its probabilities.
 - **Facts over claims.** Gate results and diffs come from data, not from what the agent says.
 - **Memory, not markdown.** Plans, handoffs and decisions live in a searchable store organized
   by **feature**, **layer** and **time**. The repo keeps only what the build needs.
@@ -52,7 +56,7 @@ An orchestra doesn't need the composer on stage.
 | Doc | Read it to… |
 |---|---|
 | [plugin/README.md](plugin/README.md) | understand the cycle step by step: compose, approve, conduct (rehearsal, review, soundcheck, playback), tune, cues, and what the metronome does |
-| [docs/configuration.md](docs/configuration.md) | set a project up and tune it: what activates it, every key of the gate config (gates, review, models, fermata, playback, soundcheck, cues), the commands and environment variables, backup and restore |
+| [docs/configuration.md](docs/configuration.md) | set a project up and tune it: what activates it, every key of the gate config (gates, review, models, triage, fermata, playback, soundcheck, cues), the commands and environment variables, backup and restore |
 | [docs/conventions.md](docs/conventions.md) | write the rules agents follow and the reviewer enforces: where they come from, who reads them, convention vs. gate vs. decision, how to write good ones |
 | [docs/operations.md](docs/operations.md) | know what to do when something stops: doctor failures, blocked tasks and their reasons, held plans, the review queue, why a run stopped, and cleaning up worktrees and branches |
 | [docs/reference.md](docs/reference.md) | build on the context: every MCP tool with its arguments and answer, the HTTP API the hooks and the runner use, and the UI routes |
