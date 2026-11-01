@@ -1,0 +1,18 @@
+# Embeddings from the host's Ollama instead of the container: on a Mac it runs on the GPU (Metal),
+# about 11x faster than the container's CPU, with the same vectors, so nothing needs reindexing.
+# Turn it on with `COMPOSE_FILE=compose.yml:compose.native.yml` in .env; the host's Ollama must be
+# running on :11434 (stop the ollama container first: they share the port).
+services:
+  ollama:
+    profiles: [docker-ollama]  # off unless asked for by name
+
+  ollama-pull:  # pulls the embedding model into the host's Ollama
+    environment:
+      OLLAMA_HOST: host.docker.internal:11434
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    depends_on: !reset []
+
+  context:
+    environment:
+      OLLAMA_URL: http://host.docker.internal:11434
+    extra_hosts: ["host.docker.internal:host-gateway"]

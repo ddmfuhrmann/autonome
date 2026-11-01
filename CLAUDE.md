@@ -103,6 +103,7 @@ plugin/runner/  the maestro (TypeScript, Claude Agent SDK): one session + worktr
 ```bash
 docker compose up -d --wait                     # postgres :5433, ollama :11434, context :8765 (/mcp, /api, /ui)
 docker compose up -d --build context            # after changing context code
+echo 'COMPOSE_FILE=compose.yml:compose.native.yml' >> .env   # embeddings from the host's Ollama (GPU on a Mac)
 cd context && uv run autonome-context           # or run the context natively (stop its container first)
 claude plugin marketplace add . && claude plugin install autonome@autonome   # use it for real
 cd context && uv run pytest                     # the gate; DB tests skip if postgres is down
