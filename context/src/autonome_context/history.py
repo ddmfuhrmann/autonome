@@ -56,7 +56,7 @@ async def build(conn: AsyncConnection, project: str, subject: str, embedder: Emb
             if d["body"].get("deviation"):
                 item = {"feature": f, "decision": d["id"], "status": d["status"],
                         "title": _cut(d["body"].get("title")), "why": _cut(d["body"].get("decision"))}
-                judged = triage_entry(d)
+                judged = None if d["body"].get("undo_of_human_reject") else triage_entry(d)
                 if judged:
                     item.update(judged_by=judged["backend"], verdict=judged["verdict"])
                 elif d["status"] != "proposed":

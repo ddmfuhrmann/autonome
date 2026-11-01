@@ -317,7 +317,8 @@ async def get_triage(request: Request) -> JSONResponse:
         decisions = await store.list_documents(conn, project, type="decision", status="proposed", limit=None,
                                                oldest_first=True)
         for d in decisions:
-            if not d["body"].get("deviation") or d["body"].get("triage_exhausted") or d["body"].get("triage_conflict"):
+            if (not d["body"].get("deviation") or d["body"].get("triage_exhausted") or d["body"].get("triage_conflict")
+                    or d["body"].get("undo_of_human_reject")):
                 continue
             task = await _decision_task(conn, d["id"])
             round_ = await _triage_round(conn, task)
@@ -356,7 +357,8 @@ async def _screen_pending(conn, project: str) -> list[dict]:
     out = []
     for d in await store.list_documents(conn, project, type="decision", status="accepted", limit=None,
                                         oldest_first=True):
-        if d["body"].get("deviation") or d["body"].get("screening") or d["created_at"] <= since:
+        if (d["body"].get("deviation") or d["body"].get("screening") or d["body"].get("undo_of_human_reject")
+                or d["created_at"] <= since):
             continue
         out.append({"decision_id": d["id"], "state": await _triage_state(conn, d, await _decision_task(conn, d["id"]))})
         if len(out) == 50:

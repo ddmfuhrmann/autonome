@@ -470,6 +470,38 @@ async def reject_decision(conn: AsyncConnection, indexer: store.Indexer, decisio
                                         feature=d["feature"], layers=d["layers"], source=f"decision:{decision_id}")
 
 
+async def undo_of_human_reject(conn: AsyncConnection, task: dict | None) -> int | None:
+    """Y when the task undoes decision Y (`source` is `decision:Y`) and the human rejected Y: no verdict
+    of the runner's triage stands last on it. A reject by the triage returns None; it is judged again."""
+    source = str(((task or {}).get("body") or {}).get("source", ""))
+    if not source.startswith("decision:"):
+        return None
+    try:
+        y = int(source.split(":", 1)[1])
+    except ValueError:
+        return None
+    d = await store.get_document(conn, y)
+    if not d or d["type"] != "decision" or d["status"] != "rejected":
+        return None
+    last = (d["body"].get("triage_history") or [None])[-1]
+    return None if last and last.get("verdict") == "reject" else y
+
+
+async def accept_human_undo(conn: AsyncConnection, indexer: store.Indexer | None, handoff_id: int, rejected: int) -> None:
+    """The handoff of the undo of a decision the human rejected: what it records is the human's choice.
+    Each decision gets the mark; a proposed deviation is accepted by the runner. Safe to repeat."""
+    async with conn.transaction():
+        for link in await store.links_of(conn, handoff_id):
+            if link["kind"] != "records" or link["direction"] != "out":
+                continue
+            d = await store.get_document(conn, link["id"])
+            if not d or d["type"] != "decision" or d["body"].get("undo_of_human_reject") == rejected:
+                continue
+            await store.add_version(conn, indexer, d["id"], {**d["body"], "undo_of_human_reject": rejected})
+            if d["status"] == "proposed" and d["body"].get("deviation"):
+                await rules.transition(conn, d["id"], "accepted", "runner")
+
+
 def loose_ends(run: dict | None) -> list[str]:
     """What a merged run left open: reviewer findings of medium severity (high ones never merge).
     They do not block; they wait for the human's review instead of vanishing."""

@@ -451,10 +451,13 @@ async def post_handoff(request: Request) -> JSONResponse:
     transcript = gzip.decompress(base64.b64decode(raw)).decode() if raw else None
     doc_id = await _put_handoff(h, transcript)
     if body.get("task_id"):
-        pool, _ = await services.get()
+        pool, indexer = await services.get()
         async with pool.connection() as conn:
             await store.link(conn, doc_id, int(body["task_id"]), "reports")
             await plans.note_handoff(conn, None, int(body["task_id"]), [i.model_dump() for i in h.plan_adherence])
+            rejected = await plans.undo_of_human_reject(conn, await store.get_document(conn, int(body["task_id"])))
+            if rejected:  # the human already chose; the undo only carried it out
+                await plans.accept_human_undo(conn, indexer, doc_id, rejected)
     return JSONResponse({"document_id": doc_id}, status_code=201)
 
 
