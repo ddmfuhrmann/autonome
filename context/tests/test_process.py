@@ -25,7 +25,7 @@ def test_draft_revise_approve_queues_tasks_with_fermata(run_db, project, indexer
     async def go(conn):
         async with conn.transaction():
             await store.create_document(conn, indexer, project=project, type="gate_config", status="active",
-                                        body={"yaml": "fermata: {features: [sign*]}"})
+                                        body={"yaml": "hold_before_merge: {features: [sign*]}"})
         plan_id = await plans.draft(conn, indexer, project, "signup", ["ui", "api"], plan_body())
         await plans.draft(conn, indexer, project, "signup", ["ui", "api"], plan_body(goal="Signup v2"), plan_id)
         with pytest.raises(rules.Forbidden):

@@ -40,8 +40,8 @@ async def build(conn: AsyncConnection, project: str, task_id: int | None = None)
     if p.get("design"):
         parts.append("## Design the plan chose (follow it; another way is a deviation)\n" + _list([
             f"{d['topic']}: {d['chosen']}. {d['why']}" for d in p["design"]]))
-    if notes := p.get("rehearsal", {}).get("notes"):
-        parts.append(f"## Rehearsal notes (the plan checked against the code before this feature began)\n{notes}")
+    if notes := p.get(store.PREFLIGHT_KEY, {}).get("notes"):
+        parts.append(f"## Preflight notes (the plan checked against the code before this feature began)\n{notes}")
     conventions = await store.conventions_for(conn, project, task["layers"])
     if conventions:
         parts.append("## Conventions for these layers\n" + "\n\n".join(
@@ -60,7 +60,7 @@ async def build(conn: AsyncConnection, project: str, task_id: int | None = None)
         cfg = GateConfig.from_yaml(gate_doc["body"]["yaml"])
         fast = [g.name for g in cfg.gates if g.fast]
         parts.append(
-            "## Gates\nWhen you finish, the metronome runs every gate: "
+            "## Gates\nWhen you finish, the gate hook runs every gate: "
             + ", ".join(g.name for g in cfg.gates)
             + f". While working, run the fast ones ({', '.join(fast) or 'none'}) with `autonome-gates --fast`."
             " Never weaken, skip or edit a gate or its rules to make it pass."

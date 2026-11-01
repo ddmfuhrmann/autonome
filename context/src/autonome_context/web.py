@@ -766,7 +766,7 @@ async def config_page(request: Request) -> Response:
         text = doc["body"]["yaml"] if doc else EXAMPLE
         try:
             cfg = GateConfig.from_yaml(text)
-            summary = f"{len(cfg.gates)} gates" + (", soundcheck configured" if cfg.soundcheck else "")
+            summary = f"{len(cfg.gates)} gates" + (", soundcheck configured" if cfg.smoke_test else "")
         except Exception as e:
             error = str(e)
     return await render(request, "config.html", text=text, doc=doc, error=error, runs=runs, summary=summary)

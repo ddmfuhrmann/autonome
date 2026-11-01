@@ -15,11 +15,11 @@ TRANSITIONS: dict[tuple[str, str, str], set[str]] = {
     ("plan", "draft", "abandoned"): {"human", "agent"},
     ("plan", "approved", "abandoned"): {"human"},
     ("plan", "approved", "done"): {"runner"},
-    ("plan", "approved", "held"): {"runner"},  # the rehearsal found the plan out of date
+    ("plan", "approved", "held"): {"runner"},  # the preflight found the plan out of date
     ("plan", "held", "approved"): {"human", "runner"},  # accept the revision or keep the original; the runner only with a triage verdict
     ("plan", "held", "abandoned"): {"human"},
-    ("plan", "approved", "blocked"): {"runner"},  # the soundcheck kept failing after its fix rounds
-    ("plan", "blocked", "approved"): {"human"},  # try again: one more soundcheck, fresh fix rounds
+    ("plan", "approved", "blocked"): {"runner"},  # the smoke test kept failing after its fix rounds
+    ("plan", "blocked", "approved"): {"human"},  # try again: one more smoke test, fresh fix rounds
     ("plan", "blocked", "done"): {"human"},  # accept the feature as it is
     ("plan", "blocked", "abandoned"): {"human"},
     ("wave", "draft", "approved"): {"human"},
@@ -32,7 +32,7 @@ TRANSITIONS: dict[tuple[str, str, str], set[str]] = {
     ("task", "playing", "on_hold"): {"runner"},
     ("task", "playing", "pending"): {"runner"},  # interrupted run, try again later
     ("task", "on_hold", "released"): {"human"},
-    ("task", "on_hold", "pending"): {"human"},  # rejected at the fermata: play it again
+    ("task", "on_hold", "pending"): {"human"},  # rejected at the hold before merge: run it again
     ("task", "released", "done"): {"runner"},
     ("task", "released", "pending"): {"runner"},  # could not merge (conflict, gates on top of main)
     ("task", "blocked", "pending"): {"human"},

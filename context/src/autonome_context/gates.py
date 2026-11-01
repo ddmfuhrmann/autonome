@@ -4,10 +4,16 @@ tests, Semgrep) live in the project's repo; this only says what runs, in which o
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-class Gate(BaseModel):
+class _Strict(BaseModel):
+    """An unknown key is an error at any depth, so a renamed key is never ignored in silence."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class Gate(_Strict):
     name: str
     run: str = Field(description="shell command, run from the repo root")
     mode: Literal["fix", "block"] = "block"
@@ -16,29 +22,29 @@ class Gate(BaseModel):
     timeout_s: int = 900
 
 
-class Encore(BaseModel):
+class Retries(_Strict):
     max: int = 3
     stop_on_repeat: bool = True
 
 
-class Budget(BaseModel):
+class Budget(_Strict):
     task_tokens: int = 400_000
     task_minutes: int = 30
     plan_tokens: int = 3_000_000
 
 
-class Fermata(BaseModel):
+class HoldBeforeMerge(_Strict):
     features: list[str] = []
 
 
-class Playback(BaseModel):
+class ReviewAfterMerge(_Strict):
     """Features reviewed after merge: their tasks merge as usual and wait for the human's review in the
     background ("review forward"); a fix becomes a new task, never a block."""
 
     features: list[str] = []
 
 
-class Cue(BaseModel):
+class Schedule(_Strict):
     name: str
     kind: Literal["command", "doc-drift", "main-red"]
     every_hours: int = 24
@@ -46,32 +52,32 @@ class Cue(BaseModel):
     task: str | None = Field(default=None, description="title of the task to enqueue")
 
 
-class Check(BaseModel):
+class Check(_Strict):
     name: str
     run: str = Field(description="shell command run against the live environment (AUTONOME_APP_URL is set)")
     timeout_s: int = 900
 
 
-class Soundcheck(BaseModel):
+class SmokeTest(_Strict):
     """After the last task of a plan merges, the feature is tried in a running environment."""
 
     up: str = Field(description="starts the environment and waits until it is ready, e.g. docker compose up -d --wait")
     down: str = Field(description="stops it; always runs, even after a failure")
     url: str = Field(description="where the app answers, e.g. http://127.0.0.1:8000")
     seed: str | None = Field(default=None, description="loads synthetic data once the environment is up")
-    checks: list[Check] = Field(default=[], description="scripted e2e/smoke tests, run before the listener")
-    listener: bool = Field(default=True, description="an agent exercises the plan's acceptance criteria on the running app")
+    checks: list[Check] = Field(default=[], description="scripted e2e/smoke tests, run before the tester")
+    tester: bool = Field(default=True, description="an agent exercises the plan's acceptance criteria on the running app")
     max_fixes: int = Field(default=2, description="fix rounds before the plan is blocked for a human")
 
 
-class Review(BaseModel):
+class Review(_Strict):
     """An independent agent reviews each task's diff against its plan and the conventions before merge."""
 
     enabled: bool = True
     max_rounds: int = Field(default=2, description="times the implementer is sent back with blocking findings")
 
 
-class Triage(BaseModel):
+class Triage(_Strict):
     """A classifier judges deviation decisions instead of the human. The Jev key lives in the runner's
     environment (or ~/.autonome/secrets.env), never here."""
 
@@ -89,44 +95,44 @@ class Triage(BaseModel):
 Effort = Literal["low", "medium", "high", "xhigh", "max"]
 
 
-class RoleModel(BaseModel):
+class RoleModel(_Strict):
     model: str
     effort: Effort
     fallback: str | None = Field(
         default=None, description="model to switch to when this one is overloaded or unavailable (not the usage limit)")
 
 
-# Who does what, on which model and with how much thinking. Rehearsal is measured with
+# Who does what, on which model and with how much thinking. The preflight is measured with
 # `autonome bench` (docs/benchmarks/models.md); the reviewer is on Sonnet by the human's choice; the other roles are still a guess.
 DEFAULT_MODELS: dict[str, RoleModel] = {
-    "musician": RoleModel(model="sonnet", effort="medium"),
+    "implementer": RoleModel(model="sonnet", effort="medium"),
     "reviewer": RoleModel(model="sonnet", effort="medium"),
-    "rehearsal": RoleModel(model="haiku", effort="low"),
-    "listener": RoleModel(model="sonnet", effort="medium"),
-    "tune": RoleModel(model="sonnet", effort="medium"),
+    "preflight": RoleModel(model="haiku", effort="low"),
+    "tester": RoleModel(model="sonnet", effort="medium"),
+    "retro": RoleModel(model="sonnet", effort="medium"),
     "handoff": RoleModel(model="sonnet", effort="low"),
     "docs": RoleModel(model="sonnet", effort="low"),
 }
 
 
-class GateConfig(BaseModel):
+class GateConfig(_Strict):
     """Gates run cheapest first; the first blocking failure stops the rest."""
 
     gates: list[Gate] = []
-    interactive: bool = Field(default=False, description="also run the metronome in sessions outside conduct")
+    interactive: bool = Field(default=False, description="also run the gate hook in sessions outside the runner")
     allowed_commands: list[str] = Field(
-        default=[], description="extra commands (first word) a conduct session may run, besides the gates' own")
-    encore: Encore = Encore()
+        default=[], description="extra commands (first word) a runner session may run, besides the gates' own")
+    retries: Retries = Retries()
     budget: Budget = Budget()
-    fermata: Fermata = Fermata()
-    playback: Playback = Playback()
-    cues: list[Cue] = []
+    hold_before_merge: HoldBeforeMerge = HoldBeforeMerge()
+    review_after_merge: ReviewAfterMerge = ReviewAfterMerge()
+    schedules: list[Schedule] = []
     review: Review = Review()
-    tune_after_wave: bool = Field(default=True, description="propose conventions from each finished wave's evidence")
+    retro_after_wave: bool = Field(default=True, description="propose conventions from each finished wave's evidence")
     language: str = Field(
         default="", description="language of what agents write for people (plans, handoffs, findings, docs), e.g. "
                                 "pt-BR; empty: English. Code, identifiers and commits follow the project")
-    soundcheck: Soundcheck | None = None
+    smoke_test: SmokeTest | None = None
     triage: Triage | None = None
     models: dict[str, RoleModel] = Field(
         default_factory=lambda: dict(DEFAULT_MODELS),
@@ -135,6 +141,8 @@ class GateConfig(BaseModel):
     @field_validator("models", mode="before")
     @classmethod
     def _over_defaults(cls, v):
+        if unknown := sorted(set(v or {}) - set(DEFAULT_MODELS)):
+            raise ValueError(f"unknown model roles: {', '.join(unknown)}")
         return {**{k: r.model_dump() for k, r in DEFAULT_MODELS.items()}, **(v or {})}
 
     @classmethod
@@ -154,24 +162,24 @@ gates:
   - {name: secrets, run: gitleaks detect --no-banner}
 interactive: false
 allowed_commands: [./mvnw]
-encore: {max: 3, stop_on_repeat: true}
+retries: {max: 3, stop_on_repeat: true}
 budget: {task_tokens: 400000, task_minutes: 30, plan_tokens: 3000000}
-fermata: {features: []}     # stop before merge for the human (blocks the setlist)
-playback: {features: []}    # merge, then the human reviews forward (never blocks)
-cues: []
+hold_before_merge: {features: []}     # stop before merge for the human (blocks the queue)
+review_after_merge: {features: []}    # merge, then the human reviews forward (never blocks)
+schedules: []
 review: {enabled: true, max_rounds: 2}
 # language: pt-BR           # what agents write for people; code and commits follow the project
-# models: {musician: {model: sonnet, effort: medium, fallback: haiku}}   # per role; see DEFAULT_MODELS
+# models: {implementer: {model: sonnet, effort: medium, fallback: haiku}}   # per role; see DEFAULT_MODELS
 # triage:                    # a classifier judges deviation decisions (the Jev key stays in the runner's environment)
 #   model: jev-latest        # jev-latest | haiku | off
 #   fallback: haiku          # haiku | off
 #   reject_at: 0.7
 #   max_rounds: 2
-# soundcheck:                # try each finished feature in a running environment (fakes, never real services)
+# smoke_test:                # try each finished feature in a running environment (fakes, never real services)
 #   up: docker compose -f infra/compose.yml up -d --wait
 #   down: docker compose -f infra/compose.yml down
 #   url: http://127.0.0.1:8081
 #   checks: [{name: e2e, run: ./scripts/e2e.sh}]
-#   listener: true
+#   tester: true
 #   max_fixes: 2
 """
