@@ -12,7 +12,7 @@ import { doctor, report } from "./doctor.js";
 import { bashPrefixes, scopedFileCommands } from "./fsguard.js";
 import { encoreMessage, findingsForEncore, recordRound, review, settleRun } from "./review.js";
 import { soundcheck } from "./soundcheck.js";
-import { sessionEnv } from "./secrets.js";
+import { jevKey, sessionEnv } from "./secrets.js";
 import { triagePending } from "./triage-run.js";
 import { isUsageLimit, UsageLimitError, untilReset } from "./limits.js";
 import { tuneFinishedWaves } from "./tune.js";
@@ -403,7 +403,8 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<Run | unde
       stage(opts, { task_id: task.id }, `review, round ${round + 1}`);
       const rv = await review(task, briefing, worktree, base,
         { ...roleModel(cfg, "reviewer", opts), language: languageRule(cfg) },
-        live(opts, "reviewer", { task_id: task.id }), run.review?.findings);
+        live(opts, "reviewer", { task_id: task.id }), run.review?.findings,
+        { cfg: cfg.triage, key: cfg.triage?.model === "jev-latest" ? jevKey((l) => opts.log(`triage: ${l}`)) : undefined });
       recordRound(run, rv.result, round + 1);
       opts.events?.push({ task_id: task.id, role: "reviewer", kind: "say", text: verdictLine(rv.result) });
       run.cost_usd = (run.cost_usd ?? 0) + rv.cost;

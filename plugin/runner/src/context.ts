@@ -152,6 +152,8 @@ export interface Finding {
   convention?: string;
   file?: string;
   issue: string;
+  /** Triage's Jev check found the text advisory and took the finding from high to medium. */
+  downgraded?: boolean;
   /** Set when the run ends: what became of the finding (see `settleOutcomes`). */
   outcome?: "resolved" | "repeated" | "merged" | "blocked";
 }

@@ -2,8 +2,9 @@
 // project's conventions, before anything merges. Gates check that the code passes; this checks that
 // it is the code the plan asked for.
 import { consult } from "./agents.js";
-import type { Finding, ReviewResult, RoleModel, Run, Task } from "./context.js";
+import type { Finding, ReviewResult, RoleModel, Run, Task, Triage } from "./context.js";
 import { git } from "./git.js";
+import { downgradeAdvisory } from "./triage.js";
 
 const REVIEWER_PROMPT = `You review one task of the autonome process before it merges. You did not write it.
 The gates (tests, linters) already passed; do not re-check what they check. Read the diff, the task,
@@ -63,7 +64,8 @@ export function earlierFindingsSection(previous: Finding[] | undefined): string 
 }
 
 export async function review(task: Task, briefing: string, worktree: string, base: string, who: RoleModel & { language?: string },
-  onMessage?: (msg: unknown) => void, previous?: Finding[]) {
+  onMessage?: (msg: unknown) => void, previous?: Finding[],
+  triage?: { cfg?: Triage | null; key?: string; ask?: (f: Finding, key: string) => Promise<number> }) {
   const diff = git(worktree, "diff", "--cached", base).slice(0, 80_000);
   const { answer, cost } = await consult<ReviewResult>({
     cwd: worktree,
@@ -79,7 +81,8 @@ export async function review(task: Task, briefing: string, worktree: string, bas
       earlierFindingsSection(previous),
     ].filter(Boolean).join("\n\n"),
   });
-  const findings = enforceConventions(answer.findings, conventionTitles(briefing));
+  const enforced = enforceConventions(answer.findings, conventionTitles(briefing));
+  const findings = await downgradeAdvisory(enforced, triage?.cfg, triage?.key, triage?.ask);
   // The verdict follows the findings, whatever the agent wrote in it.
   const verdict = findings.some((f) => f.severity === "high") ? "fail" : "pass";
   return { result: { verdict, findings } as ReviewResult, cost };

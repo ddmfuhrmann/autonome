@@ -41,20 +41,61 @@ export type Backend = (state: Record<string, unknown>) => Promise<Answers>;
 const JEV_URL = "https://api.typesafe.ai/v1/nouls";
 const JEV_TIMEOUT_MS = 30_000;
 
-/** Jev answers every question in one request. The key is the caller's to find; this never reads it. */
-export async function jev(state: Record<string, unknown>, key: string): Promise<Answers> {
+async function askJev(state: Record<string, unknown>, nouls: { name: string; question: string }[], key: string): Promise<unknown> {
   const res = await fetch(process.env.TYPESAFE_URL ?? JEV_URL, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
-    body: JSON.stringify({
-      state,
-      nouls: NAMES.map((name) => ({ name, type: "noul", question: QUESTIONS[name] })),
-    }),
+    body: JSON.stringify({ state, nouls: nouls.map((n) => ({ ...n, type: "noul" })) }),
     signal: AbortSignal.timeout(JEV_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`jev: HTTP ${res.status}`);
-  const body = (await res.json()) as { answers?: unknown };
-  return validated(body.answers, "jev");
+  return ((await res.json()) as { answers?: unknown }).answers;
+}
+
+/** Jev answers every question in one request. The key is the caller's to find; this never reads it. */
+export async function jev(state: Record<string, unknown>, key: string): Promise<Answers> {
+  return validated(await askJev(state, NAMES.map((name) => ({ name, question: QUESTIONS[name] })), key), "jev");
+}
+
+export const ADVISORY_QUESTION =
+  "The `finding`'s own text says that it is optional, advisory or not blocking.";
+
+/** Probability that a reviewer finding calls itself advisory. Throws on a failed or malformed call. */
+export async function advisory(finding: { kind?: string; file?: string; issue: string }, key: string,
+  ask: typeof askJev = askJev): Promise<number> {
+  const raw = await ask({ finding: { kind: finding.kind, file: finding.file, issue: finding.issue } },
+    [{ name: "advisory", question: ADVISORY_QUESTION }], key);
+  const v = (raw as Record<string, unknown> | null | undefined)?.advisory;
+  if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 1) {
+    throw new Error('jev: answer "advisory" is missing or outside 0..1');
+  }
+  return v;
+}
+
+export const DOWNGRADE_NOTE = " (downgraded: its text says advisory)";
+
+interface Rated { kind?: string; severity: "high" | "medium" | "low"; convention?: string; file?: string; issue: string; downgraded?: boolean }
+
+/** A high finding whose own text says it is advisory stops blocking. Only with Jev: a failed call
+ * leaves the finding as it was, and a convention-required finding is never sent. */
+export async function downgradeAdvisory<F extends Rated>(findings: F[], cfg: Triage | null | undefined, key: string | undefined,
+  ask: (f: F, key: string) => Promise<number> = advisory): Promise<F[]> {
+  if (cfg?.model !== "jev-latest" || !key) return findings;
+  return Promise.all(findings.map(async (f) => {
+    if (f.severity !== "high" || isConventionRequired(f)) return f;
+    try {
+      if (await ask(f, key) < cfg.reject_at) return f;
+    } catch (e) {
+      console.error("triage: advisory check failed:", e);
+      return f;
+    }
+    return { ...f, severity: "medium" as const, issue: f.issue + DOWNGRADE_NOTE, downgraded: true };
+  }));
+}
+
+/** What `enforceConventions` raises, or a reviewer's own missing finding against a named convention. */
+function isConventionRequired(f: Rated): boolean {
+  return (f.kind === "missing" && !!f.convention) || f.issue.includes("(blocking: required by the convention");
 }
 
 const HAIKU_ROLE = `You classify one deviation of an autonome task: a choice the task made that the plan did not.
