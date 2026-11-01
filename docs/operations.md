@@ -21,6 +21,7 @@ plugin/bin/autonome doctor --project <slug> --repo <path>
 | `✘ ollama … not pulled` | `docker compose run --rm ollama-pull` |
 | `✘ gates no gates configured` | save a gate config in the UI, or approve a plan that brings gates (see [configuration](configuration.md)) |
 | `✘ gates not found in …: <cmd>` | install the tool, or fix the gate's `run` |
+| `✔ triage warning: no Jev key …` | the triage is on with `jev-latest` but the runner has no key; the fallback judges. Put `TYPESAFE_API_KEY` in `~/.autonome/secrets.env` (`chmod 600`) or the runner's environment |
 | `✘ main uncommitted changes` | commit or stash on the main checkout: the maestro never merges over local work |
 
 `conduct` runs these checks itself and refuses to start while one fails.
@@ -62,9 +63,12 @@ play: abandon or re-plan them too).
 - **Loose ends** (shown as playback): any merged task the reviewer passed with medium findings, or
   whose handoff reports a plan item partial or skipped ("not verified"). They used to vanish; now
   they wait here, and tune turns the ones still open at the end of a wave into a debt plan.
-- **Decisions** that departed from a plan or a convention: accept (it becomes a rule later plans
-  respect) or reject (a task to undo it is queued).
 - **Conventions** proposed by plans or by tune.
+- **Deviations** (decisions that departed from a plan or a convention) are here only while the
+  triage is off: accept (it becomes a rule later plans respect) or reject (a task to undo it is
+  queued). With it on, the classifier judges them and they leave this list: read the verdicts on the
+  **Triage** page (who judged, the answers, what happened next). One whose rounds ran out stays
+  proposed, off the queue, and shows in insights: align through a convention, a plan or a gate.
 
 Fix and undo tasks land in the **maintenance plan**, which you approve once; after that new ones
 play without asking.

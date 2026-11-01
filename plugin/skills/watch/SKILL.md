@@ -20,7 +20,7 @@ only wakes up on a new line, so following a run costs nothing while nothing happ
    | Tag | What | Do |
    |---|---|---|
    | `needs-you` | something holds up the setlist: a blocked task, a plan held by rehearsal, a soundcheck that failed, a draft to approve | push notification, then bring it in (step 2) |
-   | `review` | to review when the user likes: playback, a decision, a proposed convention | one short line; gather them, never interrupt for each |
+   | `review` | to review when the user likes: playback, a proposed convention, a deviation decision only while the triage is off (with it on, the runner's classifier judges them) | one short line; gather them, never interrupt for each |
    | `info` | a task started or merged, a plan done, a wave finished | stay quiet; push a notification only when a wave finishes |
 
    Push notifications go through the PushNotification tool when the session has it: one short

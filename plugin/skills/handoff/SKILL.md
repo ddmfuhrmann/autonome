@@ -23,7 +23,8 @@ Rules:
   is not a decision ("added .mypy_cache to .gitignore" when the spec asked for it). Most sessions
   have zero to two. Set `deviation` to true only when the choice departs from the plan (an option
   other than the one its `design` chose counts) or a
-  convention: those wait for the human's review; the others are recorded as decisions in effect.
+  convention: those are judged by the runner's triage when the project has it on, else they wait
+  for the human's review; the others are recorded as decisions in effect.
 - friction: where the agent got stuck, went in circles, lacked a convention, misread the plan, or needed
   the human to correct it. Be specific; this is how the process improves. Count, don't generalise:
   "3 of 14 Bash calls were denied (bare pytest, a subshell, grep)", never "Bash was denied for the whole

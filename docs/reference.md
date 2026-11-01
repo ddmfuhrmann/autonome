@@ -7,8 +7,7 @@ autonome-context serves three things on one port (default `127.0.0.1:8765`, loca
   they do not speak MCP).
 - **`/ui/...`**: the web UI for the human.
 
-Human-only moves (approving, releasing, judging a playback, accepting or rejecting a decision,
-editing conventions and the gate config) are not in the HTTP API. In MCP they exist only behind
+Human-only moves (approving, releasing, judging a playback, editing conventions and the gate config) are not in the HTTP API. In MCP they exist only behind
 elicitation: `plan_approve`, `wave_approve` and `approval_resolve` ask the person in their client,
 and the agent cannot answer for them. Editing conventions and the gate config stays in the UI.
 
@@ -48,7 +47,7 @@ going another way is a deviation. A rehearsal revision keeps the plan's design.
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `approvals_list` | `project` | what waits on the human, most blocking first: id, kind (`blocked`, `held`, `soundcheck`, `fermata`, `plans`, `playback`, `decision`, `convention`), `blocks`, `detail` (what to decide it on), `actions` (action, label, effect), url |
+| `approvals_list` | `project` | what waits on the human, most blocking first: id, kind (`blocked`, `held`, `soundcheck`, `fermata`, `plans`, `playback`, `decision`, `convention`), `blocks`, `detail` (what to decide it on), `actions` (action, label, effect), url; with the triage on, deviation `decision`s are not listed (the runner's classifier judges them) |
 | `approval_resolve` | `project`, `doc_id`, `action` (one of the item's), `reason?` (a playback fix), `note?` (the agent's reasoning, shown as such) | asks the human in a dialog; `{status, human: approved}` or `{human: declined\|unavailable}` with nothing changed |
 
 ### Backlog
@@ -104,6 +103,13 @@ connection errors.
 | `POST /api/waves/{id}/tuned` | `{summary}` |
 | `POST /api/projects/{project}/tasks` | queue a task in the maintenance plan (cues): `{title, spec, source, feature?, layers?}` |
 
+### The triage
+
+| Method and path | What |
+|---|---|
+| `GET /api/projects/{project}/triage` | deviations the classifier has yet to judge at their current round, oldest first (50 at most): `[{decision_id, round, state}]`; `state` is what the classifier is shown (deviation, task, plan goal and out of scope, last gates, review findings, conventions), never diffs or transcripts |
+| `POST /api/decisions/{id}/triage` | the verdict: `{backend, model, state, answers, verdict: accept\|reject, round}`; the runner moves the decision (accepted, or rejected with an undo task; at `max_rounds` a rejection stays proposed, `triage_exhausted`). 403 when the triage is off or the decision is not a proposed deviation |
+
 ### Handoffs and living docs
 
 | Method and path | What |
@@ -118,6 +124,7 @@ connection errors.
 ## UI
 
 `/ui` lists projects; `/ui/p/{project}/…` has Setlist, Approvals, Waves, Features, Insights, Search,
-Documents, Lab, Conventions and Config. Human decisions post to
+Documents, Lab, Conventions, Config and Triage (read-only verdicts, with who judged and what
+happened next). Human decisions post to
 `/ui/p/{project}/documents/{id}/transition` and `/…/playback`; with `X-Requested-With: fetch` they
 answer JSON, otherwise they redirect with a notice.

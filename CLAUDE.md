@@ -22,15 +22,18 @@ plugin/runner/  the maestro (TypeScript, Claude Agent SDK): one session + worktr
 - **Redact before storing or embedding**: secrets, CPF/CNPJ, e-mails. Raw transcripts are kept
   redacted and gzipped, never indexed.
 - **Append-only**: documents change by new versions. Migrations are immutable; fix forward.
-- **Human-only transitions** (approve a plan or wave, release a hold, judge a playback, accept or
-  reject a decision, edit conventions or gate config) belong to the human: in the UI, or for approval
-  in a dialog the context shows the human through MCP elicitation, which the agent cannot answer. No
-  agent may make them, and an unanswered or unsupported dialog leaves things as they were.
+- **Human-only transitions** (approve a plan or wave, release a hold, judge a playback, edit
+  conventions or gate config) belong to the human: in the UI, or for approval in a dialog the context
+  shows the human through MCP elicitation, which the agent cannot answer. No agent may make them, and
+  an unanswered or unsupported dialog leaves things as they were. The human aligns by rules (plans,
+  conventions, gates), not by items.
 - **Only real decisions.** A handoff records a decision only for a choice the plan did not make; one
-  within the plan is in effect, a `deviation` waits for review, and rejecting it queues an undo task.
+  within the plan is in effect. A `deviation` is judged by the triage when it is on (the runner moves
+  the decision with the verdict; a rejection queues an undo task), else it waits for review.
 - **Nothing blocks on review unless asked.** What holds up the setlist (plans to approve, rehearsal
-  and soundcheck holds, fermata, blocked tasks) is "waiting on you"; playback, deviations and proposed
-  conventions are "to review when you like" and turn into tasks, never blocks.
+  and soundcheck holds, fermata, blocked tasks) is "waiting on you"; playback and proposed
+  conventions (and deviations, with the triage off) are "to review when you like" and turn into
+  tasks, never blocks.
 - **Don't generalize ahead of need.** No plugin systems, no pluggable UI, until a second real consumer
   exists.
 - **The handoff instructions live in `plugin/skills/handoff/SKILL.md`**: the scribe script reads that
@@ -49,9 +52,16 @@ plugin/runner/  the maestro (TypeScript, Claude Agent SDK): one session + worktr
   finished feature in a running environment (checks + a listener agent) and turns failures into fix
   tasks in the same plan, blocking it for a human after `max_fixes` rounds. Environments use fakes,
   never real external services.
+- **Triage**: `triage` in the gate config (opt-in) lets a classifier judge deviations in the runner:
+  Jev (Typesafe, `jev-latest`) with a Haiku fallback. Atomic questions, verdict decided in code from
+  thresholds; rounds that run out leave the decision proposed, off the queue, shown in insights. The
+  Jev key (`TYPESAFE_API_KEY`) lives in the runner's environment or `~/.autonome/secrets.env`, never in
+  the gate config, and never reaches agent sessions.
 - **Models**: every agent role (musician, reviewer, rehearsal, listener, tune, handoff, docs) has a
   model and an effort in the gate config (`models`, defaults in `gates.DEFAULT_MODELS`: Haiku low
   for reviewer and rehearsal, as measured by `autonome bench`; Sonnet for the rest). `conduct --model/--effort` override all roles.
+  The triage has its own model setting, `triage` in the gate config: Jev (`jev-latest`) with Haiku as
+  the fallback; it is not one of the `models` roles and `--model/--effort` do not change it.
 - **Plans learn from the subject's history.** compose and the rehearsal read `history_get` (what went
   off plan before on the same feature and related ones) and turn each lesson into acceptance, out of
   scope, a convention or a question; plans also walk each task's edge cases and propose the
@@ -88,6 +98,7 @@ pnpm --dir plugin/runner test                   # the runner (TypeScript, Agent 
 plugin/bin/autonome conduct --project <slug>    # play approved tasks of the repo in the cwd (--watch: keep waiting)
 plugin/bin/autonome cues --project <slug>       # scheduled checks; queue maintenance tasks
 plugin/bin/autonome doctor --project <slug>     # what conduct needs; conduct runs it first
+echo 'TYPESAFE_API_KEY=...' >> ~/.autonome/secrets.env && chmod 600 ~/.autonome/secrets.env   # Jev key for the triage
 plugin/bin/autonome watch --project <slug>      # a line per change, no model (--once: state and exit)
 plugin/bin/autonome bench                        # model/effort per role on known cases (costs tokens)
 cd context && uv run autonome-context import-adrs|import-backlog|import-conventions --project <slug> ...

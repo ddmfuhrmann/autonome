@@ -24,6 +24,8 @@ An orchestra doesn't need the composer on stage.
   stops before merge, is there for projects that want it.)
 - **Every piece leaves notes.** A handoff written by a *different* agent records plan vs.
   implementation vs. gates, deviations, decisions and friction.
+- **You align by rules, not items.** Plans, conventions and gates are what you edit; choices a task
+  makes off plan (deviations) are judged by the triage, not queued for you.
 - **The orchestra tunes itself.** Repeated friction becomes a better convention; a repeated
   review finding becomes a new gate. Every change to the process still needs your approval.
 
@@ -105,6 +107,23 @@ autonome conduct --project <slug>                 # play approved tasks until no
 autonome watch   --project <slug> [--once]        # a line per change; --once: the state and exit
 autonome cues    --project <slug> [--force]       # scheduled checks that queue maintenance tasks (cron)
 ```
+
+**Turn the triage on** (optional) so a classifier judges deviations instead of you:
+
+1. Get a key at console.typesafe.ai.
+2. Put it where the runner reads it, and keep the file private:
+
+   ```bash
+   echo 'TYPESAFE_API_KEY=...' >> ~/.autonome/secrets.env
+   chmod 600 ~/.autonome/secrets.env     # a more open file is ignored
+   ```
+
+   (or export `TYPESAFE_API_KEY` where `conduct` runs)
+3. Add `triage: {model: jev-latest}` to the gate config.
+4. Run `autonome doctor --project <slug>` to check the key is found.
+
+Without a key the Haiku fallback judges. The key is never in the gate config and never reaches the
+agent sessions. Fields and failure behaviour: [docs/configuration.md](docs/configuration.md).
 
 `--repo <path>` points any of them at another checkout. The whole cycle is in
 [plugin/README.md](plugin/README.md); what to do when a run stops is in

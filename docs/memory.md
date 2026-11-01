@@ -46,7 +46,7 @@ each one is a new **version**, and search only sees the latest.
 | `wave` | several plans approved together, in order | compose |
 | `task` | one unit the maestro plays, with every run (review, gates, diff, cost) | approval, then the maestro |
 | `handoff` | what a session did against its plan: deviations, decisions, friction | the scribe, after every session |
-| `decision` | a choice and why (imported ADRs too) | handoffs, `decision_propose`, imports |
+| `decision` | a choice and why (imported ADRs too); a deviation also keeps its `triage_history` | handoffs, `decision_propose`, imports, the runner's triage |
 | `convention` | a rule per layer the agents follow and the reviewer enforces | the human, plans, tune |
 | `gate_config` | the project's gates, review, models, playback… ([guide](configuration.md)) | the human, in the UI |
 | `feature_doc` | the living doc of a feature, and the system overview | the docs scribe, after merges |
@@ -96,8 +96,8 @@ memory already shaped for their job:
 |---|---|---|
 | briefing (SessionStart) | the task, its plan, the conventions of its layers, earlier friction, rehearsal notes | every session |
 | `conventions_get` | the rules of the layers a change touches | compose, musician, reviewer |
-| `history_get` | what went off plan before on the same subject: skipped items, deviations and how the human judged them, reviewer blocks, fixes, blocked tasks | compose, rehearsal |
-| `insights_get` | adherence, gate failures, encores, friction grouped by meaning, advisory review findings | tune |
+| `history_get` | what went off plan before on the same subject: skipped items, deviations and who judged them (`judged_by`: a triage backend or `human`, with the `verdict`), reviewer blocks, fixes, blocked tasks | compose, rehearsal |
+| `insights_get` | adherence, gate failures, encores, friction grouped by meaning, advisory review findings, triage verdicts and what happened next | tune |
 | `plan_get`, `plan_list`, `gate_config_get` | plans and the gates that will judge the work | compose, rehearsal |
 
 ## How it learns
@@ -152,8 +152,14 @@ stateDiagram-v2
   }
 ```
 
-A decision recorded by a handoff is **in effect** unless it departs from the plan or a convention;
-then it waits for review, and rejecting it queues a task to undo it. A *playback* task is merged and
+A decision recorded by a handoff is **in effect** unless it departs from the plan or a convention
+(a deviation). With the triage on, the **runner** moves a proposed deviation (`proposed → accepted`
+or `rejected`) with the classifier's verdict, which is kept in the decision's `triage_history`
+(backend, model, the state shown, the answers, the verdict, the round). A rejection queues a task to
+undo it; when `max_rounds` run out it stays proposed, marked exhausted, off the queue. With the
+triage off it waits for the human as before. Every reviewer round of a task is kept in the run's
+`reviews`, with each finding's outcome. Only deviations are triaged; proposed conventions, playback,
+fermata and blocked tasks stay with the human. A *playback* task is merged and
 waits for the human's review in the background; "needs a fix" becomes a new task.
 
 ## Where it lives and how to keep it

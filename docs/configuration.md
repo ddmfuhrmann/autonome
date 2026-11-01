@@ -137,6 +137,29 @@ A worked example for a FastAPI service, soundcheck included, is in
 Plans can propose `gates` (with `with_task`, the task that sets their tooling up) and
 `conventions`. Approving the plan adds them; a gate never replaces an existing one by name.
 
+### The triage
+
+Opt-in. With no `triage` section, or `model: off`, deviations wait for review as before. The runner
+judges each deviation after a task and at the start of `conduct`; the human aligns through plans,
+conventions and gates instead.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `model` | `jev-latest` (when the section exists) | `jev-latest` (Jev, a classifier), `haiku` (the Agent SDK only), or `off` |
+| `fallback` | `haiku` | who judges when the model fails (no key, error, timeout): `haiku` or `off` |
+| `reject_at` | `0.7` | score at which a deviation is rejected, `0 < x <= 1`; thresholds are a rule you edit |
+| `max_rounds` | `2` | rounds before a rejected deviation stays proposed (each earlier rejection queues an undo task) |
+
+- **On failure**: Jev down or no key → the fallback judges; if that fails too (or is `off`) nothing
+  is recorded, the decision stays proposed and is tried again at the next run. A failed triage never
+  breaks storing a handoff.
+- **Rounds exhausted**: at `max_rounds` a rejection leaves the decision proposed, marked exhausted. It
+  leaves the approvals queue and shows in insights and on the triage page.
+- **The key**: `TYPESAFE_API_KEY` in the runner's environment, else in `~/.autonome/secrets.env`
+  (mode `0600`; a more open file is ignored with a warning). It is never in the gate config, the
+  context or the UI, and it is removed from the environment of agent sessions. `autonome doctor`
+  checks for it.
+
 ## 3. Running
 
 ```bash
