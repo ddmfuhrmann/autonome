@@ -10,7 +10,7 @@ import { consult } from "./agents.js";
 import { ContextError, context, languageRule, roleModel, waitForContext, type Effort, type GateConfig, type Plan, type Rehearsal, type ReviewResult, type Run, type Task } from "./context.js";
 import { doctor, report } from "./doctor.js";
 import { bashPrefixes, scopedFileCommands } from "./fsguard.js";
-import { encoreMessage, findingsForEncore, recordRound, review, settleRun } from "./review.js";
+import { encoreMessage, findingsForEncore, gatesSection, recordRound, review, settleRun, type GateOutcome } from "./review.js";
 import { soundcheck } from "./soundcheck.js";
 import { jevKey, sessionEnv } from "./secrets.js";
 import { triagePending } from "./triage-run.js";
@@ -160,14 +160,15 @@ function now(): string {
   return new Date().toISOString();
 }
 
-function gates(cwd: string, base: string): { passed: boolean; summary: string } {
+function gates(cwd: string, base: string): { passed: boolean; summary: string; outcomes?: GateOutcome[] } {
   const r = spawnSync(join(PLUGIN_ROOT, "bin", "autonome-gates"), ["--json", "--base", base], {
     cwd, encoding: "utf8", env: sessionEnv({ AUTONOME_BASE_SHA: base }),
   });
   try {
-    const out = JSON.parse(r.stdout) as { passed: boolean; outcomes: { gate: string; passed: boolean; output: string }[] };
+    const out = JSON.parse(r.stdout) as { passed: boolean; outcomes: GateOutcome[] };
     const failed = out.outcomes.find((o) => !o.passed);
-    return { passed: out.passed, summary: failed ? `${failed.gate} failed: ${failed.output.slice(-1500)}` : "all gates passed" };
+    return { passed: out.passed, outcomes: out.outcomes,
+      summary: failed ? `${failed.gate} failed: ${failed.output.slice(-1500)}` : "all gates passed" };
   } catch {
     return { passed: false, summary: `autonome-gates did not run: ${r.stderr || r.stdout}`.slice(0, 2000) };
   }
@@ -329,7 +330,7 @@ export function verdictLine(r: ReviewResult): string {
 
 /** What `judgeTask` calls out to; tests swap them (a reviewer that fails round 1 and passes round 2). */
 export interface JudgeSeams {
-  gates: (cwd: string, base: string) => { passed: boolean; summary: string };
+  gates: (cwd: string, base: string) => { passed: boolean; summary: string; outcomes?: GateOutcome[] };
   review: typeof review;
   briefing: () => Promise<string>;
 }
@@ -378,7 +379,7 @@ export async function judgeTask(input: JudgeInput, seams: JudgeSeams): Promise<{
     stage(opts, { task_id: task.id }, check.passed ? "gates passed" : `gates: ${check.summary.split(":")[0]}`);
     if (!check.passed) return { failure: check.summary, blockedOnReview: false };
     if (!cfg.review.enabled) return { failure: null, blockedOnReview: false };
-    const briefing = await seams.briefing();
+    const briefing = [await seams.briefing(), gatesSection(check.outcomes)].filter(Boolean).join("\n\n");
     stage(opts, { task_id: task.id }, `review, round ${round + 1}`);
     const rv = await seams.review(task, briefing, worktree, base,
       { ...roleModel(cfg, "reviewer", opts), language: languageRule(cfg) },

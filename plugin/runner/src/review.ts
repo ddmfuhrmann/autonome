@@ -7,9 +7,17 @@ import { git } from "./git.js";
 import { downgradeAdvisory } from "./triage.js";
 
 const REVIEWER_PROMPT = `You review one task of the autonome process before it merges. You did not write it.
-The gates (tests, linters) already passed; do not re-check what they check. Read the diff, the task,
-its plan and the conventions for its layers (all in the briefing below), and the code around the diff
-when you need it. Judge it against all three, not only the plan: a thin plan does not excuse thin code.
+The gates (tests, linters, type checks, coverage) already ran and passed; their results are in the
+briefing under "Gates". Do not re-check what they check. Read the diff, the task, its plan and the
+conventions for its layers (all in the briefing below), and the code around the diff when you need it.
+Judge it against all three, not only the plan: a thin plan does not excuse thin code.
+
+You only read. Bash runs git (log, diff, show, status) and read-only commands such as cat, ls, find
+and grep; anything that runs project code is denied (uv, pytest, python, node, the gates' commands,
+loops over files), so do not try it. When you want to know how the code behaves on an input (an edge,
+a probe, a case you would run by hand), read the tests for it; if no test covers it, report a
+"missing" finding that asks for a test of exactly that case, with the input and the expected result,
+instead of guessing. Never report that you could not run something.
 
 Two kinds of finding:
 - "diverges": the code does something the task, the plan or a convention says it must not: scope the
@@ -51,6 +59,18 @@ const SCHEMA = {
   },
   required: ["verdict", "findings"],
 } as const;
+
+export interface GateOutcome { gate: string; passed: boolean; output: string }
+
+/** The gates the runner just ran, for the reviewer: facts from data, so it does not try to run them
+ * again (its Bash is read-only, and every denied try costs a turn). Each gate's last output line
+ * carries its number when it has one (coverage, test counts). */
+export function gatesSection(outcomes: GateOutcome[] | undefined): string {
+  if (!outcomes?.length) return "";
+  const last = (o: string) => o.trim().split("\n").filter((l) => l.trim()).pop()?.trim().slice(0, 200) ?? "";
+  return "## Gates (already run on this diff)\n" + outcomes.map((o) =>
+    `- ${o.gate}: ${o.passed ? "passed" : "failed"}${last(o.output) ? `: ${last(o.output)}` : ""}`).join("\n");
+}
 
 /** For a review after an encore: the earlier findings, to check instead of starting over. A reviewer
  * that raises new medium points every round never converges and asks for opposite things. */

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { judgeTask, verdictLine, type ConductOptions, type JudgeSeams } from "./conduct.js";
 import type { Finding, GateConfig, ReviewResult, Run, Task } from "./context.js";
-import { earlierFindingsSection, encoreMessage, recordRound, settleOutcomes, settleRun } from "./review.js";
+import { earlierFindingsSection, encoreMessage, gatesSection, recordRound, settleOutcomes, settleRun } from "./review.js";
 
 test("every round keeps its findings, each marked with what became of it", () => {
   const f = (severity: "high" | "medium", issue: string): Finding => ({ kind: "missing", severity, issue });
@@ -45,7 +45,7 @@ test("a block that is not the reviewer's leaves the last round's findings unmark
 });
 
 /** Runs the real review loop of conduct over a temp repo, with a scripted reviewer and fake gates. */
-async function runLoop(rounds: ReviewResult[], maxRounds: number) {
+async function runLoop(rounds: ReviewResult[], maxRounds: number, briefings: string[] = []) {
   const dir = mkdtempSync(join(tmpdir(), "judge-"));
   const sh = (...a: string[]) => execFileSync("git", a, { cwd: dir, encoding: "utf8" }).trim();
   sh("init", "-q", "-b", "main");
@@ -64,10 +64,16 @@ async function runLoop(rounds: ReviewResult[], maxRounds: number) {
   let call = 0;
   let encores = 0;
   const seams: JudgeSeams = {
-    gates: () => ({ passed: true, summary: "all gates passed" }),
+    gates: () => ({ passed: true, summary: "all gates passed", outcomes: [
+      { gate: "lint", passed: true, output: "" },
+      { gate: "test", passed: true, output: "12 passed\nTOTAL    210    9   96%\n" },
+    ] }),
     briefing: async () => "briefing",
     // A fresh copy per call, as a real reviewer returns: rounds never share an object.
-    review: (async () => ({ result: structuredClone(rounds[Math.min(call++, rounds.length - 1)]), cost: 0 })) as JudgeSeams["review"],
+    review: (async (_task: Task, briefing: string) => {
+      briefings.push(briefing);
+      return { result: structuredClone(rounds[Math.min(call++, rounds.length - 1)]), cost: 0 };
+    }) as JudgeSeams["review"],
   };
   const judged = await judgeTask({ task, cfg, opts, run, worktree: dir, base, current: () => ({ sessionId: "", stop: "" }),
     encore: async () => { encores++; } }, seams);
@@ -103,6 +109,22 @@ test("conduct's review loop blocks when the reviewer keeps failing until max_rou
   settleRun(run, judged.blockedOnReview ? "blocked" : undefined);
   assert.deepEqual(run.reviews?.slice(0, 2).map((r) => r.findings[0].outcome), ["repeated", "repeated"]);
   assert.equal(run.review?.findings[0].outcome, "blocked");
+});
+
+test("the reviewer gets the gates the runner just ran, so it does not try to run them", async () => {
+  const briefings: string[] = [];
+  await runLoop([{ verdict: "pass", findings: [] }], 2, briefings);
+  assert.equal(briefings.length, 1);
+  assert.match(briefings[0], /^briefing\n\n## Gates \(already run on this diff\)\n/);
+  assert.match(briefings[0], /- lint: passed\n- test: passed: TOTAL {4}210 {4}9 {3}96%$/);
+});
+
+test("the gates section is empty without outcomes and keeps one line per gate", () => {
+  assert.equal(gatesSection(undefined), "");
+  assert.equal(gatesSection([]), "");
+  const long = "x".repeat(500);
+  assert.equal(gatesSection([{ gate: "mypy", passed: false, output: `\n${long}\n\n` }]),
+    `## Gates (already run on this diff)\n- mypy: failed: ${"x".repeat(200)}`);
 });
 
 test("the reviewer's verdict reads as a short list in the live view", () => {
