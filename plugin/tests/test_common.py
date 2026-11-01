@@ -50,7 +50,7 @@ def test_send_json_waits_for_a_restarting_context_and_retries(monkeypatch):
     assert common.send_json("/api/x", {"a": 1}) == {"saved": True}
 
 
-def test_a_session_in_a_maestro_worktree_belongs_to_the_main_checkouts_project(tmp_path, monkeypatch):
+def test_a_session_in_a_runner_worktree_belongs_to_the_main_checkouts_project(tmp_path, monkeypatch):
     from autonome import common
 
     monkeypatch.delenv("AUTONOME_PROJECT", raising=False)
@@ -66,7 +66,7 @@ def test_a_session_in_a_maestro_worktree_belongs_to_the_main_checkouts_project(t
     assert common.project_slug(worktree / ".") == "shortlink"
 
 
-def test_scribes_take_model_and_effort_from_env_then_gate_config_then_default(monkeypatch):
+def test_handoff_writers_take_model_and_effort_from_env_then_gate_config_then_default(monkeypatch):
     from autonome import common
 
     monkeypatch.setattr(common, "get_json", lambda path, timeout=5: {"config": {"models": {"handoff": {"model": "haiku", "effort": "low"}}}})
@@ -76,7 +76,7 @@ def test_scribes_take_model_and_effort_from_env_then_gate_config_then_default(mo
     assert common.role_model("p", "handoff") == ("haiku", "medium")
 
 
-def test_scribes_pass_a_fallback_model_only_when_it_differs(monkeypatch):
+def test_handoff_writers_pass_a_fallback_model_only_when_it_differs(monkeypatch):
     from autonome import common
 
     models = {"handoff": {"model": "sonnet", "effort": "low", "fallback": "haiku"},
@@ -146,7 +146,7 @@ def test_no_handoff_is_written_for_a_project_not_set_up(tmp_path):
         transcript.write_text("\n".join(json.dumps({"type": "user", "message": {"content": f"turn {i}"}}) for i in range(10)))
         home = tmp_path / "home"
         _hook("session_end.py", repo, url, {"cwd": str(repo), "session_id": "s", "transcript_path": str(transcript)}, home)
-        assert not (home / "logs").exists()  # the scribe was never started
+        assert not (home / "logs").exists()  # the handoff writer was never started
     finally:
         server.shutdown()
 

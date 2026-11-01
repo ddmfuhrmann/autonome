@@ -20,7 +20,7 @@ def git(cwd: str | Path, *args: str, check: bool = False) -> str:
 
 
 def project_slug(cwd: str | Path) -> str:
-    """AUTONOME_PROJECT, else the repo's folder name. In a linked worktree (the maestro's) that is the
+    """AUTONOME_PROJECT, else the repo's folder name. In a linked worktree (the runner's) that is the
     main checkout's folder, not the worktree's, so its sessions land in the right project."""
     if os.getenv("AUTONOME_PROJECT"):
         return os.environ["AUTONOME_PROJECT"]

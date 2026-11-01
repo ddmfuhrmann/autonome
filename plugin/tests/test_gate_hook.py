@@ -9,7 +9,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from autonome import common, metronome  # noqa: E402
+from autonome import common, gate_hook  # noqa: E402
 
 CONFIG = {
     "gates": [
@@ -18,7 +18,7 @@ CONFIG = {
         {"name": "docs-only", "run": "false", "when": ["docs/*"]},
         {"name": "test", "run": "grep -q ok app.txt || (echo \"expected ok at $(date +%s)\"; exit 1)"},
     ],
-    "encore": {"max": 2, "stop_on_repeat": True},
+    "retries": {"max": 2, "stop_on_repeat": True},
 }
 
 
@@ -34,8 +34,8 @@ def repo(tmp_path, monkeypatch):
     return r
 
 
-def check(repo, session):
-    return metronome.check(str(repo), session, CONFIG, record=False)
+def check(repo, session, config=CONFIG):
+    return gate_hook.check(str(repo), session, config, record=False)
 
 
 def test_nothing_changed_is_skipped(repo):
@@ -55,7 +55,7 @@ def test_cheapest_failure_stops_the_rest(repo):
     (repo / "app.txt").write_text("TODO ok\n")
     v = check(repo, "s")
     assert v.status == "failing" and [o.gate for o in v.outcomes] == ["format", "lint"]
-    assert "encore 1/2" in v.message
+    assert "retry 1/2" in v.message
 
 
 def test_same_failure_twice_blocks_even_with_noise_in_output(repo):
@@ -67,25 +67,34 @@ def test_same_failure_twice_blocks_even_with_noise_in_output(repo):
     assert v.status == "blocked" and "same failure" in v.message
 
 
-def test_different_failures_use_up_encores(repo):
+def test_different_failures_use_up_retries(repo):
     session = uuid.uuid4().hex
     for i, text in enumerate(["TODO\n", "bad\n"]):
         (repo / "app.txt").write_text(text)
         assert check(repo, session).status == "failing"
     (repo / "app.txt").write_text("TODO again\n")
-    assert check(repo, session).status == "blocked"
+    v = check(repo, session)
+    assert v.status == "blocked" and "2 retries used" in v.message
+
+
+def test_gate_config_without_retries_uses_the_default(repo):
+    config = {"gates": CONFIG["gates"]}
+    session = uuid.uuid4().hex
+    (repo / "app.txt").write_text("TODO\n")
+    v = check(repo, session, config)
+    assert v.status == "failing" and "retry 1/3" in v.message
 
 
 def test_signature_ignores_numbers_and_hashes():
-    a = metronome.signature("test", "failed at 1730000000 in 0.52s commit abcdef1234")
-    b = metronome.signature("test", "failed at 1730000999 in 1.07s commit 1234abcdef")
-    assert a == b and a != metronome.signature("lint", "failed at 1730000000 in 0.52s commit abcdef1234")
+    a = gate_hook.signature("test", "failed at 1730000000 in 0.52s commit abcdef1234")
+    b = gate_hook.signature("test", "failed at 1730000999 in 1.07s commit 1234abcdef")
+    assert a == b and a != gate_hook.signature("lint", "failed at 1730000000 in 0.52s commit abcdef1234")
 
 
 def test_files_a_gate_leaves_behind_are_removed_but_the_agents_are_kept(repo):
     (repo / "new.txt").write_text("written by the agent\n")
     config = {"gates": [{"name": "test", "run": "echo data > .coverage && echo xml > report.xml"}]}
-    outcomes = metronome.run_gates(str(repo), config, ["new.txt"])
+    outcomes = gate_hook.run_gates(str(repo), config, ["new.txt"])
     assert outcomes[0].passed
     assert (repo / "new.txt").exists()
     assert not (repo / ".coverage").exists() and not (repo / "report.xml").exists()
