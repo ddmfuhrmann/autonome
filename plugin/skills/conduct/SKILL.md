@@ -38,7 +38,8 @@ Before a task merges, the maestro refuses stray files in the change (tracked alt
 new binary the task does not mention) and sends the implementer back to ignore them; then an
 independent reviewer reads its diff against the plan and the conventions;
 blocking findings send the implementer back (an encore) up to `review.max_rounds` times; medium ones
-go back too while rounds remain, and what is left at merge waits for the user as a loose end. When every
+go back once, later rounds check the earlier findings and raise only new high ones, and what is left
+at merge waits for the user as a loose end. When every
 task of a plan has merged and the gate config has a `soundcheck`, the maestro starts the environment,
 runs its checks and lets the listener try the feature on the running app. Failures come back as fix
 tasks in the same plan; after `max_fixes` rounds the plan is blocked on the Approvals page, where the

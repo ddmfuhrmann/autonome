@@ -51,8 +51,19 @@ const SCHEMA = {
   required: ["verdict", "findings"],
 } as const;
 
+/** For a review after an encore: the earlier findings, to check instead of starting over. A reviewer
+ * that raises new medium points every round never converges and asks for opposite things. */
+export function earlierFindingsSection(previous: Finding[] | undefined): string {
+  if (!previous?.length) return "";
+  return "## Earlier findings (your previous round)\n" + previous.map((f) =>
+    `- ${f.severity} ${f.kind}${f.file ? ` in ${f.file}` : ""}: ${f.issue}`).join("\n") +
+    "\n\nThe implementer was sent back with these. For each, check whether the diff resolves it now; report " +
+    "it again only if it is still there, with the same severity unless it got worse. Beyond those, report only " +
+    "new high findings: no new medium or low ones in this round, and never ask to undo what an earlier finding asked for.";
+}
+
 export async function review(task: Task, briefing: string, worktree: string, base: string, who: RoleModel,
-  onMessage?: (msg: unknown) => void) {
+  onMessage?: (msg: unknown) => void, previous?: Finding[]) {
   const diff = git(worktree, "diff", "--cached", base).slice(0, 80_000);
   const { answer, cost } = await consult<ReviewResult>({
     cwd: worktree,
@@ -65,7 +76,8 @@ export async function review(task: Task, briefing: string, worktree: string, bas
       `Review task #${task.id} of project ${task.project}. The implementer's briefing:`,
       briefing,
       `## Diff against ${base.slice(0, 10)}\n\`\`\`diff\n${diff}\n\`\`\``,
-    ].join("\n\n"),
+      earlierFindingsSection(previous),
+    ].filter(Boolean).join("\n\n"),
   });
   const findings = enforceConventions(answer.findings, conventionTitles(briefing));
   // The verdict follows the findings, whatever the agent wrote in it.

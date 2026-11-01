@@ -66,8 +66,11 @@ gates:
 
 interactive: false        # also run the gates at the end of your own sessions, not only in conduct
 allowed_commands: []      # commands (first word) a conduct session may run besides the gates' own,
-                          # e.g. [./gradlew, docker, pnpm]. rm, mkdir, mv, cp, chmod and touch need
-                          # no entry: they run when every path is inside the task's worktree
+                          # e.g. [./gradlew, docker, pnpm]. Need no entry: rm, mkdir, mv, cp, chmod
+                          # and touch inside the task's worktree; git rm/mv/add/update-index/
+                          # check-ignore/ls-files; ls, which, unzip -l, jar tf; find without
+                          # -delete or -exec; VAR=value or env before an allowed command; bash,
+                          # sh or python3 running a gate's script. Chained commands are denied
 
 encore: {max: 3, stop_on_repeat: true}   # gate failures sent back to the implementer before a task
                                          # blocks; the same failure twice blocks at once
@@ -75,9 +78,10 @@ budget: {task_tokens: 400000, task_minutes: 30, plan_tokens: 3000000}
 
 review: {enabled: true, max_rounds: 2}   # an independent agent reviews each diff against the plan,
                                          # its edges and the conventions. High findings block and send the
-                                         # implementer back up to max_rounds times; medium ones go back too
-                                         # while rounds remain ("fix, or explain in the handoff") and wait
-                                         # as loose ends after; low ones never go back
+                                         # implementer back up to max_rounds times; medium ones go back once
+                                         # ("fix, or explain in the handoff") and wait as loose ends after;
+                                         # low ones never go back. Later rounds check the earlier findings
+                                         # and raise only new high ones
 
 # Human review of critical features. Feature slugs, glob patterns.
 fermata: {features: []}    # stop BEFORE merge and wait for the human (blocks what depends on it)

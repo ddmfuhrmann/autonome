@@ -9,7 +9,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import { consult } from "./agents.js";
 import { ContextError, context, roleModel, waitForContext, type Effort, type GateConfig, type Plan, type Rehearsal, type ReviewResult, type Run, type Task } from "./context.js";
 import { doctor, report } from "./doctor.js";
-import { scopedFileCommands } from "./fsguard.js";
+import { bashPrefixes, scopedFileCommands } from "./fsguard.js";
 import { encoreMessage, findingsForEncore, review } from "./review.js";
 import { soundcheck } from "./soundcheck.js";
 import { isUsageLimit, UsageLimitError, untilReset } from "./limits.js";
@@ -79,7 +79,10 @@ export function allowedTools(cfg: Pick<GateConfig["config"], "gates" | "allowed_
     "Read", "Glob", "Grep", "Edit", "Write", "TodoWrite",
     "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)",
     // git refuses paths outside the repository, so these stay inside the worktree on their own.
-    "Bash(git rm:*)", "Bash(git mv:*)", "Bash(git update-index --chmod:*)",
+    "Bash(git rm:*)", "Bash(git mv:*)", "Bash(git update-index:*)", "Bash(git add:*)", "Bash(git check-ignore:*)",
+    "Bash(git ls-files:*)", "Bash(git rev-parse:*)", "Bash(git merge-base:*)",
+    // Read-only looks around: what is installed, what a jar holds (find goes through the hook).
+    "Bash(ls:*)", "Bash(which:*)", "Bash(unzip -l:*)", "Bash(jar tf:*)",
     // Read-only helpers sessions reach for; writing goes through Edit/Write, never the shell.
     "Bash(sed -n:*)", "Bash(echo:*)", "Bash(head:*)", "Bash(tail:*)", "Bash(wc:*)",
     ...[...commands].map((c) => `Bash(${c}:*)`),
@@ -215,7 +218,7 @@ async function play(task: Task, worktree: string, base: string, opts: ConductOpt
         abortController: abort,
         permissionMode: "dontAsk",
         allowedTools: musicianTools(gateConfig),
-        hooks: { PreToolUse: [scopedFileCommands(worktree)] },
+        hooks: { PreToolUse: [scopedFileCommands(worktree, bashPrefixes(musicianTools(gateConfig)))] },
         settingSources: ["project"],
         plugins: [{ type: "local", path: PLUGIN_ROOT }],
         systemPrompt: { type: "preset", preset: "claude_code", append: MUSICIAN_PROMPT },
@@ -367,6 +370,7 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<Run | unde
   };
   const judge = async (): Promise<string | null> => {
     let cleanups = 0;
+    let mediumSent = false;
     for (let round = 0; ; ) {
       const state = result.sessionId ? metronomeState(result.sessionId) : {};
       if (result.stop && isUsageLimit(result.stop)) throw new UsageLimitError(result.stop);
@@ -394,12 +398,14 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<Run | unde
       const briefing = (await context.briefing(opts.project, task.id)).text;
       stage(opts, { task_id: task.id }, `review, round ${round + 1}`);
       const rv = await review(task, briefing, worktree, base, roleModel(cfg, "reviewer", opts),
-        live(opts, "reviewer", { task_id: task.id }));
+        live(opts, "reviewer", { task_id: task.id }), run.review?.findings);
       run.review = rv.result;
       run.review_rounds = round + 1;
       opts.events?.push({ task_id: task.id, role: "reviewer", kind: "say", text: verdictLine(rv.result) });
       run.cost_usd = (run.cost_usd ?? 0) + rv.cost;
-      const message = encoreMessage(rv.result, round < cfg.review.max_rounds);
+      // Medium findings go back once; after that only high ones do, so rounds converge.
+      const message = encoreMessage(rv.result, round < cfg.review.max_rounds && !mediumSent);
+      mediumSent ||= rv.result.verdict === "pass" && !!message;
       if (rv.result.verdict === "pass" && !message) return null; // what is left becomes loose ends at merge
       if (round >= cfg.review.max_rounds) return `review: still blocking after ${round} encore(s):\n${findingsForEncore(rv.result)}`;
       round++;

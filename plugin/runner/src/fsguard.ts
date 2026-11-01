@@ -1,6 +1,9 @@
-// File commands scoped to the task's worktree. A permission rule like Bash(rm:*) cannot say where, so
-// conduct sessions get a PreToolUse hook instead: rm, mkdir, mv, cp, chmod and touch are allowed when
-// every path they name resolves inside the worktree, and denied with the reason otherwise.
+// Bash commands a prefix rule cannot judge, decided by a PreToolUse hook in conduct sessions:
+// - rm, mkdir, mv, cp, chmod and touch run when every path they name is inside the task's worktree;
+// - bash, sh and python3 run a script the rules already allow (a gate's command);
+// - find runs anywhere without -delete or -exec (reading a jar's metadata in ~/.gradle);
+// - VAR=value or env in front of an allowed command is judged by the command itself.
+// Anything else is left to the permission rules, which deny what they do not list.
 import { existsSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { HookCallbackMatcher } from "@anthropic-ai/claude-agent-sdk";
@@ -22,14 +25,56 @@ function real(p: string): string {
   return resolve(realpathSync(head), ...tail);
 }
 
+const words = (cmd: string) => cmd.match(/'[^']*'|"[^"]*"|\S+/g)!.map((w) => w.replace(/^(['"])(.*)\1$/, "$2"));
+
+function inside(p: string, worktree: string): string | null {
+  if (p.startsWith("~")) return "outside the worktree";
+  const rel = relative(real(worktree), real(isAbsolute(p) ? p : resolve(worktree, p.replace(/[*?[].*$/, "") || ".")));
+  if (rel.startsWith("..") || isAbsolute(rel)) return "outside the worktree";
+  if (rel === ".git" || rel.startsWith(`.git${sep}`)) return "git's own data";
+  return null;
+}
+
+/** The command without leading `env` and VAR=value assignments. */
+export function stripEnv(command: string): string {
+  return command.trim().replace(/^env\s+/, "").replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|"[^"]*"|\S*)\s+)+/, "");
+}
+
+/** The command prefixes of Bash(...) permission rules, e.g. "./gradlew" from "Bash(./gradlew:*)". */
+export function bashPrefixes(tools: string[]): string[] {
+  return tools.map((t) => /^Bash\((.+):\*\)$/.exec(t)?.[1]).filter((p): p is string => !!p);
+}
+
+const FIND_WRITES = /\s-(delete|exec|execdir|ok|okdir|fprint0?|fprintf|fls)\b/;
+const INTERPRETERS = new Set(["bash", "sh", "python3"]);
+
+/** "allow", or why the command is denied, or null to leave it to the permission rules. */
+export function decide(command: string, worktree: string, allowed: string[] = []): "allow" | string | null {
+  // Chained, piped, redirected or substituted: the permission rules decide (and deny).
+  if (/[;&|`<>\n]|\$\(/.test(command)) return null;
+  const cmd = stripEnv(command);
+  const [name, ...args] = words(cmd);
+  if (SCOPED.has(name)) return judge(cmd, worktree) ?? "allow";
+  if (name === "find") return FIND_WRITES.test(` ${cmd}`) ? "find: -delete and -exec are not allowed; read only" : "allow";
+  if (INTERPRETERS.has(name)) {
+    // Only a script the rules already run (a gate's command): any other script could hold anything.
+    const script = args.find((a) => !a.startsWith("-"))?.replace(/^\.\//, "");
+    if (!script || args.includes("-c") || inside(script, worktree)) return null;
+    return allowed.some((p) => p.replace(/^\.\//, "") === script) ? "allow" : null;
+  }
+  // VAR=value in front of a command the rules already allow.
+  if (cmd !== command.trim() && allowed.some((p) => cmd === p || cmd.startsWith(`${p} `))) return "allow";
+  return null;
+}
+
 /** null when the command may run; otherwise why not. Only judges the scoped commands. */
 export function judge(command: string, worktree: string): string | null {
   const cmd = command.trim();
   const name = cmd.split(/\s+/)[0];
   if (!SCOPED.has(name)) return `${name} is not a scoped file command`;
   if (UNSAFE.test(cmd)) return `${name}: one command at a time, without ;, &&, |, $(...), redirection or variables`;
-  const words = cmd.match(/'[^']*'|"[^"]*"|\S+/g)!.slice(1).map((w) => w.replace(/^(['"])(.*)\1$/, "$2"));
-  const paths = words.filter((w) => !w.startsWith("-") && !(name === "chmod" && /^[ugoa]*[+-=][rwxXst]+$|^[0-7]{3,4}$/.test(w)));
+  const words_ = words(cmd).slice(1);
+  const paths = words_.filter((w) => !w.startsWith("-") && !(name === "chmod" && /^[ugoa]*[+-=][rwxXst]+$|^[0-7]{3,4}$/.test(w)));
   if (!paths.length) return `${name}: no path given`;
   const root = real(worktree);
   for (const p of paths) {
@@ -43,17 +88,17 @@ export function judge(command: string, worktree: string): string | null {
   return null;
 }
 
-/** The hook for query(): decides the scoped file commands and leaves every other tool call alone. */
-export function scopedFileCommands(worktree: string): HookCallbackMatcher {
+/** The hook for query(): decides what `decide` knows and leaves every other call to the rules. */
+export function scopedFileCommands(worktree: string, allowed: string[] = []): HookCallbackMatcher {
   return {
     matcher: "Bash",
     hooks: [async (input) => {
       const command = String(((input as { tool_input?: { command?: unknown } }).tool_input?.command) ?? "");
-      if (!SCOPED.has(command.trim().split(/\s+/)[0])) return {};
-      const why = judge(command, worktree);
-      return { hookSpecificOutput: why
-        ? { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: why }
-        : { hookEventName: "PreToolUse", permissionDecision: "allow", permissionDecisionReason: "inside the task's worktree" } };
+      const verdict = decide(command, worktree, allowed);
+      if (verdict === null) return {};
+      return { hookSpecificOutput: verdict === "allow"
+        ? { hookEventName: "PreToolUse", permissionDecision: "allow", permissionDecisionReason: "scoped to the task's worktree" }
+        : { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: verdict } };
     }],
   };
 }

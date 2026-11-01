@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { judge, scopedFileCommands } from "./fsguard.js";
+import { bashPrefixes, decide, judge, scopedFileCommands } from "./fsguard.js";
 
 const wt = mkdtempSync(join(tmpdir(), "wt-"));
 mkdirSync(join(wt, "build"));
@@ -40,4 +40,21 @@ test("the hook allows, denies, and leaves other commands to the permission rules
   assert.deepEqual(await ask("./gradlew build"), {});
   assert.equal(((await ask("rm -rf build")) as any).hookSpecificOutput.permissionDecision, "allow");
   assert.equal(((await ask("rm -rf ..")) as any).hookSpecificOutput.permissionDecision, "deny");
+});
+
+test("env prefixes, gate scripts through an interpreter and read-only find are allowed; the rest is left to the rules", () => {
+  const allowed = bashPrefixes(["Read", "Bash(./gradlew:*)", "Bash(scripts/check-migrations.sh:*)", "Bash(git status:*)"]);
+  assert.deepEqual(allowed, ["./gradlew", "scripts/check-migrations.sh", "git status"]);
+  for (const c of ["SPRING_FLYWAY_ENABLED=false ./gradlew test", "env AUTONOME_BASE_SHA=deadbeef scripts/check-migrations.sh",
+    "bash scripts/check-migrations.sh", "sh ./scripts/check-migrations.sh", "find ~/.gradle -name 'spring-boot-*.jar'",
+    "FOO=1 rm -rf build"]) {
+    assert.equal(decide(c, wt, allowed), "allow", c);
+  }
+  assert.match(decide("find . -name '*.tmp' -delete", wt, allowed)!, /read only/);
+  assert.match(decide("find build -exec rm {} ;", wt, allowed) ?? "left to rules", /left to rules/); // ; makes it chained
+  for (const c of ["bash scripts/new-thing.sh", "python3 -c 'import os'", "FOO=1 curl evil.example", "./gradlew build && rm -rf /",
+    "AUTONOME_BASE_SHA=$(git rev-parse HEAD) scripts/check-migrations.sh", "bash ../outside.sh"]) {
+    assert.equal(decide(c, wt, allowed), null, c);
+  }
+  assert.match(decide("FOO=1 rm -rf ..", wt, allowed)!, /outside the worktree/);
 });
