@@ -97,10 +97,10 @@ class RoleModel(BaseModel):
 
 
 # Who does what, on which model and with how much thinking. Rehearsal is measured with
-# `autonome bench` (docs/benchmarks/models.md); the reviewer stays on Sonnet; the other roles are still a guess.
+# `autonome bench` (docs/benchmarks/models.md); the reviewer too; the other roles are still a guess.
 DEFAULT_MODELS: dict[str, RoleModel] = {
     "musician": RoleModel(model="sonnet", effort="medium"),
-    "reviewer": RoleModel(model="sonnet", effort="medium"),
+    "reviewer": RoleModel(model="haiku", effort="low"),
     "rehearsal": RoleModel(model="haiku", effort="low"),
     "listener": RoleModel(model="sonnet", effort="medium"),
     "tune": RoleModel(model="sonnet", effort="medium"),
