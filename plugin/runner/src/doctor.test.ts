@@ -49,11 +49,15 @@ test("doctor says when the context is down instead of failing on it", async () =
   assert.deepEqual(checks.map((c) => [c.name, c.ok]), [["context", false], ["ollama", false], ["main", true]]);
 });
 
-function contextWith(gateConfig: unknown) {
+function contextWith(gateConfig: unknown, jev: "answers" | "404" = "answers") {
   globalThis.fetch = async (input: string | URL | Request) => {
     const url = String(input);
     if (url.endsWith("/api/tags")) return json({ models: [{ name: "nomic-embed-text:latest" }] });
     if (url.endsWith("/gate-config")) return json(gateConfig);
+    if (url.endsWith("/v1/systemone")) {
+      return jev === "404" ? new Response("not found", { status: 404 })
+        : json({ model: "jev-1.14.0", answers: { billing: { type: "noul", noul: 0.97 } } });
+    }
     return json({ status: "ok" });
   };
 }
@@ -107,8 +111,18 @@ test("jev-latest without a key warns, does not fail, and never prints a key", as
     process.env.TYPESAFE_API_KEY = "sk-very-secret";
     const found = (await doctor("p", repo())).find((c) => c.name === "triage")!;
     assert.equal(found.ok, true);
-    assert.match(found.detail, /Jev key found \(environment\)/);
+    assert.equal(found.warn, undefined);
+    assert.match(found.detail, /Jev key found \(environment\); Jev answers \(jev-1\.14\.0\)/);
     assert.ok(!found.detail.includes("sk-very-secret"));
+
+    // A wrong endpoint or a revoked key warns here instead of falling back in silence.
+    contextWith({ version: 1, config: { gates: [{ name: "lint", run: "git status" }],
+      triage: { model: "jev-latest", fallback: "haiku", reject_at: 0.7, max_rounds: 2 } }, pending: [] }, "404");
+    const broken = (await doctor("p", repo())).find((c) => c.name === "triage")!;
+    assert.equal(broken.ok, true);
+    assert.equal(broken.warn, true);
+    assert.match(broken.detail, /Jev did not answer \(jev: HTTP 404\); haiku judges instead/);
+    assert.ok(!broken.detail.includes("sk-very-secret"));
   } finally {
     for (const [k, v] of [["TYPESAFE_API_KEY", saved.key], ["AUTONOME_HOME", saved.home]] as const) {
       if (v === undefined) delete process.env[k]; else process.env[k] = v;

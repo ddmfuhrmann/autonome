@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { CONTEXT_URL, call, type GateConfig } from "./context.js";
 import { git, mainCheckout } from "./git.js";
 import { findJevKey, secretsFile, sessionEnv } from "./secrets.js";
+import { pingJev } from "./triage.js";
 
 export interface Check {
   name: string;
@@ -68,8 +69,16 @@ export async function doctor(project: string, repo: string): Promise<Check[]> {
   if (triage?.model === "jev-latest") {
     const found = findJevKey();
     const fallback = triage.fallback === "off" ? "deviations stay proposed" : `${triage.fallback} judges instead`;
-    if (found.key) add("triage", true, `Jev key found (${found.source})`);
-    else {
+    if (found.key) {
+      // A one-question call: a wrong endpoint or a revoked key shows here, not as a silent fallback.
+      try {
+        add("triage", true, `Jev key found (${found.source}); Jev answers (${await pingJev(found.key)})`);
+      } catch (e) {
+        add("triage", true, `warning: Jev key found (${found.source}) but Jev did not answer ` +
+          `(${e instanceof Error ? e.message : String(e)}); ${fallback}`);
+        checks[checks.length - 1].warn = true;
+      }
+    } else {
       add("triage", true, `warning: no Jev key in TYPESAFE_API_KEY or ${secretsFile()}` +
         (found.warning ? ` (${found.warning})` : "") + `; ${fallback}`);
       checks[checks.length - 1].warn = true;
