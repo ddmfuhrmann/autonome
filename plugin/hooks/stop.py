@@ -46,5 +46,5 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except Exception as e:  # a broken hook must not trap the session
-        print(f"autonome gate hook:{e}", file=sys.stderr)
+        print(f"autonome gate hook: {e}", file=sys.stderr)
         sys.exit(0)
