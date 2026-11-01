@@ -41,6 +41,25 @@ Tell the user, briefly, what you found that matters: a decision that constrains 
 lessons from the same subject in two or three lines ("last time the limit returned 500 and was fixed
 after merge"). Do not dump search results.
 
+## 1b. A PRD first, where one is required
+
+Some work is only planned from a product spec: a backlog item with `prd` set, or what the project's
+CLAUDE.md says needs one (usually where a mistake costs money or becomes a legal problem). Look for it
+where the project keeps PRDs (CLAUDE.md says; `prd` may name the file; often `docs/prd/<slug>.md`).
+
+- **It exists**: read it before grilling. It is the source of the product rules; the plan implements
+  it and never contradicts it. Something it leaves open is a question for the user (section 2).
+- **It is missing**: write it with the user before the plan. Grill on the product, not the code: who
+  it is for and what they do, the rules (amounts, limits, states and their transitions), what happens
+  when something fails, personal and legal data (what is kept, for how long, who sees it), what is
+  explicitly out, and how we know it works. Same rule as section 2: one question per message, each
+  with your recommendation. Then write the file where the project keeps PRDs, show the user the path
+  and the sections, and tell them to review and commit it. Only then go on to the plan.
+
+Write the PRD in the language the project already uses for product documents: the existing PRDs or
+product docs, or what CLAUDE.md says; when there is nothing to go by, the language the user writes in.
+Never force one.
+
 ## 2. Grill, one question at a time
 
 Ask only what changes the plan, each with your recommendation. **One question per message, and only
