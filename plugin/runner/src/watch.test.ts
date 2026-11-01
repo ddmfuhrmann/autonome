@@ -34,6 +34,14 @@ test("with the triage on, only a deviation it could not settle is reported", () 
   ]);
 });
 
+test("with the triage on, a rule-conflict deviation is a review item and judged ones stay hidden", () => {
+  const next: State = { ...empty, triage: true, waiting: [
+    { kind: "decision", id: 12, title: "noqa for a forbidden name", blocks: false, deviation: true, conflict: true },
+    { kind: "decision", id: 13, title: "judged soon", blocks: false, deviation: true },
+  ] };
+  assert.deepEqual(changes(empty, next), ["review #12 rule conflict: noqa for a forbidden name"]);
+});
+
 test("with the triage off, a deviation is a decision to review", () => {
   const next: State = { ...empty, waiting: [{ kind: "decision", id: 1, title: "d", blocks: false, deviation: true }] };
   assert.deepEqual(changes(empty, next), ["review #1 decision to review: d"]);
