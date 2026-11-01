@@ -163,7 +163,8 @@ conventions and gates instead.
 - **The key**: `TYPESAFE_API_KEY` in the runner's environment, else in `~/.autonome/secrets.env`
   (mode `0600`; a more open file is ignored with a warning). It is never in the gate config, the
   context or the UI, and it is removed from the environment of agent sessions. `autonome doctor`
-  checks for it.
+  checks for it and makes one Jev call: a wrong endpoint or a revoked key shows as a warning there
+  (`Jev did not answer (…)`), not only as a silent fallback to Haiku.
 
 ## 3. Running
 

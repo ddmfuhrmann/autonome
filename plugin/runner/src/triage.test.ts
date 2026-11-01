@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import type { consult } from "./agents.js";
 import type { Triage } from "./context.js";
-import { type Answers, haiku, jev, judge, QUESTIONS, verdict } from "./triage.js";
+import { type Answers, haiku, jev, judge, pingJev, QUESTIONS, verdict } from "./triage.js";
 
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; });
@@ -58,10 +58,15 @@ test("model off with a fallback uses the fallback", async () => {
   assert.equal(j.backend, "haiku");
 });
 
-function fakeJev(answers: Record<string, number>, calls: { url: string; body: any }[] = []) {
+// Answers shaped like TypeSafe's real response. Recorded from the live API on 2026-11-01:
+// {"model":"jev-1.14.0","answers":{"billing":{"type":"noul","noul":0.97}},"usage":{"input_tokens":277,"output_tokens":20}}
+function fakeJev(answers: Record<string, number>, calls: { url: string; body: any; auth?: string }[] = []) {
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-    calls.push({ url: String(input), body: JSON.parse(String(init?.body)) });
-    return new Response(JSON.stringify({ answers }), { status: 200, headers: { "content-type": "application/json" } });
+    calls.push({ url: String(input), body: JSON.parse(String(init?.body)),
+      auth: (init?.headers as Record<string, string> | undefined)?.authorization });
+    const shaped = Object.fromEntries(Object.entries(answers).map(([k, v]) => [k, { type: "noul", noul: v }]));
+    return new Response(JSON.stringify({ model: "jev-1.14.0", answers: shaped, usage: { input_tokens: 277, output_tokens: 20 } }),
+      { status: 200, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
   return calls;
 }
@@ -107,15 +112,34 @@ test("a non-2xx jev response throws", async () => {
   await assert.rejects(jev(state, "k"), /500/);
 });
 
-test("the request sends every question as a noul, with the state as an object", async () => {
-  const calls = fakeJev(ans({}));
-  await jev(state, "secret");
-  assert.equal(calls.length, 1);
-  const { body } = calls[0];
-  assert.deepEqual(body.state, state);
-  assert.deepEqual(body.nouls.map((n: any) => n.name).sort(), Object.keys(QUESTIONS).sort());
-  for (const n of body.nouls) {
-    assert.equal(n.type, "noul");
-    assert.equal(n.question, QUESTIONS[n.name as keyof typeof QUESTIONS]);
+test("the request follows TypeSafe's System One API: endpoint, model, state and questions as nouls", async () => {
+  const saved = process.env.TYPESAFE_URL;
+  delete process.env.TYPESAFE_URL;
+  try {
+    const calls = fakeJev(ans({ workaround: 0.42 }));
+    const got = await jev(state, "secret");
+    assert.equal(got.workaround, 0.42); // read from answers.<name>.noul
+    assert.equal(calls.length, 1);
+    const { url, body, auth } = calls[0];
+    assert.equal(url, "https://api.typesafe.ai/v1/systemone");
+    assert.equal(auth, "Bearer secret");
+    assert.equal(body.model, "jev-latest");
+    assert.deepEqual(body.state, state);
+    assert.deepEqual(Object.keys(body.questions).sort(), Object.keys(QUESTIONS).sort());
+    for (const [name, q] of Object.entries(body.questions) as [keyof typeof QUESTIONS, any][]) {
+      assert.deepEqual(q, { type: "noul", instructions: QUESTIONS[name] });
+    }
+  } finally {
+    if (saved !== undefined) process.env.TYPESAFE_URL = saved;
   }
+});
+
+test("pingJev proves the key and endpoint with one question and names the model that answered", async () => {
+  const calls = fakeJev({ billing: 0.97 });
+  assert.equal(await pingJev("k"), "jev-1.14.0");
+  assert.deepEqual(Object.keys(calls[0].body.questions), ["billing"]);
+  globalThis.fetch = (async () => new Response("not found", { status: 404 })) as typeof fetch;
+  await assert.rejects(pingJev("k"), /HTTP 404/);
+  fakeJev({});
+  await assert.rejects(pingJev("k"), /billing/);
 });

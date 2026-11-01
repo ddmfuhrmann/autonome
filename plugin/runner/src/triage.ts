@@ -38,18 +38,37 @@ function validated(raw: unknown, from: string): Answers {
 
 export type Backend = (state: Record<string, unknown>) => Promise<Answers>;
 
-const JEV_URL = "https://api.typesafe.ai/v1/nouls";
+// TypeSafe's System One API (docs.typesafe.ai, api.typesafe.ai/openapi.json): POST {model, state,
+// questions: {name: {type: "noul", instructions}}} → {model, answers: {name: {type, noul}}, usage}.
+const JEV_URL = "https://api.typesafe.ai/v1/systemone";
+export const JEV_MODEL = "jev-latest";
 const JEV_TIMEOUT_MS = 30_000;
 
-async function askJev(state: Record<string, unknown>, nouls: { name: string; question: string }[], key: string): Promise<unknown> {
+/** One request, every noul in it; returns `{name: noul}` (what Jev answered, unchecked) and the model
+ * that answered. A non-2xx answer or a timeout throws. */
+export async function askJev(state: Record<string, unknown>, nouls: { name: string; question: string }[], key: string):
+  Promise<Record<string, unknown>> {
   const res = await fetch(process.env.TYPESAFE_URL ?? JEV_URL, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
-    body: JSON.stringify({ state, nouls: nouls.map((n) => ({ ...n, type: "noul" })) }),
+    body: JSON.stringify({ model: JEV_MODEL, state,
+      questions: Object.fromEntries(nouls.map((n) => [n.name, { type: "noul", instructions: n.question }])) }),
     signal: AbortSignal.timeout(JEV_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`jev: HTTP ${res.status}`);
-  return ((await res.json()) as { answers?: unknown }).answers;
+  const body = (await res.json()) as { model?: string; answers?: Record<string, { noul?: unknown } | undefined> };
+  const out: Record<string, unknown> = Object.fromEntries(
+    Object.entries(body.answers ?? {}).map(([name, a]) => [name, a?.noul]));
+  Object.defineProperty(out, "model", { value: body.model, enumerable: false });
+  return out;
+}
+
+/** A one-question call that proves the key and the endpoint work; returns the model that answered.
+ * Throws like any Jev call. */
+export async function pingJev(key: string): Promise<string> {
+  const a = await askJev({ message: "I was charged twice." }, [{ name: "billing", question: "The `message` is about billing." }], key);
+  if (typeof a.billing !== "number") throw new Error('jev: answer "billing" is missing');
+  return String((a as { model?: unknown }).model ?? JEV_MODEL);
 }
 
 /** Jev answers every question in one request. The key is the caller's to find; this never reads it. */
