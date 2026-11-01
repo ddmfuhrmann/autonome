@@ -3,7 +3,7 @@ import { mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
-import { doctor, report } from "./doctor.js";
+import { doctor, modelsQueryVia, report } from "./doctor.js";
 import { git } from "./git.js";
 
 const realFetch = globalThis.fetch;
@@ -128,6 +128,74 @@ test("jev-latest without a key warns, does not fail, and never prints a key", as
       if (v === undefined) delete process.env[k]; else process.env[k] = v;
     }
   }
+});
+
+function fakeModels(models: { value: string; supportsAutoMode?: boolean }[] | Error) {
+  const calls = { made: 0, closed: 0 };
+  const factory = () => {
+    calls.made++;
+    return {
+      supportedModels: async () => { if (models instanceof Error) throw models; return models; },
+      close: () => { calls.closed++; },
+    };
+  };
+  return { calls, factory };
+}
+
+const permissionsCheck = async (permissions: string, implementer: unknown, fake: ReturnType<typeof fakeModels>) => {
+  contextWith({ version: 1, config: { gates: [{ name: "lint", run: "git status" }], permissions,
+    models: { implementer } }, pending: [] });
+  return (await doctor("p", repo(), { query: fake.factory })).find((c) => c.name === "permissions");
+};
+
+test("permissions auto: a model that supports auto mode passes", async () => {
+  const fake = fakeModels([{ value: "sonnet", supportsAutoMode: true }]);
+  const c = await permissionsCheck("auto", { model: "sonnet", effort: "medium" }, fake);
+  assert.equal(c?.ok, true);
+  assert.equal(c?.detail, "permissions auto: sonnet supports auto mode");
+  assert.equal(fake.calls.closed, 1);
+});
+
+test("permissions auto: a model without support, or missing, fails naming the model", async () => {
+  for (const models of [[{ value: "sonnet", supportsAutoMode: false }], [{ value: "opus", supportsAutoMode: true }]]) {
+    const c = await permissionsCheck("auto", { model: "sonnet", effort: "medium" }, fakeModels(models));
+    assert.equal(c?.ok, false);
+    assert.match(c!.detail, /sonnet does not support auto mode → .*allowlist/);
+  }
+});
+
+test("permissions auto: a fallback without support fails even when the model is fine", async () => {
+  const c = await permissionsCheck("auto", { model: "sonnet", effort: "medium", fallback: "haiku" },
+    fakeModels([{ value: "sonnet", supportsAutoMode: true }, { value: "haiku", supportsAutoMode: false }]));
+  assert.equal(c?.ok, false);
+  assert.match(c!.detail, /haiku does not support auto mode/);
+  assert.ok(!c!.detail.includes("sonnet"));
+});
+
+test("permissions auto: supportedModels() throwing is a failed check with the message, not an exception", async () => {
+  const fake = fakeModels(new Error("sdk exploded"));
+  const c = await permissionsCheck("auto", { model: "sonnet", effort: "medium" }, fake);
+  assert.equal(c?.ok, false);
+  assert.match(c!.detail, /sdk exploded/);
+  assert.equal(fake.calls.closed, 1);
+});
+
+test("the real wrapper opens a streaming-input query with the model, no prompt text, and hands back its handle", () => {
+  const handle = { supportedModels: async () => [], close: () => {} };
+  let seen: { prompt: unknown; options?: { model?: string } } | undefined;
+  const fakeSdkQuery = ((params: { prompt: unknown; options?: { model?: string } }) => { seen = params; return handle; }) as never;
+  const q = modelsQueryVia(fakeSdkQuery)({ model: "sonnet" });
+  assert.equal(q, handle);
+  assert.equal(typeof seen!.prompt, "object");
+  assert.ok(Symbol.asyncIterator in (seen!.prompt as object));
+  assert.equal(seen!.options?.model, "sonnet");
+});
+
+test("permissions allowlist: the SDK is not asked", async () => {
+  const fake = fakeModels([]);
+  const c = await permissionsCheck("allowlist", { model: "sonnet", effort: "medium" }, fake);
+  assert.equal(c, undefined);
+  assert.equal(fake.calls.made, 0);
 });
 
 test("a configured gate's repo-local command must exist", async () => {
