@@ -84,8 +84,10 @@ test("a rule conflict is posted as escalate and logged with the conflict", async
   assert.match(post.url, /\/api\/decisions\/7\/triage$/);
   assert.equal(post.body.verdict, "escalate");
   assert.equal(post.body.answers.rule_conflict, "0.91");
+  assert.equal(post.body.answers.contradicts, "0.86");
+  assert.equal(post.body.round, 1);
   assert.equal(log.length, 1);
-  assert.equal(log[0], "triage D7: escalate (jev, rule_conflict 0.91)");
+  assert.equal(log[0], "triage D7: escalate (jev, rule_conflict 0.91): a rule conflict for you");
 });
 
 /** A context whose first GET lists `screen` and whose later GETs list `after` deviations. */

@@ -14,10 +14,14 @@ export interface TriageRunOptions {
 
 const FLAGS = ["drops_coverage", "contradicts", "workaround", "rule_conflict"] as const;
 
-/** `triage D12: reject (jev, contradicts 0.91)`: the strongest flag is what decided, or came closest. */
+/** `triage D12: reject (jev, contradicts 0.91)`: the strongest flag is what decided, or came closest.
+ * An escalate says so: `triage D12: escalate (jev, rule_conflict 0.91): a rule conflict for you`. */
 export function verdictLine(decisionId: number, j: Judgment): string {
-  const top = FLAGS.reduce((a, b) => (j.answers[b] > j.answers[a] ? b : a));
-  return `triage D${decisionId}: ${j.verdict} (${j.backend}, ${top} ${j.answers[top]})`;
+  const top = j.verdict === "escalate"
+    ? "rule_conflict"
+    : FLAGS.reduce((a, b) => (j.answers[b] > j.answers[a] ? b : a));
+  const line = `triage D${decisionId}: ${j.verdict} (${j.backend}, ${top} ${j.answers[top]})`;
+  return j.verdict === "escalate" ? `${line}: a rule conflict for you` : line;
 }
 
 const nouls = (a: Answers): Record<string, string> =>
