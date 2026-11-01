@@ -544,6 +544,95 @@ def test_the_queue_has_no_reopened_deviations_with_triage_on(client, project, ru
     assert client.get(f"/api/projects/{project}/state").json()["waiting"] == []
 
 
+def undo_chain(client, run_db, indexer, project, *, by="human"):
+    """Y (a deviation) rejected by the human or the runner, its undo task, and the handoff the undo posts
+    with a deviation and a plain decision. Returns (Y, undo task, the posted handoff, post())."""
+    from autonome_context import plans
+    from autonome_context.handoff import Decision
+
+    y, _ = seed(run_db, indexer, project, title="Keep Haiku")
+    if by == "runner":
+        assert client.post(f"/api/decisions/{y}/triage", json=verdict("reject")).status_code == 200
+        [undo] = [t["id"] for t in run_db(lambda c: store.list_documents(c, project, type="task"))
+                  if t["body"].get("source") == f"decision:{y}"]
+    else:
+        undo = run_db(lambda c: plans.reject_decision(c, indexer, y, "human"))["task_id"]
+    handoff = make_handoff(project, feature="links", layers=["api"], session_id="undo", decisions=[
+        Decision(title="Default to Sonnet", rationale="the undo", deviation=True),
+        Decision(title="Rename a helper", rationale="small", deviation=False)]).model_dump(mode="json")
+
+    def post(task=undo):
+        assert client.post("/api/handoffs", json={"handoff": handoff, "task_id": task}).status_code == 201
+    return y, undo, post
+
+
+def posted(run_db, project, title):
+    return next(d for d in run_db(lambda c: store.list_documents(c, project, type="decision"))
+                if d["body"]["title"] == title)
+
+
+def test_the_undo_of_a_human_reject_makes_its_decisions_the_humans_choice(client, project, run_db, indexer):
+    from autonome_context import history
+    enable(run_db, indexer, project)
+    y, _, post = undo_chain(client, run_db, indexer, project)
+    post()
+    dev, plain = posted(run_db, project, "Default to Sonnet"), posted(run_db, project, "Rename a helper")
+    assert dev["status"] == "accepted" and dev["body"]["undo_of_human_reject"] == y
+    assert plain["status"] == "accepted" and plain["body"]["undo_of_human_reject"] == y
+    assert dev["id"] not in [i["decision_id"] for i in pending(client, project)]
+    assert plain["id"] not in [i["decision_id"] for i in screen_list(client, project)]
+    h = run_db(lambda c: history.build(c, project, "links", indexer.embedder, feature="links"))
+    assert {i["decision"]: i["judged_by"] for i in h["deviation_decisions"]}[dev["id"]] == "human"
+
+
+def test_the_undo_of_a_runner_reject_is_judged_again_with_the_round(client, project, run_db, indexer):
+    enable(run_db, indexer, project)
+    y, _, post = undo_chain(client, run_db, indexer, project, by="runner")
+    post()
+    dev, plain = posted(run_db, project, "Default to Sonnet"), posted(run_db, project, "Rename a helper")
+    assert dev["status"] == "proposed" and "undo_of_human_reject" not in dev["body"]
+    assert "undo_of_human_reject" not in plain["body"]
+    [item] = [i for i in pending(client, project) if i["decision_id"] == dev["id"]]
+    assert item["round"] == 1
+    assert plain["id"] in [i["decision_id"] for i in screen_list(client, project)]
+
+
+def test_a_task_that_is_not_the_undo_of_a_rejected_decision_changes_nothing(client, project, run_db, indexer):
+    enable(run_db, indexer, project)
+    _, _, post = undo_chain(client, run_db, indexer, project)
+    open_decision, _ = seed(run_db, indexer, project, session="o", title="Open")  # proposed, not rejected
+    _, no_source = seed(run_db, indexer, project, session="n", title="NoSource")
+    _, not_rejected = seed(run_db, indexer, project, session="m", title="NotRejected", source=f"decision:{open_decision}")
+    for task in (no_source, not_rejected):
+        post(task)
+    decisions = [d for d in run_db(lambda c: store.list_documents(c, project, type="decision"))
+                 if d["body"]["title"] in ("Default to Sonnet", "Rename a helper")]
+    assert len(decisions) == 4
+    assert all("undo_of_human_reject" not in d["body"] and d["version"] == 1 for d in decisions)
+    assert {d["body"]["title"]: d["status"] for d in decisions} == {
+        "Default to Sonnet": "proposed", "Rename a helper": "accepted"}
+
+
+def test_posting_the_same_handoff_twice_neither_fails_nor_stacks_versions(client, project, run_db, indexer):
+    y, undo, post = undo_chain(client, run_db, indexer, project)
+    post()
+    post()
+    devs = [d for d in run_db(lambda c: store.list_documents(c, project, type="decision"))
+            if d["body"]["title"] == "Default to Sonnet"]
+    assert len(devs) == 2  # each post stores its own handoff and decisions
+    assert all(d["status"] == "accepted" and d["body"]["undo_of_human_reject"] == y and d["version"] == 2 for d in devs)
+
+
+def test_marking_a_handoff_again_adds_no_version(client, project, run_db, indexer):
+    from autonome_context import plans
+    y, undo, post = undo_chain(client, run_db, indexer, project)
+    post()
+    dev = posted(run_db, project, "Default to Sonnet")
+    [h] = [l["id"] for l in run_db(lambda c: store.links_of(c, dev["id"])) if l["kind"] == "records"]
+    run_db(lambda c: plans.accept_human_undo(c, indexer, h, y))
+    assert run_db(lambda c: store.get_document(c, dev["id"]))["version"] == 2
+
+
 def test_the_human_path_is_unchanged(client, project, run_db, indexer, deviation):
     enable(run_db, indexer, project)
     doc_id = deviation()
