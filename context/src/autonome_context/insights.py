@@ -6,6 +6,7 @@ so it is grouped by meaning: each item is embedded and similar items are cluster
 
 import math
 from collections import Counter, defaultdict
+from datetime import UTC, datetime
 
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
@@ -40,6 +41,66 @@ async def _friction_clusters(items: list[dict], embedder: Embedder) -> list[dict
     return [{"size": len(c["items"]), "example": c["items"][0]["text"],
              "features": sorted({i["feature"] for i in c["items"] if i["feature"]}),
              "handoffs": sorted({i["handoff_id"] for i in c["items"]})} for c in repeated]
+
+
+def _when(value) -> datetime | None:
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    if not isinstance(value, datetime):
+        return None
+    return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+
+async def _convention_effects(conventions: list[dict], tasks: list[dict], friction: list[dict],
+                              embedder: Embedder) -> list[dict]:
+    """For each active convention: did what it targets drop after it was adopted?"""
+    if not conventions:
+        return []
+    rules = [f"{c['body'].get('title', '')}\n{c['body'].get('rule', '')}".strip() for c in conventions]
+    rule_vecs = await embedder.embed(rules, "document") if friction else [[] for _ in conventions]
+    friction_vecs = await embedder.embed([i["text"] for i in friction], "document") if friction else []
+    effects = []
+    for c, vec in zip(conventions, rule_vecs):
+        since = _when(c["created_at"])
+        title = (c["body"].get("title") or "").lower()
+        if since is None or not title:
+            continue
+        before = after = tasks_after = 0
+        for t in tasks:
+            runs = t["body"].get("runs") or []
+            if any((at := _when(r.get("at"))) and at > since for r in runs):
+                tasks_after += 1
+            for r in runs:
+                at = _when(r.get("at"))
+                if at is None:
+                    continue
+                for round_ in r.get("reviews") or [r.get("review") or {}]:
+                    for f in round_.get("findings", []):
+                        if (f.get("convention") or "").lower() == title or title in f.get("issue", "").lower():
+                            if at > since:
+                                after += 1
+                            else:
+                                before += 1
+        f_before = f_after = 0
+        for item, ivec in zip(friction, friction_vecs):
+            at = _when(item["created_at"])
+            if at is None or _cosine(vec, ivec) < _SIMILAR:
+                continue
+            if at > since:
+                f_after += 1
+            else:
+                f_before += 1
+        recurrences = after + f_after
+        holding = True if tasks_after >= 3 and recurrences == 0 else False if recurrences >= 2 else None
+        effects.append({"convention_id": c["id"], "title": c["body"].get("title"), "since": since.isoformat(),
+                        "findings_before": before, "findings_after": after,
+                        "friction_before": f_before, "friction_after": f_after,
+                        "tasks_after": tasks_after, "holding": holding})
+    effects.sort(key=lambda e: -(e["findings_after"] + e["friction_after"]))
+    return effects[:30]
 
 
 async def _triage(conn: AsyncConnection, project: str, tasks: list[dict]) -> dict:
@@ -83,7 +144,8 @@ async def build(conn: AsyncConnection, project: str, embedder: Embedder, limit: 
                 adherence[(h["feature"] or "-", layer)].append(b["adherence_score"])
         for item in b.get("plan_adherence", []):
             plan_items[h["feature"] or "-"][item["status"]] += 1
-        friction += [{"text": f, "feature": h["feature"], "handoff_id": h["id"]} for f in b.get("friction", [])]
+        friction += [{"text": f, "feature": h["feature"], "handoff_id": h["id"],
+                      "created_at": h["created_at"]} for f in b.get("friction", [])]
 
     async with conn.cursor(row_factory=dict_row) as cur:
         await cur.execute(
@@ -151,6 +213,7 @@ async def build(conn: AsyncConnection, project: str, embedder: Embedder, limit: 
                   "costliest": spent[:5]},
         "loose_ends": loose_ends,
         "heavy_conventions": heavy,
+        "convention_effects": await _convention_effects(conventions, tasks, friction, embedder),
         "task_outcomes": dict(outcomes),
         "blocked": blocked,
         "review_findings": findings[:60],
