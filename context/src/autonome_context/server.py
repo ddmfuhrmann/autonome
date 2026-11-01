@@ -187,9 +187,11 @@ async def _detail(conn, kind: str, doc: dict) -> str:
     if kind == "held":
         r = b.get("rehearsal") or {}
         revised = r.get("plan") or {}
-        return (f"Rehearsal notes: {_cut(r.get('notes'))}\n"
-                + ("Revision proposed, tasks: " + "; ".join(t.get("title", "") for t in revised.get("tasks", []))
-                   if revised else "No revision proposed."))
+        return "\n".join(filter(None, [
+            f"Rehearsal notes: {_cut(r.get('notes'))}",
+            "Revision proposed, tasks: " + "; ".join(t.get("title", "") for t in revised.get("tasks", []))
+            if revised else "No revision proposed.",
+            web.revision_triage_line(r.get("triage"))]))
     if kind == "soundcheck":
         runs = [r for r in b.get("soundchecks", []) if r.get("report")]
         return f"Last soundcheck: {_cut(runs[-1]['report'])}" if runs else "No soundcheck report."

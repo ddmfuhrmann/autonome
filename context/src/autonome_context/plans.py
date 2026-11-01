@@ -289,10 +289,12 @@ async def rehearse(conn: AsyncConnection, indexer: store.Indexer, plan_id: int, 
     return "ready"
 
 
-async def resolve_rehearsal(conn: AsyncConnection, indexer: store.Indexer, plan_id: int, accept: bool) -> None:
-    """Human-only. Accepts the revised plan (its tasks replace the unplayed old ones) or keeps the original."""
+async def resolve_rehearsal(conn: AsyncConnection, indexer: store.Indexer, plan_id: int, accept: bool,
+                            actor: rules.Actor = "human") -> None:
+    """Accepts the revised plan (its tasks replace the unplayed old ones) or keeps the original. The human,
+    or the runner carrying a triage verdict."""
     async with conn.transaction():
-        plan = await rules.transition(conn, plan_id, "approved", "human")
+        plan = await rules.transition(conn, plan_id, "approved", actor)
         rehearsal = plan["body"].get("rehearsal", {})
         if not accept or not rehearsal.get("plan"):
             await store.add_version(conn, indexer, plan_id, {
@@ -303,7 +305,7 @@ async def resolve_rehearsal(conn: AsyncConnection, indexer: store.Indexer, plan_
         if any(t["status"] not in ("pending", "abandoned") for t in old):
             raise rules.Forbidden("tasks of this plan already started; the revision cannot replace them")
         for t in old:
-            if t["status"] == "pending":
+            if t["status"] == "pending":  # replaced by the revision, whoever accepted it
                 await rules.transition(conn, t["id"], "abandoned", "human")
         original = PlanBody.model_validate(plan["body"]).model_dump(mode="json")
         revised = PlanBody.model_validate(rehearsal["plan"])
