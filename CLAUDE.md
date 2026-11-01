@@ -64,7 +64,7 @@ plugin/runner/  the maestro (TypeScript, Claude Agent SDK): one session + worktr
   the gate config, and never reaches agent sessions.
 - **Models**: every agent role (musician, reviewer, rehearsal, listener, tune, handoff, docs) has a
   model and an effort in the gate config (`models`, defaults in `gates.DEFAULT_MODELS`: Haiku low
-  for reviewer and rehearsal, as measured by `autonome bench`; Sonnet for the rest). `conduct --model/--effort` override all roles.
+  for rehearsal, as measured by `autonome bench`; Sonnet for the rest, the reviewer included, by the human's choice). `conduct --model/--effort` override all roles.
   A role may name a `fallback` model, used when its own is overloaded or unavailable (not the usage limit).
   A task briefing carries the plan's goal, out of scope, design and context (capped), so what the specs
   rely on (an external API's shape) reaches the musician and the reviewer.
