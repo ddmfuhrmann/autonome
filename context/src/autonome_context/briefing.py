@@ -6,6 +6,7 @@ from . import store
 from .gates import GateConfig
 
 MAX_CHARS = 14_000
+CONTEXT_CHARS = 3_000  # the plan's context in a task briefing
 
 
 def _list(items) -> str:
@@ -30,6 +31,12 @@ async def build(conn: AsyncConnection, project: str, task_id: int | None = None)
     if p:
         parts.append(f"## The plan it belongs to: {p.get('title')}\nGoal: {p.get('goal')}\n"
                      f"Out of scope (do not do):\n{_list(p.get('out_of_scope'))}")
+    if ctx := (p.get("context") or "").strip():
+        # The plan's context carries what the tasks rely on and the specs only point to (an external API's
+        # shape, lessons from earlier work). Without it, T-478 invented the Jev API and its reviewer had
+        # nothing to compare the client with. Capped so the conventions after it still fit.
+        cut = ctx if len(ctx) <= CONTEXT_CHARS else ctx[:CONTEXT_CHARS].rsplit("\n", 1)[0] + "\n…"
+        parts.append(f"## The plan's context\n{cut}")
     if p.get("design"):
         parts.append("## Design the plan chose (follow it; another way is a deviation)\n" + _list([
             f"{d['topic']}: {d['chosen']}. {d['why']}" for d in p["design"]]))

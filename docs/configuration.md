@@ -103,6 +103,10 @@ models:
   tune:      {model: sonnet, effort: medium}   # learns from a finished wave
   handoff:   {model: sonnet, effort: low}      # writes each session's handoff
   docs:      {model: sonnet, effort: low}      # keeps the living docs
+# Any role may add `fallback: <model>`: the model the session switches to when its own is overloaded
+# or unavailable (Agent SDK `fallbackModel`, `claude -p --fallback-model`). It does not help with the
+# account's usage limit, which hands the task back to pending. Ignored when equal to the model.
+#   musician:  {model: sonnet, effort: medium, fallback: haiku}
 
 # Optional: try each finished feature in a running environment (fakes, never real services).
 soundcheck:

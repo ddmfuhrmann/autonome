@@ -43,3 +43,20 @@ v2 showed the reviewer finds what a convention forbids but may rate it low. Sinc
 
 Haiku stays the reviewer's default: with the rule, severity no longer depends on the model's
 judgement of how likely a case is.
+
+## 2026-11-01, a gap no convention names
+
+**reviewer/invented-api**: autonome's own T-478 (`76bc1f7`) wrote a Jev client for an endpoint and body
+that do not exist (`POST /v1/nouls` with `{state, nouls}`), with tests faking that shape. The briefing
+gives the plan's real API (`POST /v1/systemone` with `{model, state, questions}`). 1.0 = a high finding
+on the mismatch and a failed review.
+
+| Case | Model:effort | Runs | Score | Cost per run | Time |
+|---|---|---|---|---|---|
+| reviewer/invented-api | haiku:low | 2 | 1.00 every run | US$ 0.007 | 16–22 s |
+| reviewer/invented-api | sonnet:medium | 2 | 1.00 every run | US$ 0.08–0.20 | 11–14 s |
+
+In the run both the musician and the Haiku reviewer missed it, but not for lack of model: the task
+briefing did not carry the plan's `context`, where the API shape was written. With the shape in hand
+Haiku finds it every time. Since 0.11.0 the briefing carries the plan's context (capped at 3,000
+characters). Haiku stays the reviewer's default; a project can still raise it in `models`.

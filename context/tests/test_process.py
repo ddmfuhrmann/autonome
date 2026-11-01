@@ -60,6 +60,21 @@ def test_task_briefing_has_spec_out_of_scope_and_layer_conventions(run_db, proje
     assert "Conventions:" in interactive
 
 
+def test_task_briefing_carries_the_plans_context_capped(run_db, project, indexer):
+    api = "**Jev**\n- `POST https://api.typesafe.ai/v1/systemone` with `{model, state, questions}`"
+    async def go(conn):
+        short = await plans.draft(conn, indexer, project, "triage", [], plan_body(context=api))
+        [task, _] = await plans.approve(conn, indexer, short)
+        long = await plans.draft(conn, indexer, project, "other", [], plan_body(context="line\n" * 2000))
+        [other, _] = await plans.approve(conn, indexer, long)
+        return await briefing.build(conn, project, task), await briefing.build(conn, project, other)
+
+    with_api, with_long = run_db(go)
+    assert "## The plan's context" in with_api and "/v1/systemone" in with_api
+    section = with_long.split("## The plan's context\n", 1)[1].split("\n## ", 1)[0]
+    assert len(section) <= briefing.CONTEXT_CHARS + 2 and section.endswith("…")
+
+
 def test_tasks_are_claimed_in_order_respecting_dependencies(run_db, project, indexer):
     async def go(conn):
         plan_id = await plans.draft(conn, indexer, project, "signup", [], plan_body())

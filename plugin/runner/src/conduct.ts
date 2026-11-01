@@ -7,7 +7,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { consult } from "./agents.js";
-import { ContextError, context, languageRule, roleModel, waitForContext, type Effort, type GateConfig, type Plan, type Rehearsal, type ReviewResult, type Run, type Task } from "./context.js";
+import { ContextError, context, languageRule, roleModel, sdkModel, waitForContext, type Effort, type GateConfig, type Plan, type Rehearsal, type ReviewResult, type Run, type Task } from "./context.js";
 import { doctor, report } from "./doctor.js";
 import { bashPrefixes, scopedFileCommands } from "./fsguard.js";
 import { encoreMessage, findingsForEncore, gatesSection, recordRound, review, settleRun, type GateOutcome } from "./review.js";
@@ -219,7 +219,7 @@ async function play(task: Task, worktree: string, base: string, opts: ConductOpt
       options: {
         resume: encore?.sessionId,
         cwd: worktree,
-        ...roleModel(cfg, "musician", opts),
+        ...sdkModel(roleModel(cfg, "musician", opts)),
         abortController: abort,
         permissionMode: "dontAsk",
         allowedTools: musicianTools(gateConfig),

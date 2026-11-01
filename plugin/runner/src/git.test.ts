@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { allowedTools, rehearsalPrompt, summary } from "./conduct.js";
 import { parseConfigs, table } from "./bench.js";
-import { roleModel } from "./context.js";
+import { roleModel, sdkModel } from "./context.js";
 import { commitMessage, fastForwardMain, git, stageWork, strayFiles } from "./git.js";
 
 function repo(): string {
@@ -155,6 +155,17 @@ test("each role runs on its own model and effort, and the command line overrides
   assert.deepEqual(roleModel(cfg, "musician", { model: "opus" }), { model: "opus", effort: "medium" });
   assert.deepEqual(roleModel(cfg, "musician", { effort: "low" }), { model: "sonnet", effort: "low" });
   assert.deepEqual(roleModel({ ...cfg, models: undefined }, "tune"), { model: "sonnet", effort: "medium" });
+});
+
+test("a role's fallback model reaches the SDK, unless it is the model itself", () => {
+  const cfg = { gates: [], encore: { max: 3, stop_on_repeat: true }, budget: { task_tokens: 1, task_minutes: 1, plan_tokens: 1 },
+    review: { enabled: true, max_rounds: 2 }, soundcheck: null,
+    models: { musician: { model: "sonnet", effort: "medium" as const, fallback: "haiku" } } };
+  const musician = roleModel(cfg, "musician");
+  assert.deepEqual(musician, { model: "sonnet", effort: "medium", fallback: "haiku" });
+  assert.deepEqual(sdkModel(musician), { model: "sonnet", effort: "medium", fallbackModel: "haiku" });
+  assert.deepEqual(roleModel(cfg, "musician", { model: "haiku" }), { model: "haiku", effort: "medium" });
+  assert.deepEqual(sdkModel({ model: "sonnet", effort: "low" }), { model: "sonnet", effort: "low" });
 });
 
 test("bench configs parse as model:effort and the table totals the cost", () => {
