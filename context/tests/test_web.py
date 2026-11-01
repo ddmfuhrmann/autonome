@@ -1,8 +1,10 @@
+from datetime import UTC, datetime
+
 import psycopg_pool
 import pytest
 from starlette.testclient import TestClient
 
-from autonome_context import plans, rules, services, store
+from autonome_context import plans, rules, services, store, web
 from autonome_context.plans import PlanBody, TaskSpec
 from autonome_context.server import build_app
 
@@ -239,6 +241,34 @@ def test_a_playing_task_shows_what_its_session_is_doing(client, project, run_db,
     assert "now__doing" in setlist and "1 failed" in setlist
     page = client.get(f"/ui/p/{project}/documents/{task}").text
     assert 'id="live"' in page and 'data-refresh="3"' in page and "Bash: uv run pytest -q" in page
+    log = page.split('id="live"', 1)[1]
+    assert '<time datetime="' in log and 'data-fmt="clock"' in log
+
+
+@pytest.mark.parametrize("cookie", ["Mars/Olympus", "../../etc/passwd", "<script>", "A" * 300, ""])
+def test_the_documents_page_survives_a_bad_tz_cookie(client, project, cookie):
+    client.cookies.set("tz", cookie)
+    assert client.get(f"/ui/p/{project}/documents").status_code == 200
+
+
+def test_the_documents_page_groups_days_in_the_zone_of_the_tz_cookie(client, project, run_db, indexer, monkeypatch):
+    from conftest import make_handoff
+
+    async def go(conn):
+        await store.put_handoff(conn, indexer, make_handoff(project, feature="links", summary="Near midnight."), None)
+        await conn.execute("update document set created_at = %s where project_id = (select id from project where slug = %s)",
+                           (datetime(2026, 11, 2, 2, 30, tzinfo=UTC), project))
+        await conn.commit()
+    run_db(go)
+    real = web.day_groups
+    monkeypatch.setattr(web, "day_groups", lambda docs, now=None, tz=UTC: real(
+        docs, now=datetime(2026, 11, 2, 12, 0, tzinfo=UTC), tz=tz))
+    url = f"/ui/p/{project}/documents"
+
+    assert ">Today<" in client.get(url).text  # no cookie: UTC, still the 2nd
+    client.cookies.set("tz", "America/Sao_Paulo")
+    page = client.get(url).text
+    assert ">Yesterday<" in page and ">Today<" not in page  # 23:30 on the 1st in São Paulo
 
 
 def test_the_state_snapshot_lists_tasks_plans_and_what_waits(client, project, blocked_task):

@@ -61,7 +61,7 @@
     <div class="entry entry--head" style="--cols: 100px 90px 70px minmax(0, 1fr) 70px 70px"><span>when</span><span>session</span><span>task</span><span>gate</span><span>result</span><span class="r">time</span></div>
     {% for r in runs %}
     <div class="entry entry--dense" style="--cols: 100px 90px 70px minmax(0, 1fr) 70px 70px">
-      <span class="muted" title="{{ r.created_at|when }}">{{ r.created_at|when }}</span>
+      <span class="muted" title="{{ r.created_at|when_text }}">{{ r.created_at|when }}</span>
       <span class="mono muted">{{ r.session_id[:8] }}</span>
       <span>{% if r.task_id %}<a class="mono" href="/ui/p/{{ project }}/documents/{{ r.task_id }}">{{ r.task_id|ref('task') }}</a>{% endif %}</span>
       <span class="mono trunc">{{ r.gate }}</span>

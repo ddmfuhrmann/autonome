@@ -72,7 +72,7 @@
           <span class="id">{{ d|ref }}</span>
           <span class="drow__title">{{ title(d) }}</span>
           <span class="drow__meta">{% if d.feature %}<span class="tag tag--feature">{{ d.feature }}</span>{% endif %}{% if d.status %}{{ ui.st(d.status, sm=true) }}{% endif %}</span>
-          <span class="drow__time" title="{{ d.created_at|when }}">{{ (d.created_at|when)[-5:] }}</span>
+          <span class="drow__time" title="{{ d.created_at|when_text }}">{{ d.created_at|hm }}</span>
         </a></li>
         {% endfor %}
       </ul>
