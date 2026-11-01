@@ -5,7 +5,7 @@ import { call } from "./context.js";
 export interface LiveEvent {
   task_id?: number;
   plan_id?: number;
-  role: string; // musician, reviewer, rehearsal, listener, tune, maestro
+  role: string; // implementer, reviewer, preflight, tester, retro, runner
   kind: string; // say, tool, result, error, stage
   text: string;
   at?: string;
@@ -33,7 +33,7 @@ export function describeTool(name: string, input: Record<string, unknown>): stri
 }
 
 /** SDK messages as events: what the agent says (newlines kept, it is markdown), the tools it calls,
- * failures, and the end of what commands printed. The reviewer's StructuredOutput is left out: conduct
+ * failures, and the end of what commands printed. The reviewer's StructuredOutput is left out: the run
  * reports the verdict itself. */
 export function fromMessage(msg: unknown): Omit<LiveEvent, "role" | "task_id" | "plan_id">[] {
   const m = msg as { type?: string; message?: { content?: unknown } };

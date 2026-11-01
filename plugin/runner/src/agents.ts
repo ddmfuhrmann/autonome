@@ -1,4 +1,4 @@
-// Read-only agents the maestro consults: they look, never change the code, and answer as JSON.
+// Read-only agents the runner consults: they look, never change the code, and answer as JSON.
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { CONTEXT_URL, type Effort } from "./context.js";
 import { sessionEnv } from "./secrets.js";

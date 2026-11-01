@@ -1,4 +1,4 @@
-// Bash commands a prefix rule cannot judge, decided by a PreToolUse hook in conduct sessions:
+// Bash commands a prefix rule cannot judge, decided by a PreToolUse hook in runner sessions:
 // - rm, mkdir, mv, cp, chmod and touch run when every path they name is inside the task's worktree;
 // - bash, sh and python3 run a script the rules already allow (a gate's command);
 // - find runs anywhere without -delete or -exec (reading a jar's metadata in ~/.gradle);

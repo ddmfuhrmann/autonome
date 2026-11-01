@@ -48,12 +48,12 @@ test("a tool's input is summarised by what it acts on", () => {
 test("events go in batches, and a failing context never breaks the run", async () => {
   const sent: unknown[] = [];
   const stream = new EventStream("p", async (body) => { sent.push(body); });
-  stream.push({ task_id: 1, role: "musician", kind: "tool", text: "Bash: ls" });
-  stream.push({ task_id: 1, role: "maestro", kind: "stage", text: "gates" });
+  stream.push({ task_id: 1, role: "implementer", kind: "tool", text: "Bash: ls" });
+  stream.push({ task_id: 1, role: "runner", kind: "stage", text: "gates" });
   await stream.flush();
   assert.equal(sent.length, 1);
   assert.deepEqual((sent[0] as { events: { text: string }[] }).events.map((e) => e.text), ["Bash: ls", "gates"]);
   const broken = new EventStream("p", async () => { throw new Error("context down"); });
-  broken.push({ role: "maestro", kind: "stage", text: "x" });
+  broken.push({ role: "runner", kind: "stage", text: "x" });
   await broken.flush(); // no throw
 });

@@ -10,7 +10,7 @@ test("the account's usage limit is told apart from a task's own failure", () => 
   assert.ok(!isUsageLimit("gates failed on top of main: pytest failed"));
 });
 
-test("the conductor waits until the reset the message names, plus a minute", () => {
+test("the runner waits until the reset the message names, plus a minute", () => {
   const now = new Date(2026, 9, 31, 15, 10, 0);
   assert.equal(untilReset("You've hit your session limit · resets 3:40pm", now), 31 * 60_000);
   assert.equal(untilReset("resets 9am", new Date(2026, 9, 31, 22, 0, 0)), 6 * 3_600_000); // capped

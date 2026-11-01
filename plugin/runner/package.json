@@ -2,7 +2,7 @@
   "name": "autonome-runner",
   "version": "0.1.0",
   "private": true,
-  "description": "The maestro: plays approved tasks with the Claude Agent SDK, one session per task.",
+  "description": "The runner: runs approved tasks with the Claude Agent SDK, one session per task.",
   "type": "module",
   "bin": {
     "autonome": "dist/index.js"

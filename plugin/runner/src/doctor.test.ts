@@ -17,7 +17,7 @@ function repo(): string {
   return dir;
 }
 
-test("doctor passes when everything the maestro needs is there", async () => {
+test("doctor passes when everything the runner needs is there", async () => {
   globalThis.fetch = async (input: string | URL | Request) => {
     const url = String(input);
     if (url.endsWith("/api/tags")) return json({ models: [{ name: "nomic-embed-text:latest" }] });
@@ -73,7 +73,7 @@ test("greenfield: no gates configured and none pending from a plan still fails",
   assert.match(c.detail, /no gates configured → add them in the UI/);
 });
 
-test("greenfield: gates pending from approved plans let conduct start, and are named", async () => {
+test("greenfield: gates pending from approved plans let the run start, and are named", async () => {
   const c = await gatesCheck({ version: null, config: { gates: [] }, pending: [
     { name: "ruff-format", run: "git status", task_id: 202, plan_id: 185 },
     { name: "pytest", run: "git status", task_id: 202, plan_id: 185 }] });

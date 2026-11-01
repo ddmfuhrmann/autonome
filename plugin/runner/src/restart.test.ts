@@ -1,5 +1,5 @@
-// The context restarting under the maestro (shortlink, 2026-10-31): it waits, and a merge it could
-// not report is recorded by the next conduct.
+// The context restarting under the runner (shortlink, 2026-10-31): it waits, and a merge it could
+// not report is recorded by the next run.
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,7 +14,7 @@ process.env.AUTONOME_HOME = home;
 process.env.AUTONOME_CONTEXT_RETRY_MS = "1";
 process.env.AUTONOME_CONTEXT_WAIT_S = "2";
 const { call } = await import("./context.js");
-const { conduct } = await import("./conduct.js");
+const { run } = await import("./run.js");
 const { git } = await import("./git.js");
 
 const realFetch = globalThis.fetch;
@@ -38,7 +38,7 @@ test("an unreachable context is waited for, and the same call goes through once 
   assert.equal(healthChecks, 3);
 });
 
-test("a merge the context could not record is recorded as done by the next conduct", async () => {
+test("a merge the context could not record is recorded as done by the next run", async () => {
   const repo = realpathSync(mkdtempSync(join(tmpdir(), "autonome-repo-")));
   git(repo, "init", "-q", "-b", "main");
   git(repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init");
@@ -49,25 +49,25 @@ test("a merge the context could not record is recorded as done by the next condu
     const url = String(input);
     if (url.endsWith("/health")) return json({ status: "ok" });
     if (url.endsWith("/api/tags")) return json({ models: [{ name: "nomic-embed-text" }] });
-    if (url.endsWith("/waves/untuned")) return json([]);
+    if (url.endsWith("/waves/without-retro")) return json([]);
     if (url.endsWith("/gate-config")) return json({ config: { gates: [{ name: "t", run: "true" }] } });
     if (url.includes("/tasks/25/transition")) { transitions.push(JSON.parse(String(init?.body))); return json({ status: "done" }); }
-    return json({ task: null, rehearse: null, soundcheck: null });
+    return json({ task: null, preflight: null, smoke_test: null });
   };
-  await conduct({ project: "p", repo, maxTasks: 1, push: false, log: () => {} });
+  await run({ project: "p", repo, maxTasks: 1, push: false, log: () => {} });
   assert.deepEqual(transitions, [{ to: "done", run: { outcome: "merged" } }]);
   assert.deepEqual(readdirSync(join(home, "state")).filter((f) => f.startsWith("merged-")), []);
 });
 
 test("a setup task on a greenfield project may run the pending gates' tools, and no gate blocks it", async () => {
-  const { musicianTools } = await import("./conduct.js");
+  const { implementerTools } = await import("./run.js");
   const { execFile } = await import("node:child_process");
   const { promisify } = await import("node:util");
   const { createServer } = await import("node:http");
-  const gc = { version: null, config: { gates: [], allowed_commands: [], encore: { max: 3, stop_on_repeat: true },
-    budget: { task_tokens: 1, task_minutes: 1, plan_tokens: 1 }, review: { enabled: true, max_rounds: 2 }, soundcheck: null },
+  const gc = { version: null, config: { gates: [], allowed_commands: [], retries: { max: 3, stop_on_repeat: true },
+    budget: { task_tokens: 1, task_minutes: 1, plan_tokens: 1 }, review: { enabled: true, max_rounds: 2 }, smoke_test: null },
     pending: [{ name: "mypy", run: "uv run mypy", task_id: 202, plan_id: 185 }] };
-  assert.ok(musicianTools(gc).includes("Bash(uv:*)"));
+  assert.ok(implementerTools(gc).includes("Bash(uv:*)"));
 
   // The judge's gate run on a config with no gates yet: nothing applies, so it passes.
   const server = createServer((_req, res) => { res.setHeader("content-type", "application/json"); res.end(JSON.stringify(gc)); });

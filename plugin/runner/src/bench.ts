@@ -6,8 +6,8 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { consult } from "./agents.js";
-import { PLAN_SCHEMA, REHEARSAL_PROMPT, rehearsalPrompt } from "./conduct.js";
-import type { Effort, Plan, Rehearsal, RoleModel, Triage } from "./context.js";
+import { PLAN_SCHEMA, PREFLIGHT_PROMPT, preflightPrompt } from "./run.js";
+import type { Effort, Plan, Preflight, RoleModel, Triage } from "./context.js";
 import { git } from "./git.js";
 import { review } from "./review.js";
 import { jevKey, sessionEnv } from "./secrets.js";
@@ -45,8 +45,8 @@ async function reviewerCase(who: RoleModel): Promise<Omit<Score, "role" | "case"
   const commit = "874c32c";
   const { dir, done } = checkout(`${commit}~1`, commit);
   try {
-    const task = { id: 25, project: "shortlink", status: "playing", feature: "links", layers: ["api", "domain"],
-      body: { title: "POST /links with URL validation", spec: "", acceptance: [], plan_id: 16, seq: 2, fermata: false } };
+    const task = { id: 25, project: "shortlink", status: "running", feature: "links", layers: ["api", "domain"],
+      body: { title: "POST /links with URL validation", spec: "", acceptance: [], plan_id: 16, seq: 2, hold_before_merge: false } };
     const { result, cost } = await review(task, readFileSync(join(BENCH, "reviewer-briefing.md"), "utf8"), dir,
       git(SHORTLINK, "rev-parse", `${commit}~1`), who);
     const text = result.findings.map((f) => f.issue).join("\n");
@@ -66,8 +66,8 @@ async function reviewerSeverityCase(who: RoleModel): Promise<Omit<Score, "role" 
   const commit = "56acffe";
   const { dir, done } = checkout(`${commit}~1`, commit, SHORTLINK_V2);
   try {
-    const task = { id: 115, project: "shortlink-v2", status: "playing", feature: "links", layers: ["api"],
-      body: { title: "POST /links and GET /{code}", spec: "", acceptance: [], plan_id: 0, seq: 8, fermata: false } };
+    const task = { id: 115, project: "shortlink-v2", status: "running", feature: "links", layers: ["api"],
+      body: { title: "POST /links and GET /{code}", spec: "", acceptance: [], plan_id: 0, seq: 8, hold_before_merge: false } };
     const { result, cost } = await review(task, readFileSync(join(BENCH, "reviewer-v2-briefing.md"), "utf8"), dir,
       git(SHORTLINK_V2, "rev-parse", `${commit}~1`), who);
     const raw500 = result.findings.find((f) => /\b500\b|RuntimeError/.test(f.issue));
@@ -86,8 +86,8 @@ async function reviewerInventedApiCase(who: RoleModel): Promise<Omit<Score, "rol
   const commit = "76bc1f7";
   const { dir, done } = checkout(`${commit}~1`, commit, AUTONOME);
   try {
-    const task = { id: 478, project: "autonome", status: "playing", feature: "triage", layers: ["integration", "application", "test"],
-      body: { title: "The triage module: questions, backends, verdict", spec: "", acceptance: [], plan_id: 471, seq: 3, fermata: false } };
+    const task = { id: 478, project: "autonome", status: "running", feature: "triage", layers: ["integration", "application", "test"],
+      body: { title: "The triage module: questions, backends, verdict", spec: "", acceptance: [], plan_id: 471, seq: 3, hold_before_merge: false } };
     const { result, cost } = await review(task, readFileSync(join(BENCH, "reviewer-invented-api-briefing.md"), "utf8"), dir,
       git(AUTONOME, "rev-parse", `${commit}~1`), who);
     const api = result.findings.find((f) => /systemone|\/v1\/nouls|nouls|endpoint|request (body|shape)|questions/i.test(f.issue));
@@ -98,16 +98,16 @@ async function reviewerInventedApiCase(who: RoleModel): Promise<Omit<Score, "rol
   }
 }
 
-/** Rehearsal: plan #16 as approved, against the repo after the quality-gates feature, whose import
+/** Preflight: plan #16 as approved, against the repo after the quality-gates feature, whose import
  * contract ("routes do no SQL", indirect imports included) the plan's own spec could never pass. */
-async function rehearsalCase(who: RoleModel): Promise<Omit<Score, "role" | "case" | "who" | "seconds">> {
+async function preflightCase(who: RoleModel): Promise<Omit<Score, "role" | "case" | "who" | "seconds">> {
   const { dir, done } = checkout("96cac2b");
   try {
     const plan = JSON.parse(readFileSync(join(BENCH, "shortlink-plan-16.json"), "utf8")) as Plan;
     const gates = [{ name: "imports", run: "uv run lint-imports" }, { name: "pytest", run: "uv run pytest -q" },
       { name: "types", run: "uv run mypy" }];
-    const { answer, cost } = await consult<Rehearsal>({
-      cwd: dir, ...who, role: REHEARSAL_PROMPT, schema: PLAN_SCHEMA, prompt: rehearsalPrompt(plan, "shortlink", gates),
+    const { answer, cost } = await consult<Preflight>({
+      cwd: dir, ...who, role: PREFLIGHT_PROMPT, schema: PLAN_SCHEMA, prompt: preflightPrompt(plan, "shortlink", gates),
       tools: [], maxTurns: 40,
     });
     const text = `${answer.notes}\n${JSON.stringify(answer.plan ?? {})}`;
@@ -151,7 +151,7 @@ export async function triageCase(who: RoleModel, ask: typeof consult = consult):
 
 interface KnownRevision { id: string; expected: RevisionVerdict; state: Record<string, unknown> }
 
-/** Triage: rehearsal revisions with a known verdict. Score = share of verdicts that match; the note lists
+/** Triage: preflight revisions with a known verdict. Score = share of verdicts that match; the note lists
  * the misses. A failed judgment throws (the bench records it as an error), it is never scored as an answer. */
 export async function triageRevisionsCase(judgeOne: (state: Record<string, unknown>) => Promise<{ verdict: RevisionVerdict }>,
   cases: KnownRevision[] = JSON.parse(readFileSync(join(BENCH, "triage-revisions.json"), "utf8"))): Promise<Omit<Score, "role" | "case" | "who" | "seconds">> {
@@ -179,7 +179,7 @@ const CASES: Record<string, { role: string; run: (who: RoleModel) => ReturnType<
   "reviewer/post-links": { role: "reviewer", run: reviewerCase },
   "reviewer/raw-500": { role: "reviewer", run: reviewerSeverityCase },
   "reviewer/invented-api": { role: "reviewer", run: reviewerInventedApiCase },
-  "rehearsal/plan-16": { role: "rehearsal", run: rehearsalCase },
+  "preflight/plan-16": { role: "preflight", run: preflightCase },
 };
 
 export function parseConfigs(spec: string): RoleModel[] {

@@ -1,4 +1,4 @@
-// The maestro: takes approved tasks one by one, plays each in its own session and worktree, and
+// The runner: takes approved tasks one by one, runs each in its own session and worktree, and
 // only lets work reach main when the gates agree.
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -7,30 +7,30 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { consult } from "./agents.js";
-import { ContextError, context, languageRule, roleModel, sdkModel, waitForContext, type Effort, type GateConfig, type Plan, type Rehearsal, type ReviewResult, type Run, type Task } from "./context.js";
+import { ContextError, context, languageRule, roleModel, sdkModel, waitForContext, type Effort, type GateConfig, type Plan, type Preflight, type ReviewResult, type Run, type Task } from "./context.js";
 import { doctor, report } from "./doctor.js";
 import { bashPrefixes, scopedFileCommands } from "./fsguard.js";
-import { encoreMessage, findingsForEncore, gatesSection, recordRound, review, settleRun, type GateOutcome } from "./review.js";
-import { soundcheck } from "./soundcheck.js";
+import { retryMessage, findingsForRetry, gatesSection, recordRound, review, settleRun, type GateOutcome } from "./review.js";
+import { smokeTest } from "./smoke-test.js";
 import { jevKey, sessionEnv } from "./secrets.js";
 import { triagePending, triageRevisions } from "./triage-run.js";
 import type { askJev } from "./triage.js";
 import { advisoryLine } from "./triage.js";
 import { isUsageLimit, UsageLimitError, untilReset } from "./limits.js";
-import { tuneFinishedWaves } from "./tune.js";
+import { retroFinishedWaves } from "./retro.js";
 import { EventStream, fromMessage } from "./events.js";
 
 /** Forwards a session's SDK messages to the live view under a role. */
-const live = (opts: ConductOptions, role: string, owner: { task_id?: number; plan_id?: number }) =>
+const live = (opts: RunOptions, role: string, owner: { task_id?: number; plan_id?: number }) =>
   (msg: unknown) => fromMessage(msg).forEach((e) => opts.events?.push({ ...e, role, ...owner }));
-const stage = (opts: ConductOptions, owner: { task_id?: number; plan_id?: number }, text: string) =>
-  opts.events?.push({ role: "maestro", kind: "stage", text, ...owner });
+const stage = (opts: RunOptions, owner: { task_id?: number; plan_id?: number }, text: string) =>
+  opts.events?.push({ role: "runner", kind: "stage", text, ...owner });
 import { commitMessage, fastForwardMain, git, mainCheckout, stageWork, strayFiles, tryGit } from "./git.js";
 
 export const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 export const AUTONOME_HOME = process.env.AUTONOME_HOME ?? join(homedir(), ".autonome");
 
-export interface ConductOptions {
+export interface RunOptions {
   project: string;
   repo: string;
   model?: string;
@@ -41,13 +41,13 @@ export interface ConductOptions {
   /** Keep waiting for newly approved work instead of stopping when the queue is empty (seconds between checks). */
   watch?: number;
   log: (line: string) => void;
-  /** Where the live view's events go; conduct makes one when none is given. */
+  /** Where the live view's events go; the run makes one when none is given. */
   events?: EventStream;
   /** Tests replace the agent sessions and Jev's API with fakes. */
-  seams?: { rehearse?: typeof rehearse; ask?: typeof askJev; play?: (task: Task, opts: ConductOptions) => Promise<Run | undefined> };
+  seams?: { preflight?: typeof preflight; ask?: typeof askJev; runTask?: (task: Task, opts: RunOptions) => Promise<Run | undefined> };
 }
 
-const MUSICIAN_PROMPT = `You are the implementer of one task in the autonome process. The briefing injected at
+const IMPLEMENTER_PROMPT = `You are the implementer of one task in the autonome process. The briefing injected at
 the start of this session has the task, its plan, the conventions for its layers and the gates.
 
 - Do exactly the task. Nothing listed as out of scope, no drive-by refactors.
@@ -67,11 +67,11 @@ the start of this session has the task, its plan, the conventions for its layers
   config is \`gate_config_get\` in the autonome memory.
 - Nobody will answer questions. If something is truly ambiguous, choose the option most consistent
   with the plan and the conventions, and say so in your final message.
-- When done, end your turn with a short summary. The metronome then runs every gate and may send you
-  back with a failure (an encore): fix the cause, not the symptom.`;
+- When done, end your turn with a short summary. The gate hook then runs every gate and may send you
+  back with a failure (a retry): fix the cause, not the symptom.`;
 
 /**
- * What a musician may do without asking (nobody is there to ask): read and edit files in its
+ * What an implementer may do without asking (nobody is there to ask): read and edit files in its
  * worktree, run the project's gate commands and the commands the gate config allows, and read git.
  * Everything else is denied.
  */
@@ -92,12 +92,12 @@ export function allowedTools(cfg: Pick<GateConfig["config"], "gates" | "allowed_
     // Read-only helpers sessions reach for; writing goes through Edit/Write, never the shell.
     "Bash(sed -n:*)", "Bash(echo:*)", "Bash(head:*)", "Bash(tail:*)", "Bash(wc:*)",
     ...[...commands].map((c) => `Bash(${c}:*)`),
-    // The memory, under the plugin's server name (the musician loads the plugin) and the plain one.
+    // The memory, under the plugin's server name (the implementer loads the plugin) and the plain one.
     ...["search", "conventions_get", "plan_get", "gate_config_get", "history_get"].flatMap((t) => [`mcp__autonome__${t}`, `mcp__plugin_autonome_autonome__${t}`]),
   ];
 }
 
-export const REHEARSAL_PROMPT = `You rehearse a plan of the autonome process before it plays. It was written and
+export const PREFLIGHT_PROMPT = `You run the preflight of a plan of the autonome process before it runs. It was written and
 approved together with other features of a wave; those are merged now, so the code may differ from what the
 plan assumed. Nobody will answer questions.
 
@@ -118,7 +118,7 @@ changes the rule when the rule is what is wrong. Never weaken a gate quietly.
 - verdict "revise": only when a task would do the wrong thing or something it needs is missing (a task is
   already done, an assumption is false, the order no longer works). Return the whole revised plan in
   \`plan\`, same shape as the original, same goal and out of scope; change only what must change. The
-  human approves it before anything plays.`;
+  human approves it before anything runs.`;
 
 export const PLAN_SCHEMA = {
   type: "object",
@@ -130,33 +130,33 @@ export const PLAN_SCHEMA = {
   required: ["verdict", "notes"],
 } as const;
 
-/** The rehearsal: a read-only session checks a wave plan against main before its first task plays. */
-export function rehearsalPrompt(plan: Plan, project: string, gates: GateConfig["config"]["gates"]): string {
+/** The preflight: a read-only session checks a wave plan against main before its first task runs. */
+export function preflightPrompt(plan: Plan, project: string, gates: GateConfig["config"]["gates"]): string {
   const { title, ...rest } = plan.body;
   delete rest.preflight;
-  return `Rehearse plan #${plan.id} (feature ${plan.feature ?? "-"}, project ${project}):\n\n` +
+  return `Preflight of plan #${plan.id} (feature ${plan.feature ?? "-"}, project ${project}):\n\n` +
     JSON.stringify({ title, ...rest }, null, 2) +
     `\n\n## Gates it must pass\n${gates.map((g) => `- ${g.name}: \`${g.run}\``).join("\n") || "- (none configured)"}`;
 }
 
-export async function rehearse(plan: Plan, opts: ConductOptions): Promise<Rehearsal> {
+export async function preflight(plan: Plan, opts: RunOptions): Promise<Preflight> {
   const { gates } = (await context.gateConfig(opts.project)).config;
   const cfg = (await context.gateConfig(opts.project)).config;
-  const { answer } = await consult<Rehearsal>({
+  const { answer } = await consult<Preflight>({
     cwd: mainCheckout(opts.repo) ?? opts.repo,
-    ...roleModel(cfg, "rehearsal", opts),
-    role: REHEARSAL_PROMPT,
+    ...roleModel(cfg, "preflight", opts),
+    role: PREFLIGHT_PROMPT,
     language: languageRule(cfg),
     schema: PLAN_SCHEMA,
-    prompt: rehearsalPrompt(plan, opts.project, gates),
-    onMessage: live(opts, "rehearsal", { plan_id: plan.id }),
+    prompt: preflightPrompt(plan, opts.project, gates),
+    onMessage: live(opts, "preflight", { plan_id: plan.id }),
   });
   return answer;
 }
 
-/** The musician may also run the commands of gates still pending from approved plans: on a greenfield
- * project the setup task that installs them (e.g. `uv add --dev mypy`) is the first thing to play. */
-export function musicianTools(gc: GateConfig): string[] {
+/** The implementer may also run the commands of gates still pending from approved plans: on a greenfield
+ * project the setup task that installs them (e.g. `uv add --dev mypy`) is the first thing to run. */
+export function implementerTools(gc: GateConfig): string[] {
   return allowedTools({ ...gc.config, gates: [...gc.config.gates, ...(gc.pending ?? [])] });
 }
 
@@ -178,7 +178,7 @@ function gates(cwd: string, base: string): { passed: boolean; summary: string; o
   }
 }
 
-function metronomeState(sessionId: string): { status?: string; reason?: string } {
+function gateHookState(sessionId: string): { status?: string; reason?: string } {
   const p = join(AUTONOME_HOME, "state", `${sessionId}.json`);
   return existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : {};
 }
@@ -192,22 +192,22 @@ function transcriptPath(sessionId: string): string | null {
   return null;
 }
 
-/** The scribe: a separate agent writes the handoff of the session, linked to the task. */
-function writeHandoff(sessionId: string, cwd: string, taskId: number, project: string, log: ConductOptions["log"]): void {
+/** The handoff writer: a separate agent writes the handoff of the session, linked to the task. */
+function writeHandoff(sessionId: string, cwd: string, taskId: number, project: string, log: RunOptions["log"]): void {
   const transcript = transcriptPath(sessionId);
   if (!transcript) return log(`  no transcript found for ${sessionId}; skipping handoff`);
   const dir = join(AUTONOME_HOME, "logs");
   mkdirSync(dir, { recursive: true });
-  const payload = join(dir, `conduct-${sessionId}.json`);
+  const payload = join(dir, `run-${sessionId}.json`);
   writeFileSync(payload, JSON.stringify({ session_id: sessionId, transcript_path: transcript, cwd, task_id: taskId }));
   const r = spawnSync("python3", [join(PLUGIN_ROOT, "hooks", "write_handoff.py"), payload], {
     cwd, encoding: "utf8", env: sessionEnv({ AUTONOME_PROJECT: project }) });
   log(r.status === 0 ? `  handoff written` : `  handoff failed: ${r.stderr.slice(-500)}`);
 }
 
-/** One session of the musician; `encore` resumes it with what to fix. */
-async function play(task: Task, worktree: string, base: string, opts: ConductOptions,
-  encore?: { sessionId: string; prompt: string }) {
+/** One session of the implementer; `retry` resumes it with what to fix. */
+async function implement(task: Task, worktree: string, base: string, opts: RunOptions,
+  retry?: { sessionId: string; prompt: string }) {
   const gateConfig = await context.gateConfig(opts.project);
   const cfg = gateConfig.config;
   const abort = new AbortController();
@@ -218,20 +218,20 @@ async function play(task: Task, worktree: string, base: string, opts: ConductOpt
   let stop = "";
   try {
     for await (const msg of query({
-      prompt: encore?.prompt ?? `Play task #${task.id}: ${task.body.title}. Read the briefing, then implement it.`,
+      prompt: retry?.prompt ?? `Run task #${task.id}: ${task.body.title}. Read the briefing, then implement it.`,
       options: {
-        resume: encore?.sessionId,
+        resume: retry?.sessionId,
         cwd: worktree,
-        ...sdkModel(roleModel(cfg, "musician", opts)),
+        ...sdkModel(roleModel(cfg, "implementer", opts)),
         abortController: abort,
         permissionMode: "dontAsk",
-        allowedTools: musicianTools(gateConfig),
-        hooks: { PreToolUse: [scopedFileCommands(worktree, bashPrefixes(musicianTools(gateConfig)))] },
+        allowedTools: implementerTools(gateConfig),
+        hooks: { PreToolUse: [scopedFileCommands(worktree, bashPrefixes(implementerTools(gateConfig)))] },
         settingSources: ["project"],
         plugins: [{ type: "local", path: PLUGIN_ROOT }],
-        systemPrompt: { type: "preset", preset: "claude_code", append: MUSICIAN_PROMPT },
+        systemPrompt: { type: "preset", preset: "claude_code", append: IMPLEMENTER_PROMPT },
         env: sessionEnv({
-          AUTONOME_CONDUCT: "1",
+          AUTONOME_RUN: "1",
           AUTONOME_TASK_ID: String(task.id),
           AUTONOME_BASE_SHA: base,
           AUTONOME_PROJECT: opts.project,
@@ -240,7 +240,7 @@ async function play(task: Task, worktree: string, base: string, opts: ConductOpt
       },
     })) {
       if (msg.type === "system" && msg.subtype === "init") sessionId = msg.session_id;
-      live(opts, "musician", { task_id: task.id })(msg);
+      live(opts, "implementer", { task_id: task.id })(msg);
       if (msg.type === "assistant") {
         const u = msg.message.usage;
         tokens += (u?.input_tokens ?? 0) + (u?.output_tokens ?? 0) + (u?.cache_creation_input_tokens ?? 0);
@@ -262,9 +262,9 @@ async function play(task: Task, worktree: string, base: string, opts: ConductOpt
   return { sessionId, tokens, cost, stop };
 }
 
-/** The scribe keeps the living docs true to main after each delivery. A failure does not undo the
- * merge; the doc-drift cue picks the feature up later. */
-export function updateDocs(repo: string, project: string, args: string[], log: ConductOptions["log"]): void {
+/** The docs agent keeps the living docs true to main after each delivery. A failure does not undo the
+ * merge; the doc-drift schedule picks the feature up later. */
+export function updateDocs(repo: string, project: string, args: string[], log: RunOptions["log"]): void {
   const cwd = mainCheckout(repo) ?? repo;
   const r = spawnSync(join(PLUGIN_ROOT, "bin", "autonome-docs"), ["--project", project, ...args], { cwd, encoding: "utf8", env: sessionEnv() });
   log(r.status === 0 ? `  docs: ${r.stdout.trim()}` : `  docs update failed: ${r.stderr.slice(-400)}`);
@@ -290,27 +290,27 @@ function integrate(repo: string, worktree: string, branch: string, push: boolean
   return { ok: true };
 }
 
-/** Thrown when a task reached main but the context could not record it; the next conduct does. */
+/** Thrown when a task reached main but the context could not record it; the next run does. */
 class MergedUnrecorded extends ContextError {}
 
 function journalPath(project: string, taskId: number): string {
   return join(AUTONOME_HOME, "state", `merged-${project}-${taskId}.json`);
 }
 
-/** Main moved: the context must learn it, now or on the next conduct, so the task never plays twice. */
-async function recordMerged(task: Task, run: Run, opts: ConductOptions): Promise<void> {
+/** Main moved: the context must learn it, now or on the next run, so the task never runs twice. */
+async function recordMerged(task: Task, run: Run, opts: RunOptions): Promise<void> {
   try {
     await context.transition(task.id, "done", run);
   } catch (e) {
     if (!(e instanceof ContextError)) throw e;
     mkdirSync(join(AUTONOME_HOME, "state"), { recursive: true });
     writeFileSync(journalPath(opts.project, task.id), JSON.stringify({ task_id: task.id, run }));
-    throw new MergedUnrecorded(`${e.message}\n  #${task.id} is merged into main; it will be recorded as done on the next conduct`);
+    throw new MergedUnrecorded(`${e.message}\n  #${task.id} is merged into main; it will be recorded as done on the next run`);
   }
 }
 
-/** Records merges an earlier conduct could not report. */
-async function replayJournal(opts: ConductOptions): Promise<void> {
+/** Records merges an earlier run could not report. */
+async function replayJournal(opts: RunOptions): Promise<void> {
   const dir = join(AUTONOME_HOME, "state");
   const prefix = `merged-${opts.project}-`;
   for (const f of existsSync(dir) ? readdirSync(dir).filter((n) => n.startsWith(prefix)) : []) {
@@ -342,39 +342,39 @@ export interface JudgeSeams {
 export interface JudgeInput {
   task: Task;
   cfg: GateConfig["config"];
-  opts: ConductOptions;
+  opts: RunOptions;
   run: Run;
   worktree: string;
   base: string;
-  /** The musician's latest session; changes after each encore. */
+  /** The implementer's latest session; changes after each retry. */
   current: () => { sessionId: string; stop: string };
-  encore: (prompt: string) => Promise<void>;
+  retry: (prompt: string) => Promise<void>;
 }
 
-/** Gates, then the reviewer; blocking findings send the musician back to the same session.
+/** Gates, then the reviewer; blocking findings send the implementer back to the same session.
  * Returns why the task cannot merge (null when it can) and whether the reviewer's findings are the reason. */
 export async function judgeTask(input: JudgeInput, seams: JudgeSeams): Promise<{ failure: string | null; blockedOnReview: boolean }> {
-  const { task, cfg, opts, run, worktree, base, encore } = input;
+  const { task, cfg, opts, run, worktree, base, retry } = input;
   const log = opts.log;
   let cleanups = 0;
   let mediumSent = false;
   for (let round = 0; ; ) {
     const result = input.current();
-    const state = result.sessionId ? metronomeState(result.sessionId) : {};
+    const state = result.sessionId ? gateHookState(result.sessionId) : {};
     if (result.stop && isUsageLimit(result.stop)) throw new UsageLimitError(result.stop);
     if (result.stop) return { failure: result.stop, blockedOnReview: false };
-    if (state.status === "blocked") return { failure: `metronome: ${state.reason}`, blockedOnReview: false };
+    if (state.status === "blocked") return { failure: `gate hook: ${state.reason}`, blockedOnReview: false };
     stageWork(worktree);
     if (!git(worktree, "status", "--porcelain")) return { failure: "the session changed nothing", blockedOnReview: false };
     // Built in, whatever the project's gates: nothing ignored or unasked-for binary gets committed.
     const stray = strayFiles(worktree, base, `${task.body.title}\n${task.body.spec}`);
     if (stray.length) {
       const list = stray.map((p) => `- ${p}`).join("\n");
-      if (cleanups >= cfg.encore.max) return { failure: `stray files still in the change:\n${list}`, blockedOnReview: false };
+      if (cleanups >= cfg.retries.max) return { failure: `stray files still in the change:\n${list}`, blockedOnReview: false };
       cleanups++;
-      log(`  stray files in the change; encore ${cleanups}`);
-      stage(opts, { task_id: task.id }, `encore: stray files in the change`);
-      await encore(`These files would be committed but do not belong in the change. Add them (or their ` +
+      log(`  stray files in the change; retry ${cleanups}`);
+      stage(opts, { task_id: task.id }, `retry: stray files in the change`);
+      await retry(`These files would be committed but do not belong in the change. Add them (or their ` +
         `pattern) to .gitignore; the runner restages from scratch, so ignoring them is enough:\n${list}`);
       continue;
     }
@@ -398,27 +398,27 @@ export async function judgeTask(input: JudgeInput, seams: JudgeSeams): Promise<{
     }
     run.cost_usd = (run.cost_usd ?? 0) + rv.cost;
     // Medium findings go back once; after that only high ones do, so rounds converge.
-    const message = encoreMessage(rv.result, round < cfg.review.max_rounds && !mediumSent);
+    const message = retryMessage(rv.result, round < cfg.review.max_rounds && !mediumSent);
     mediumSent ||= rv.result.verdict === "pass" && !!message;
     if (rv.result.verdict === "pass" && !message) return { failure: null, blockedOnReview: false }; // what is left becomes loose ends at merge
     if (round >= cfg.review.max_rounds) {
-      return { failure: `review: still blocking after ${round} encore(s):\n${findingsForEncore(rv.result)}`, blockedOnReview: true };
+      return { failure: `review: still blocking after ${round} retr${round === 1 ? "y" : "ies"}:\n${findingsForRetry(rv.result)}`, blockedOnReview: true };
     }
     round++;
     const why = rv.result.verdict === "pass" ? "medium findings" : "blocking findings";
-    log(`  review: ${why}; encore ${round}`);
-    stage(opts, { task_id: task.id }, `encore ${round}: back to the musician with the reviewer's ${why}`);
-    await encore(message!);
+    log(`  review: ${why}; retry ${round}`);
+    stage(opts, { task_id: task.id }, `retry ${round}: back to the implementer with the reviewer's ${why}`);
+    await retry(message!);
   }
 }
 
-/** Plays one task; returns its last run, for the summary. */
-async function conductTask(task: Task, opts: ConductOptions): Promise<Run | undefined> {
+/** Runs one task; returns its last run, for the summary. */
+async function runTask(task: Task, opts: RunOptions): Promise<Run | undefined> {
   const { repo, log } = opts;
   if (task.status === "released") {
     const last = task.body.runs?.at(-1);
     if (!last) return void (await context.transition(task.id, "pending"));
-    log(`#${task.id} released at the fermata; merging ${last.branch}`);
+    log(`#${task.id} released from the hold before merge; merging ${last.branch}`);
     const r = integrate(repo, last.worktree, last.branch, opts.push);
     const final: Run = { ...last, at: now(), outcome: r.ok ? "merged" : "merge-failed", reason: r.reason };
     if (r.ok) await recordMerged(task, final, opts);
@@ -432,12 +432,12 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<Run | unde
   const branch = `autonome/task-${task.id}-${Date.now().toString(36)}`;
   const worktree = join(dirname(repo), ".autonome-worktrees", branch.replaceAll("/", "-"));
   git(repo, "worktree", "add", "-q", "-b", branch, worktree, base);
-  log(`#${task.id} ${task.body.title} — playing in ${worktree}`);
-  stage(opts, { task_id: task.id }, `playing on ${branch}`);
+  log(`#${task.id} ${task.body.title} — running in ${worktree}`);
+  stage(opts, { task_id: task.id }, `running on ${branch}`);
   const started = Date.now();
 
   const cfg = (await context.gateConfig(opts.project)).config;
-  let result = await play(task, worktree, base, opts);
+  let result = await implement(task, worktree, base, opts);
   const run: Run = { at: now(), session_id: result.sessionId, branch, worktree, base, outcome: "",
     tokens: result.tokens, cost_usd: result.cost };
   let blockedOnReview = false; // the reviewer's findings are why the task blocks, not a gate or the merge
@@ -451,15 +451,15 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<Run | unde
     return run;
   };
 
-  // Gates, then the reviewer; blocking findings send the musician back to the same session.
-  const encore = async (prompt: string) => {
-    result = await play(task, worktree, base, opts, { sessionId: result.sessionId, prompt });
+  // Gates, then the reviewer; blocking findings send the implementer back to the same session.
+  const retry = async (prompt: string) => {
+    result = await implement(task, worktree, base, opts, { sessionId: result.sessionId, prompt });
     run.tokens = (run.tokens ?? 0) + result.tokens;
     run.cost_usd = (run.cost_usd ?? 0) + result.cost;
   };
   let failure: string | null;
   try {
-    const judged = await judgeTask({ task, cfg, opts, run, worktree, base, current: () => result, encore }, {
+    const judged = await judgeTask({ task, cfg, opts, run, worktree, base, current: () => result, retry }, {
       gates,
       review,
       briefing: async () => (await context.briefing(opts.project, task.id)).text,
@@ -467,7 +467,7 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<Run | unde
     failure = judged.failure;
     blockedOnReview = judged.blockedOnReview;
   } catch (e) {
-    // Out of usage (in the musician or a reviewer): the work so far is dropped, the task plays again later.
+    // Out of usage (in the implementer or a reviewer): the work so far is dropped, the task runs again later.
     if (e instanceof UsageLimitError || isUsageLimit(String(e))) {
       tryGit(repo, "worktree", "remove", "--force", worktree);
       tryGit(repo, "branch", "-D", branch);
@@ -483,16 +483,16 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<Run | unde
   execFileSync("git", ["commit", "-q", "-F", "-"], { cwd: worktree, input: commitMessage(task), env: sessionEnv() });
 
   run.duration_s = Math.round((Date.now() - started) / 1000);
-  if (task.body.fermata) {
+  if (task.body.hold_before_merge) {
     settleRun(run, "merged");
-    log(`  green; held at the fermata for your review`);
-    stage(opts, { task_id: task.id }, "held at the fermata");
+    log(`  green; held before merge for your review`);
+    stage(opts, { task_id: task.id }, "held before merge");
     Object.assign(run, { outcome: "on_hold", diff_stat: git(worktree, "diff", "--stat", `${base}..HEAD`),
       diff: git(worktree, "diff", `${base}..HEAD`).slice(0, 60_000) });
     await context.transition(task.id, "on_hold", run);
     return run;
   }
-  if (task.body.playback) {
+  if (task.body.after_merge) {
     // Kept for the review after merge: what went in, as it went in.
     Object.assign(run, { diff_stat: git(worktree, "diff", "--stat", `${base}..HEAD`),
       diff: git(worktree, "diff", `${base}..HEAD`).slice(0, 60_000) });
@@ -519,7 +519,7 @@ export interface Played {
   reason?: string;
 }
 
-/** What the conductor prints when it stops; the wave page shows the same from the context. */
+/** What the runner prints when it stops; the wave page shows the same from the context. */
 export function summary(played: Played[]): string {
   if (!played.length) return "";
   const n = (o: string) => played.filter((p) => p.outcome === o).length;
@@ -532,16 +532,16 @@ export function summary(played: Played[]): string {
     ` · ${mins(total.d)} · ${total.t} tokens`, ...lines].join("\n");
 }
 
-async function soundcheckPlan(plan: Plan, opts: ConductOptions): Promise<void> {
+async function smokeTestPlan(plan: Plan, opts: RunOptions): Promise<void> {
   const config = (await context.gateConfig(opts.project)).config;
-  const cfg = config.soundcheck;
+  const cfg = config.smoke_test;
   if (!cfg) return;
-  opts.log(`plan #${plan.id} ${plan.body.title}: every task merged; soundcheck`);
-  stage(opts, { plan_id: plan.id }, "soundcheck");
-  const r = await soundcheck(plan, cfg, mainCheckout(opts.repo) ?? opts.repo,
-    { ...roleModel(config, "listener", opts), language: languageRule(config) }, opts.log,
-    live(opts, "listener", { plan_id: plan.id }));
-  const { outcome } = await context.soundcheck(plan.id, r);
+  opts.log(`plan #${plan.id} ${plan.body.title}: every task merged; smoke test`);
+  stage(opts, { plan_id: plan.id }, "smoke test");
+  const r = await smokeTest(plan, cfg, mainCheckout(opts.repo) ?? opts.repo,
+    { ...roleModel(config, "tester", opts), language: languageRule(config) }, opts.log,
+    live(opts, "tester", { plan_id: plan.id }));
+  const { outcome } = await context.smokeTest(plan.id, r);
   opts.log(outcome === "done" ? `  passed; the feature is done`
     : outcome === "fixing" ? `  failed; ${r.fixes.length} fix task(s) queued`
     : `  failed; the plan is blocked for your decision`);
@@ -574,15 +574,15 @@ export async function recordRunnerError(
   return to;
 }
 
-/** Rehearses a claimed plan and posts the result. Returns false when the plan is held: the task goes
+/** Runs the preflight of a claimed plan and posts the result. Returns false when the plan is held: the task goes
  * back to pending, and when the triage accepts the revision at once the plan is approved, so the next
- * claim plays it in the same run. A failure of the triage leaves the plan held; it never stops conduct. */
-export async function rehearsePlan(plan: Plan, task: Task, opts: ConductOptions, seams: {
-  rehearse?: typeof rehearse; ask?: typeof askJev;
+ * claim runs it in the same run. A failure of the triage leaves the plan held; it never stops the run. */
+export async function preflightPlan(plan: Plan, task: Task, opts: RunOptions, seams: {
+  preflight?: typeof preflight; ask?: typeof askJev;
 } = {}): Promise<boolean> {
-  opts.log(`plan #${plan.id} ${plan.body.title}: rehearsing against main`);
-  const r = await (seams.rehearse ?? rehearse)(plan, opts);
-  const { plan_status } = await context.rehearsal(plan.id, r);
+  opts.log(`plan #${plan.id} ${plan.body.title}: preflight against main`);
+  const r = await (seams.preflight ?? preflight)(plan, opts);
+  const { plan_status } = await context.preflight(plan.id, r);
   if (plan_status !== "held") {
     opts.log(`  ready`);
     return true;
@@ -592,7 +592,7 @@ export async function rehearsePlan(plan: Plan, task: Task, opts: ConductOptions,
     const accepted = await triageRevisions(opts.project, (await context.gateConfig(opts.project)).config,
       { ...opts, ask: seams.ask });
     if (accepted.includes(plan.id)) {
-      opts.log(`  the revision was accepted by the triage; the plan plays`);
+      opts.log(`  the revision was accepted by the triage; the plan runs`);
       return false;
     }
   } catch (e) {
@@ -602,9 +602,9 @@ export async function rehearsePlan(plan: Plan, task: Task, opts: ConductOptions,
   return false;
 }
 
-export async function conduct(opts: ConductOptions): Promise<number> {
+export async function run(opts: RunOptions): Promise<number> {
   if (!(await waitForContext(Number(process.env.AUTONOME_CONTEXT_WAIT_S ?? 30)))) {
-    throw new Error("autonome-context is unreachable; the conductor does not play without it");
+    throw new Error("autonome-context is unreachable; the runner does not run tasks without it");
   }
   if (git(opts.repo, "rev-parse", "--show-toplevel") !== resolve(opts.repo)) {
     throw new Error(`${opts.repo} is not the root of a git repository`);
@@ -615,7 +615,7 @@ export async function conduct(opts: ConductOptions): Promise<number> {
   const warned = checks.filter((c) => c.warn);
   if (warned.length) opts.log(report(warned));
   await replayJournal(opts);
-  let played = 0;
+  let ran = 0;
   let sinceOverview = 0;
   const tally: Played[] = [];
   opts.events ??= new EventStream(opts.project);
@@ -627,23 +627,23 @@ export async function conduct(opts: ConductOptions): Promise<number> {
     opts.log(`triage: skipped at start: ${String(e)}`); // never the task's fault; the next run retries
   }
   try {
-    return await playAll();
+    return await runAll();
   } finally {
     await opts.events?.flush();
     const text = summary(tally);
     if (text) opts.log(text);
   }
 
-  async function playAll(): Promise<number> {
-    while (played < opts.maxTasks) {
-      const { task, rehearse: plan, soundcheck: finished } = await context.claim(opts.project);
+  async function runAll(): Promise<number> {
+    while (ran < opts.maxTasks) {
+      const { task, preflight: plan, smoke_test: finished } = await context.claim(opts.project);
       if (finished) {
-        await soundcheckPlan(finished, opts);
+        await smokeTestPlan(finished, opts);
         continue;
       }
       if (!task) {
-        // The queue is empty: a wave may have just finished. Learn from it before waiting or leaving.
-        await tuneFinishedWaves(opts);
+        // The queue is empty: a wave may have just finished. Run its retro before waiting or leaving.
+        await retroFinishedWaves(opts);
         if (!opts.watch) break;
         if (sinceOverview) updateDocs(opts.repo, opts.project, ["--overview"], opts.log);
         sinceOverview = 0;
@@ -651,17 +651,17 @@ export async function conduct(opts: ConductOptions): Promise<number> {
         continue;
       }
       try {
-        if (plan && !(await rehearsePlan(plan, task, opts, opts.seams))) continue;
-        const run = await (opts.seams?.play ?? conductTask)(task, opts);
-        if (run) tally.push({ id: task.id, title: task.body.title, outcome: run.outcome, reason: run.reason,
-          review_rounds: run.review_rounds ?? 0, duration_s: run.duration_s ?? 0, tokens: run.tokens ?? 0 });
+        if (plan && !(await preflightPlan(plan, task, opts, opts.seams))) continue;
+        const done = await (opts.seams?.runTask ?? runTask)(task, opts);
+        if (done) tally.push({ id: task.id, title: task.body.title, outcome: done.outcome, reason: done.reason,
+          review_rounds: done.review_rounds ?? 0, duration_s: done.duration_s ?? 0, tokens: done.tokens ?? 0 });
       } catch (e) {
         if (e instanceof MergedUnrecorded) throw e;
         if (e instanceof UsageLimitError || isUsageLimit(String(e))) {
           await context.transition(task.id, "pending").catch(() => undefined);
           const message = e instanceof Error ? e.message : String(e);
           if (!opts.watch) {
-            opts.log(`usage limit: ${message}\n  #${task.id} goes back to pending; run conduct again after the reset`);
+            opts.log(`usage limit: ${message}\n  #${task.id} goes back to pending; run again after the reset`);
             throw e instanceof UsageLimitError ? e : new UsageLimitError(message);
           }
           const wait = untilReset(message);
@@ -671,7 +671,7 @@ export async function conduct(opts: ConductOptions): Promise<number> {
         }
         if (e instanceof ContextError) {
           // Not the task's fault: hand it back and stop, rather than block it or spin on a broken context.
-          opts.log(`${e.message}\n  #${task.id} goes back to pending; stopping the conductor`);
+          opts.log(`${e.message}\n  #${task.id} goes back to pending; stopping the runner`);
           await context.transition(task.id, "pending").catch(() => undefined);
           throw e;
         }
@@ -680,11 +680,11 @@ export async function conduct(opts: ConductOptions): Promise<number> {
         const to = await recordRunnerError(task, e, (id, status, run) => context.transition(id, status, run));
         if (to === "blocked") opts.log(`  #${task.id} failed ${ERROR_STREAK} times in a row; blocked`);
       }
-      played++;
+      ran++;
       sinceOverview++;
     }
     if (sinceOverview) updateDocs(opts.repo, opts.project, ["--overview"], opts.log);
-    opts.log(played ? `played ${played} task(s)` : "nothing to play");
-    return played;
+    opts.log(ran ? `ran ${ran} task(s)` : "nothing to run");
+    return ran;
   }
 }
