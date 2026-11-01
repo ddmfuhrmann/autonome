@@ -79,7 +79,7 @@ run: abandon or re-plan them too).
 
 **To review when you like** never blocks anything:
 
-- **Review after merge**: merged work of the features you review forward. "Reviewed" or "Needs a fix…"
+- **Review after merge**: merged work of the features you review forward. "Looks right" or "Needs a fix…"
   (your reason becomes a fix task in the maintenance plan).
 - **Loose ends** (shown as review after merge): any merged task the reviewer passed with medium findings, or
   whose handoff reports a plan item partial or skipped ("not verified"). They used to vanish; now
