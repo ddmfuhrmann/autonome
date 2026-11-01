@@ -18,10 +18,10 @@ Drift is caught late.
 """
 
 ROADMAP = """<html><script type="application/json" id="roadmap-data">
-{"updated": "2026-10-29", "waves": [{"n": 1, "name": "Fundação local"}, {"n": 2, "name": "credito-api"}],
+{"updated": "2026-10-29", "waves": [{"n": 1, "name": "Fundação local"}, {"n": 2, "name": "checkout-api"}],
  "cards": [{"id": "w1-repo", "wave": 1, "title": "Criar repo", "status": "done"},
            {"id": "w1-skeleton", "wave": 1, "title": "Esqueleto do monorepo", "status": "next", "note": "pom agregador"},
-           {"id": "w2-inquiry", "wave": 2, "title": "Consulta de CPF", "status": "backlog", "prd": "docs/prd/consulta.md"}]}
+           {"id": "w2-orders", "wave": 2, "title": "Consulta de pedidos", "status": "backlog", "prd": "docs/prd/pedidos.md"}]}
 </script></html>"""
 
 
@@ -49,4 +49,4 @@ def test_adrs_and_the_roadmap_import_once_and_update_on_a_second_run(run_db, pro
     assert len(decisions) == 1 and decisions[0]["status"] == "superseded"
     assert decisions[0]["body"]["consequences"] == "Drift is caught late, by a human."
     assert sorted((b["body"]["title"], b["status"], len(b["body"]["items"])) for b in backlog) == [
-        ("Wave 1: Fundação local", "open", 2), ("Wave 2: credito-api", "open", 1)]
+        ("Wave 1: Fundação local", "open", 2), ("Wave 2: checkout-api", "open", 1)]

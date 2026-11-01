@@ -26,7 +26,7 @@ Before asking the user anything:
   subject (items changed or skipped, deviations and how the user judged them, reviewer blocks, fixes,
   blocked tasks, friction). Every pattern there is a lesson this plan must apply (section 3).
 - `plan_list` for plans on the same feature (an approved one may already cover it).
-- When the user names a roadmap wave ("wave 2", "the credito-api wave"), read it with `backlog_list`
+- When the user names a roadmap wave ("wave 2", "the checkout-api wave"), read it with `backlog_list`
   (`wave`): its open items are the starting scope of the autonome wave, and their notes and PRD flags
   are context. Record what the conversation decides about them with `backlog_item_update` (an item
   moved to another wave, its status, a note on why it is left out), `backlog_item_add` (something new

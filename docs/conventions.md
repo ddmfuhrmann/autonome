@@ -75,7 +75,7 @@ title: Tests assert behaviour         layers: test
 rule:  A test exists to check a behaviour; never a test that only executes code to raise coverage.
 why:   Coverage-only tests pass while the behaviour is wrong (shortlink v1).
 
-title: CPF never in clear             layers: (all)
-rule:  A CPF is always the Cpf value object, whose toString() masks it; it is never logged or printed.
-why:   LGPD; logs and traces leave the database's protection.
+title: Card numbers never in clear    layers: (all)
+rule:  A card number is always the CardNumber value object, whose toString() masks it; it is never logged or printed.
+why:   PCI; logs and traces leave the database's protection.
 ```
