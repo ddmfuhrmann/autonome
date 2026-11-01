@@ -163,7 +163,10 @@ insights lists it under `conflicts`. With the triage off it waits for the human 
 reviewer round of a task is kept in the run's `reviews`, with each finding's outcome. Deviations are
 triaged, and so is every accepted decision: the runner screens it first (one question, `is_deviation`; the result is kept in the decision's `screening`) and
 reopens it as a deviation (`accepted → proposed`, `screened_as_deviation`) when the score reaches
-`reject_at`, then the triage judges it as any other. Proposed conventions, playback, fermata and blocked
+`reject_at`, then the triage judges it as any other. The human's reject outranks the triage: a
+decision from the handoff of an undo task for a decision the human rejected is marked
+`undo_of_human_reject` and accepted as the human's choice, neither screened nor judged (an undo of a
+triage reject is still judged, with its round). Proposed conventions, playback, fermata and blocked
 tasks stay with the human. A *playback* task is merged and
 waits for the human's review in the background; "needs a fix" becomes a new task.
 

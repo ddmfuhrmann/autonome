@@ -59,7 +59,9 @@ plugin/runner/  the maestro (TypeScript, Claude Agent SDK): one session + worktr
   proposed, shows in the approvals queue as "to review", never blocks, and is fixed by changing the
   rule; no undo task. Rounds that run out leave the decision proposed, off the queue, shown in insights. Every
   accepted decision is screened first (`is_deviation`); at or above `reject_at` it is reopened as a
-  deviation and judged like one, so a deviation the scribe missed is still caught. The
+  deviation and judged like one, so a deviation the scribe missed is still caught. The human's reject
+  outranks the triage: a decision born from the undo of a decision the human rejected
+  (`undo_of_human_reject`) is accepted as the human's choice, with no screening or judging. The
   Jev key (`TYPESAFE_API_KEY`) lives in the runner's environment or `~/.autonome/secrets.env`, never in
   the gate config, and never reaches agent sessions.
 - **Models**: every agent role (musician, reviewer, rehearsal, listener, tune, handoff, docs) has a
@@ -86,7 +88,9 @@ plugin/runner/  the maestro (TypeScript, Claude Agent SDK): one session + worktr
   to a gate, one remedy per problem) ← cues (scheduled checks that only queue tasks into a maintenance plan a human approved once).
   Only conduct writes code.
 - **Infrastructure is not the task's fault.** A context outage, a restart or the account's usage
-  limit hands the task back to pending (waiting where it can); it never blocks a task. A merge the
+  limit hands the task back to pending (waiting where it can); it never blocks a task. The same goes for
+  the monthly spend limit and for any exception of the runner itself; only the third exception in a
+  row blocks the task, as `runner error`, so a bug does not hide. A merge the
   context could not record is journaled and recorded by the next run.
 - **Projects opt in.** The hooks act only in a project with a saved gate config, approved plans that
   bring gates, or `AUTONOME_PROJECT`; elsewhere they spend nothing.
