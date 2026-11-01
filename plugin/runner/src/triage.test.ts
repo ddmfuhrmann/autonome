@@ -7,7 +7,7 @@ import { type Answers, haiku, jev, judge, pingJev, QUESTIONS, SCREEN_QUESTION, s
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; });
 
-const base: Answers = { drops_coverage: 0, contradicts: 0, workaround: 0, required_by_plan: 0, narrower: 0 };
+const base: Answers = { drops_coverage: 0, contradicts: 0, workaround: 0, required_by_plan: 0, narrower: 0, rule_conflict: 0 };
 const ans = (o: Partial<Answers>): Answers => ({ ...base, ...o });
 const cfg: Triage = { model: "jev-latest", fallback: "haiku", reject_at: 0.7, max_rounds: 2 };
 const state = { deviation: { title: "t" } };
@@ -25,6 +25,30 @@ test("verdict table", () => {
   assert.equal(verdict(ans({ workaround: 0.9, required_by_plan: 0.5 }), 0.7), "reject");
   // required_by_plan excuses only the workaround
   assert.equal(verdict(ans({ drops_coverage: 0.9, required_by_plan: 0.9 }), 0.7), "reject");
+});
+
+test("verdict table with the bench's shapes: a weakened test first, then a rule conflict", () => {
+  assert.equal(verdict(ans({ drops_coverage: 0.7, rule_conflict: 0.9 }), 0.7), "reject"); // #180
+  assert.equal(verdict(ans({ drops_coverage: 0.17, rule_conflict: 0.91, contradicts: 0.86 }), 0.7), "escalate"); // #217
+  assert.equal(verdict(ans({ drops_coverage: 0.89, rule_conflict: 0.54 }), 0.7), "reject"); // #594
+  assert.equal(verdict(ans({ drops_coverage: 0.93, rule_conflict: 0.73 }), 0.7), "reject"); // #439
+  assert.equal(verdict(ans({ drops_coverage: 0.5, contradicts: 0.5, workaround: 0.5, rule_conflict: 0.5 }), 0.7), "accept");
+  assert.equal(verdict(ans({ rule_conflict: 0.7 }), 0.7), "escalate");
+  assert.equal(verdict(ans({ rule_conflict: 0.69, contradicts: 0.9 }), 0.7), "reject");
+});
+
+test("the Jev request carries rule_conflict as a noul and reads its answer", async () => {
+  const calls = fakeJev(ans({ rule_conflict: 0.91 }));
+  const got = await jev(state, "k");
+  assert.equal(got.rule_conflict, 0.91);
+  assert.deepEqual(calls[0].body.questions.rule_conflict, { type: "noul", instructions: QUESTIONS.rule_conflict });
+});
+
+test("a missing rule_conflict answer throws, from jev and from haiku", async () => {
+  const { rule_conflict: _, ...missing } = ans({});
+  fakeJev(missing);
+  await assert.rejects(jev(state, "k"), /rule_conflict/);
+  await assert.rejects(haiku(state, askHaiku({ answers: missing })), /rule_conflict/);
 });
 
 test("jev failure falls back to haiku", async () => {

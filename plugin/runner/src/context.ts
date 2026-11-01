@@ -111,7 +111,7 @@ export interface TriageVerdictBody {
   model: string;
   state: string;
   answers: Record<string, string>;
-  verdict: "accept" | "reject";
+  verdict: "accept" | "reject" | "escalate";
   round: number;
 }
 

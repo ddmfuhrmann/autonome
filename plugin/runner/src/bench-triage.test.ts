@@ -8,7 +8,7 @@ const FIXTURE = new URL("../bench/triage-deviations.json", import.meta.url);
 const cases = JSON.parse(readFileSync(FIXTURE, "utf8")) as { id: string; expected: string; state: { deviation: { title: string } } }[];
 
 const answers = (flag: number): Answers =>
-  ({ drops_coverage: flag, contradicts: 0, workaround: 0, required_by_plan: 0, narrower: 0 });
+  ({ drops_coverage: flag, contradicts: 0, workaround: 0, required_by_plan: 0, narrower: 0, rule_conflict: 0 });
 
 test("the fixture has the 7 real shortlink deviations, 6 accepted and 1 rejected", () => {
   assert.equal(cases.length, 7);

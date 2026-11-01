@@ -9,6 +9,7 @@
 {%- elif item.kind == 'soundcheck' %} · soundcheck failed
 {%- elif item.kind == 'fermata' %} · gates passed{% if item.last and item.last.review %}, reviewer {{ item.last.review.verdict }}{% endif %}
 {%- elif item.kind == 'blocked' %}{% set run = (d.body.runs or [none])[-1] %}{% if run and (run.reason or run.outcome) %} · {{ (run.reason or run.outcome).split('\n')[0]|truncate(90) }}{% endif %}
+{%- elif item.kind == 'decision' and d.body.triage and d.body.triage.verdict == 'escalate' %} · rule conflict
 {%- elif item.kind == 'playback' %} · {{ 'loose ends at merge' if (d.body.playback_review or {}).loose_ends else 'merged' }}
 {%- endif %}{% if item.plan %} · {{ item.plan|ref }}{% endif %}{% endmacro %}
 

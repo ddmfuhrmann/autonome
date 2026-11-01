@@ -161,6 +161,9 @@ conventions and gates instead.
 - **On failure**: Jev down or no key → the fallback judges; if that fails too (or is `off`) nothing
   is recorded, the decision stays proposed and is tried again at the next run. A failed triage never
   breaks storing a handoff.
+- **Rule conflicts**: a weakened test is rejected first; otherwise a deviation whose `rule_conflict`
+  reaches `reject_at` is escalated, not rejected: it stays proposed and waits in the approvals queue,
+  non-blocking, for you to fix the rule. No undo task.
 - **Rounds exhausted**: at `max_rounds` a rejection leaves the decision proposed, marked exhausted. It
   leaves the approvals queue and shows in insights and on the triage page.
 - **Reviewer findings**: with `model: jev-latest` and a key, each high finding the reviewer raises

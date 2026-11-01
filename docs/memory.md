@@ -156,7 +156,9 @@ A decision recorded by a handoff is **in effect** unless it departs from the pla
 (a deviation). With the triage on, the **runner** moves a proposed deviation (`proposed → accepted`
 or `rejected`) with the classifier's verdict, which is kept in the decision's `triage_history`
 (backend, model, the state shown, the answers, the verdict, the round). A rejection queues a task to
-undo it; when `max_rounds` run out it stays proposed, marked exhausted, off the queue. With the
+undo it; when `max_rounds` run out it stays proposed, marked exhausted, off the queue. A deviation that
+follows one rule against another (`rule_conflict`) is escalated: it stays proposed, with no undo task,
+in the approvals queue as a non-blocking rule conflict. With the
 triage off it waits for the human as before. Every reviewer round of a task is kept in the run's
 `reviews`, with each finding's outcome. Deviations are triaged, and so is every accepted decision: the runner
 screens it first (one question, `is_deviation`; the result is kept in the decision's `screening`) and
