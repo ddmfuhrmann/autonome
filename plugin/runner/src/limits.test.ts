@@ -5,6 +5,7 @@ import { isUsageLimit, untilReset } from "./limits.js";
 test("the account's usage limit is told apart from a task's own failure", () => {
   assert.ok(isUsageLimit("Error: Claude Code returned an error result: You've hit your session limit · resets 3:40pm (America/Sao_Paulo)"));
   assert.ok(isUsageLimit("usage limit reached"));
+  assert.ok(isUsageLimit("You've hit your monthly spend limit · raise it at https://claude.ai/settings/usage"));
   assert.ok(!isUsageLimit("token budget exceeded (500000 > 400000)"));
   assert.ok(!isUsageLimit("gates failed on top of main: pytest failed"));
 });

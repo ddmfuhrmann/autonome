@@ -83,7 +83,8 @@ play without asking.
 |---|---|---|
 | `context API unreachable … waiting` | the context is restarting | nothing: it waits (`AUTONOME_CONTEXT_WAIT_S`, 5 min) and resumes |
 | `context API 500 on …; stopping the conductor` | the context failed for real | check `docker compose logs context`; the task went back to pending; run again |
-| `usage limit: … run conduct again after the reset` | the account's usage limit | run again after the reset, or use `--watch`, which waits for it; the task went back to pending |
+| `usage limit: … run conduct again after the reset` | the account's usage limit or monthly spend limit | run again after the reset (or raise the limit), or use `--watch`, which waits for it; the task went back to pending |
+| `#N failed unexpectedly: …` | the runner itself threw (a bug, not the task) | nothing: the task went back to pending with an `error` run; the third error in a row blocks it as `runner error (3 in a row)` |
 | `… is merged into main; it will be recorded as done on the next conduct` | main moved but the context could not hear it | run `conduct` again: it records the merge first |
 | `autonome doctor found problems; not starting` | see "Before a run" | |
 | `nothing to play` | no approved task is ready | approve a plan, or check Approvals for what blocks |
