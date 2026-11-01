@@ -1,6 +1,6 @@
 """SessionStart hook: tells the agent what the project's memory knows.
 
-In a conduct session (AUTONOME_TASK_ID set) it injects the task, its plan, the conventions for the
+In a runner session (AUTONOME_TASK_ID set) it injects the task, its plan, the conventions for the
 task's layers and earlier friction in the feature. Otherwise it injects a short pointer to the
 memory. Silent when the context is down or the project is not set up for autonome.
 """
