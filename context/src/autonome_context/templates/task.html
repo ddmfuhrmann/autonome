@@ -2,9 +2,10 @@
 {% import "_ui.html" as ui %}
 {% block title %}{{ doc|ref }}{% endblock %}
 {% block crumbs %}{% if plan %}<a href="/ui/p/{{ project }}/documents/{{ plan.id }}">{{ plan|ref }}</a><span class="sep">/</span>{% endif %}<span aria-current="page">{{ doc|ref }}</span>{% endblock %}
+{% block topbar %}{% if doc.status in ('pending', 'playing') %}<span class="live" aria-live="polite">Live</span>{% endif %}{% endblock %}
 {% block main %}
 {% set b = doc.body %}
-<div class="page-head">
+<div class="page-head"{% if doc.status in ('pending', 'playing') %} data-refresh="3"{% endif %}>
   <div class="page-head__text">
     <div class="page-head__title"><span class="id">{{ doc|ref }}</span><h1>{{ b.title }}</h1>
       {% set pr = b.playback_review %}{% if pr %}
@@ -12,7 +13,7 @@
       {% elif pr.status == 'heard' %}<span class="tag tag--feature">Heard ✓</span>
       {% else %}<a class="tag" href="/ui/p/{{ project }}/documents/{{ pr.fix_task_id }}" title="{{ pr.reason }}">Needs a fix → {{ pr.fix_task_id|ref('task') }}</a>{% endif %}
       {% endif %}</div>
-    <div class="page-head__meta">
+    <div class="page-head__meta" id="task-meta" data-live>
       {{ ui.st(doc.status, live=true) }}
       {% if stages %}<ol class="stages" aria-label="Stages">{% for name, cls in stages %}<li class="{{ cls }}"{% if cls == 'is-current' %} aria-current="step"{% endif %}><span>{{ name }}</span></li>{% endfor %}</ol>{% endif %}
     </div>
@@ -39,8 +40,8 @@
       {% if b.acceptance %}<h3>Acceptance criteria</h3><ul class="checklist">{% for a in b.acceptance %}<li class="{{ 'is-met' if doc.status == 'done' }}">{{ a|mdi }}</li>{% endfor %}</ul>{% endif %}
     </div>
   </section>
-  {% if events or doc.status == 'playing' %}
-  <section class="card" id="live" aria-labelledby="live-h" data-live{% if doc.status == 'playing' %} data-refresh="3"{% endif %}>
+  {% if events or doc.status in ('pending', 'playing') %}
+  <section class="card" id="live" aria-labelledby="live-h" data-live>
     <div class="card__head"><h2 class="card__title" id="live-h">Live</h2>
       <span class="push muted" style="font-size: 12px">{% if doc.status == 'playing' %}{{ ui.eq() }} updating while it plays{% else %}what the sessions did{% endif %}</span></div>
     <div class="card__body">
@@ -53,7 +54,7 @@
   {% endif %}
   <section class="stack" aria-labelledby="runs-h">
   <div class="section-head"><h2 id="runs-h">Runs</h2><span class="count">{{ runs|length }}</span></div>
-  <ol class="timeline" id="runs">
+  <ol class="timeline" id="runs" data-live>
     {% if doc.status == 'playing' %}
     <li class="tl"><span class="tl__node">{{ ui.icon_st('playing') }}</span>
       <div class="tl__body"><div class="tl__head"><strong>Run {{ runs|length + 1 }}</strong>{{ ui.eq() }}<span class="tl__time">started {{ doc.updated_at|ago }}</span></div>

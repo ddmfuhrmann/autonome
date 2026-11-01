@@ -134,19 +134,31 @@ document.addEventListener("DOMContentLoaded", () => {
   const stamp = document.querySelector(".live");
   let last = Date.now();
   const tick = () => { if (stamp) stamp.textContent = `Live · updated ${Math.round((Date.now() - last) / 1000)}s ago`; };
-  setInterval(tick, 1000);
-  setInterval(async () => {
+  const ticker = setInterval(tick, 1000);
+  const field = "input, textarea, select, [contenteditable]";
+  const poll = setInterval(async () => {
     if (document.hidden) return;
     try {
       const res = await fetch(location.href, { headers: { "X-Refresh": "1" } });
+      if (!res.ok) throw new Error(`refresh failed: ${res.status}`);
       const next = new DOMParser().parseFromString(await res.text(), "text/html");
+      const done = !next.querySelector("[data-refresh]");
       for (const el of document.querySelectorAll("[data-live]")) {
-        if (el.querySelector("details[open]") || el.contains(document.activeElement)) continue;
+        const active = document.activeElement;
+        if (el.querySelector("details[open]") || (active && el.contains(active) && active.matches(field))) continue;
         const fresh = next.getElementById(el.id);
         if (fresh) { el.replaceWith(fresh); formatTimes(fresh); }
+        else if (done) el.remove();
       }
       last = Date.now();
       stamp?.classList.remove("live--off");
+      if (done) {
+        // the page no longer changes by itself: that was the last swap
+        clearInterval(poll);
+        clearInterval(ticker);
+        page.removeAttribute("data-refresh");
+        stamp?.remove();
+      }
     } catch { stamp?.classList.add("live--off"); }
   }, 1000 * Number(page.dataset.refresh || 5));
 })();
