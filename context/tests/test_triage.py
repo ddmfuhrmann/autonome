@@ -215,6 +215,79 @@ def test_decided_exhausted_and_already_judged_decisions_are_not_returned(client,
     assert [i["decision_id"] for i in pending(client, project)] == [judged]
 
 
+def test_history_shows_who_judged_a_deviation_and_the_verdict(client, project, run_db, indexer):
+    from autonome_context import history
+    enable(run_db, indexer, project)
+    by_runner, _ = seed(run_db, indexer, project, session="a", title="A")
+    waiting, _ = seed(run_db, indexer, project, session="b", title="B")
+    by_human, _ = seed(run_db, indexer, project, session="c", title="C")
+    assert client.post(f"/api/decisions/{by_runner}/triage", json=verdict("accept")).status_code == 200
+    client.post(f"/ui/p/{project}/documents/{by_human}/transition", data={"to": "accepted"}, headers=FETCH)
+
+    h = run_db(lambda c: history.build(c, project, "links", indexer.embedder, feature="links"))
+    items = {i["decision"]: i for i in h["deviation_decisions"]}
+    assert (items[by_runner]["judged_by"], items[by_runner]["verdict"]) == ("haiku", "accept")
+    assert items[by_human]["judged_by"] == "human" and "verdict" not in items[by_human]
+    assert "judged_by" not in items[waiting]
+
+
+def test_insights_list_exhausted_and_undone_deviations_with_the_undo_gate_result(client, project, run_db, indexer):
+    from autonome_context import insights, rules
+    enable(run_db, indexer, project)
+    undone, _ = seed(run_db, indexer, project, session="a", title="Undone")
+    exhausted, _ = seed(run_db, indexer, project, session="b", title="Exhausted")
+    failed, _ = seed(run_db, indexer, project, session="c", title="Failed")
+    norun, _ = seed(run_db, indexer, project, session="d", title="NoRun")
+    for d in (undone, failed, norun):
+        assert client.post(f"/api/decisions/{d}/triage", json=verdict("reject")).status_code == 200
+    assert client.post(f"/api/decisions/{exhausted}/triage", json=verdict("reject", round=2)).status_code == 200
+
+    async def finish(conn):
+        undo_of = {}
+        for t in await store.list_documents(conn, project, type="task"):
+            source = str(t["body"].get("source", ""))
+            if source.startswith("decision:"):
+                undo_of[int(source[9:])] = t["id"]
+                await rules.transition(conn, t["id"], "playing", "runner")
+                await rules.transition(conn, t["id"], "done", "runner")
+        # An older session failed; only the newest session's latest result counts.
+        await store.record_gate_runs(conn, project, "undo-old", [
+            {"gate": "pytest", "passed": False, "duration_ms": 1}], task_id=undo_of[undone])
+        await store.record_gate_runs(conn, project, "undo-a", [
+            {"gate": "pytest", "passed": True, "duration_ms": 1}], task_id=undo_of[undone])
+        await store.record_gate_runs(conn, project, "undo-b", [
+            {"gate": "ruff", "passed": True, "duration_ms": 1},
+            {"gate": "pytest", "passed": False, "duration_ms": 1}], task_id=undo_of[failed])
+        await conn.commit()
+        return undo_of, await insights.build(conn, project, indexer.embedder)
+    undo_of, data = run_db(finish)
+
+    t = data["triage"]
+    assert t["by_verdict"] == {"reject": 4} and t["by_backend"] == {"haiku": 4}
+    assert t["exhausted"] == [{"decision_id": exhausted, "title": "Exhausted", "feature": "links"}]
+    assert {u["decision_id"]: (u["task_id"], u["gates_passed"], u["judged_by"]) for u in t["undone"]} == {
+        undone: (undo_of[undone], True, "haiku"), failed: (undo_of[failed], False, "haiku"),
+        norun: (undo_of[norun], None, "haiku")}
+    assert t["recurring"] == [{"feature": "links", "rejected": 3}]
+
+
+def test_a_human_settling_an_exhausted_deviation_is_the_judge(client, project, run_db, indexer):
+    from autonome_context import history, insights
+    enable(run_db, indexer, project)
+    exhausted, _ = seed(run_db, indexer, project, title="Exhausted")
+    assert client.post(f"/api/decisions/{exhausted}/triage", json=verdict("reject", round=2)).status_code == 200
+    client.post(f"/ui/p/{project}/documents/{exhausted}/transition", data={"to": "accepted"}, headers=FETCH)
+    assert status(run_db, exhausted) == "accepted"
+
+    async def read(conn):
+        return (await history.build(conn, project, "links", indexer.embedder, feature="links"),
+                await insights.build(conn, project, indexer.embedder))
+    h, data = run_db(read)
+    [item] = h["deviation_decisions"]
+    assert item["judged_by"] == "human" and "verdict" not in item
+    assert data["triage"]["by_verdict"] == {} and data["triage"]["by_backend"] == {}
+
+
 def test_the_human_path_is_unchanged(client, project, run_db, indexer, deviation):
     enable(run_db, indexer, project)
     doc_id = deviation()

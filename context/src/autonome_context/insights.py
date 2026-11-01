@@ -12,6 +12,7 @@ from psycopg.rows import dict_row
 
 from . import briefing, store
 from .embed import Embedder
+from .history import triage_entry
 
 _SIMILAR = 0.82  # cosine similarity above which two friction items count as the same problem
 
@@ -39,6 +40,34 @@ async def _friction_clusters(items: list[dict], embedder: Embedder) -> list[dict
     return [{"size": len(c["items"]), "example": c["items"][0]["text"],
              "features": sorted({i["feature"] for i in c["items"] if i["feature"]}),
              "handoffs": sorted({i["handoff_id"] for i in c["items"]})} for c in repeated]
+
+
+async def _triage(conn: AsyncConnection, project: str, tasks: list[dict]) -> dict:
+    """How the triage judged deviations and what happened next."""
+    decisions = {d["id"]: d for d in await store.list_documents(conn, project, type="decision", limit=None)
+                 if d["body"].get("deviation")}
+    judged = [e for d in decisions.values() if (e := triage_entry(d))]
+    exhausted = [{"decision_id": d["id"], "title": d["body"].get("title"), "feature": d["feature"]}
+                 for d in decisions.values() if d["body"].get("triage_exhausted")]
+    undone = []
+    for t in tasks:
+        source = str(t["body"].get("source", ""))
+        if t["status"] != "done" or not source.startswith("decision:") or not source[9:].isdigit():
+            continue
+        d = decisions.get(int(source[9:]))
+        if not d or d["status"] != "rejected":
+            continue
+        runs = sorted(await store.gate_runs(conn, task_id=t["id"]), key=lambda r: r["id"])
+        # The task's last run: the newest session's gates, the latest result of each.
+        last = {r["gate"]: r["passed"] for r in runs if r["session_id"] == runs[-1]["session_id"]}
+        undone.append({"decision_id": d["id"], "title": d["body"].get("title"), "feature": d["feature"],
+                       "task_id": t["id"], "judged_by": (triage_entry(d) or {}).get("backend", "human"),
+                       "gates_passed": all(last.values()) if last else None})
+    rejected = Counter(d["feature"] for d in decisions.values() if d["status"] == "rejected" and d["feature"])
+    return {"by_verdict": dict(Counter(j["verdict"] for j in judged)),
+            "by_backend": dict(Counter(j["backend"] for j in judged)),
+            "exhausted": exhausted, "undone": undone,
+            "recurring": [{"feature": f, "rejected": n} for f, n in rejected.most_common() if n >= 2]}
 
 
 async def build(conn: AsyncConnection, project: str, embedder: Embedder, limit: int = 200) -> dict:
@@ -125,5 +154,6 @@ async def build(conn: AsyncConnection, project: str, embedder: Embedder, limit: 
         "task_outcomes": dict(outcomes),
         "blocked": blocked,
         "review_findings": findings[:60],
+        "triage": await _triage(conn, project, tasks),
         "friction_clusters": await _friction_clusters(friction, embedder),
     }

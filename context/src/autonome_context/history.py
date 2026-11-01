@@ -12,6 +12,16 @@ _TEXT = 300  # characters kept per item: enough to read, small enough for a brie
 _PER_KIND = 12
 
 
+def triage_entry(d: dict) -> dict | None:
+    """The verdict that settled or still stands on a decision; None when the human settled it
+    (also after the rounds ran out and it stayed proposed) or nothing judged it yet."""
+    last = (d["body"].get("triage_history") or [None])[-1]
+    if not last or d["status"] == "proposed":
+        return last
+    settled = {"accept": "accepted", "reject": "rejected"}[last["verdict"]]
+    return last if settled == d["status"] and not d["body"].get("triage_exhausted") else None
+
+
 def _cut(text: str | None) -> str:
     text = " ".join((text or "").split())
     return text if len(text) <= _TEXT else text[: _TEXT - 1] + "…"
@@ -44,9 +54,14 @@ async def build(conn: AsyncConnection, project: str, subject: str, embedder: Emb
             out["friction"] += [{"feature": f, "handoff": h["id"], "text": _cut(x)} for x in b.get("friction", [])]
         for d in await store.list_documents(conn, project, type="decision", feature=f, limit=100):
             if d["body"].get("deviation"):
-                out["deviation_decisions"].append({"feature": f, "decision": d["id"], "status": d["status"],
-                                                   "title": _cut(d["body"].get("title")),
-                                                   "why": _cut(d["body"].get("decision"))})
+                item = {"feature": f, "decision": d["id"], "status": d["status"],
+                        "title": _cut(d["body"].get("title")), "why": _cut(d["body"].get("decision"))}
+                judged = triage_entry(d)
+                if judged:
+                    item.update(judged_by=judged["backend"], verdict=judged["verdict"])
+                elif d["status"] != "proposed":
+                    item["judged_by"] = "human"
+                out["deviation_decisions"].append(item)
         for p in await store.list_documents(conn, project, type="plan", feature=f, limit=30):
             r = p["body"].get("rehearsal") or {}
             if r.get("verdict") in ("revise", "revised", "kept"):
