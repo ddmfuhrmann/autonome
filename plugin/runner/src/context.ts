@@ -65,6 +65,8 @@ export interface GateConfig {
   config: {
     gates: { name: string; run: string }[];
     allowed_commands?: string[];
+    /** How the implementer's sessions are permitted: the fixed allowlist (default) or the SDK's classifier. */
+    permissions?: "allowlist" | "auto";
     retries: { max: number; stop_on_repeat: boolean };
     budget: { task_tokens: number; task_minutes: number; plan_tokens: number };
     hold_before_merge?: { features: string[] };

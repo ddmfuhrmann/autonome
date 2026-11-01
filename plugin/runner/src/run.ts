@@ -44,7 +44,7 @@ export interface RunOptions {
   /** Where the live view's events go; the run makes one when none is given. */
   events?: EventStream;
   /** Tests replace the agent sessions and Jev's API with fakes. */
-  seams?: { preflight?: typeof preflight; ask?: typeof askJev; runTask?: (task: Task, opts: RunOptions) => Promise<Run | undefined> };
+  seams?: { query?: typeof query; preflight?: typeof preflight; ask?: typeof askJev; runTask?: (task: Task, opts: RunOptions) => Promise<Run | undefined> };
 }
 
 const IMPLEMENTER_PROMPT = `You are the implementer of one task in the autonome process. The briefing injected at
@@ -57,10 +57,7 @@ the start of this session has the task, its plan, the conventions for its layers
   file you leave in the tree that .gitignore does not exclude; to keep a generated file (coverage data,
   build output, a local database) out, add it to .gitignore.
 - Never edit, weaken or skip a gate or the rules behind it to make it pass.
-- Create and change files only with the Write and Edit tools. The shell is for running things: the
-  gates' commands, \`autonome-gates --fast\`, read-only git and inspection. Writing through the shell
-  (heredocs, \`cat >\`, \`python -c\`, \`sed -i\`) is denied in this session, and so is \`git -C\`:
-  you are already in the right directory.
+- {{SHELL}}
 - Run tools exactly the way the gates do (e.g. \`uv run pytest\`, \`uv run ruff format .\`), never a bare
   \`python\`, \`pytest\` or \`ruff\`. One plain command per Bash call: no subshells, \`;\` chains or
   \`cd\`. Read and search with the Read, Grep and Glob tools, not \`cat\`, \`grep\` or \`find\`. The gate
@@ -69,6 +66,22 @@ the start of this session has the task, its plan, the conventions for its layers
   with the plan and the conventions, and say so in your final message.
 - When done, end your turn with a short summary. The gate hook then runs every gate and may send you
   back with a failure (a retry): fix the cause, not the symptom.`;
+
+const SHELL_RULE: Record<"allowlist" | "auto", string> = {
+  allowlist: `Create and change files only with the Write and Edit tools. The shell is for running things: the
+  gates' commands, \`autonome-gates --fast\`, read-only git and inspection. Writing through the shell
+  (heredocs, \`cat >\`, \`python -c\`, \`sed -i\`) is denied in this session, and so is \`git -C\`:
+  you are already in the right directory.`,
+  auto: `Create and change files with the Write and Edit tools. For mechanical changes across many files
+  (a rename, swapping a pattern) use a script or \`sed -i\` instead of one Edit per occurrence. Git that
+  changes history (commit, push, reset, checkout, switch, rebase, merge, tag, branch, stash, \`git -C\`)
+  stays forbidden: you are already in the right directory.`,
+};
+
+/** The implementer's system prompt for the project's permissions mode. */
+export function implementerPrompt(gc: GateConfig): string {
+  return IMPLEMENTER_PROMPT.replace("{{SHELL}}", SHELL_RULE[gc.config.permissions === "auto" ? "auto" : "allowlist"]);
+}
 
 /**
  * What an implementer may do without asking (nobody is there to ask): read and edit files in its
@@ -160,6 +173,33 @@ export function implementerTools(gc: GateConfig): string[] {
   return allowedTools({ ...gc.config, gates: [...gc.config.gates, ...(gc.pending ?? [])] });
 }
 
+/** Hard limits that hold in every permissions mode, whatever the classifier thinks. */
+const HARD_DENIALS = [
+  ...["commit", "push", "reset", "checkout", "switch", "rebase", "merge", "tag", "branch", "stash", "-C"].map((c) => `Bash(git ${c}:*)`),
+];
+const SECRET_DENIALS = ["Read(~/.autonome/**)", "Edit(~/.autonome/**)", "Bash(cat ~/.autonome:*)"];
+
+export interface ImplementerPermissions {
+  permissionMode: "dontAsk" | "auto";
+  permissionPrompts?: "none";
+  allowedTools: string[];
+  disallowedTools: string[];
+  hooks: { PreToolUse: ReturnType<typeof scopedFileCommands>[] };
+}
+
+/** What the implementer's session may do: `allowlist` (the default) or `auto` (the SDK's classifier
+ * judges what the allowlist does not cover). Git that changes history, `~/.autonome` and files outside
+ * the worktree stay denied by rule in both. */
+export function implementerPermissions(gc: GateConfig, worktree: string): ImplementerPermissions {
+  const allowedTools = implementerTools(gc);
+  const hooks = { PreToolUse: [scopedFileCommands(worktree, bashPrefixes(allowedTools))] };
+  if (gc.config.permissions === "auto") {
+    return { permissionMode: "auto", permissionPrompts: "none", allowedTools,
+      disallowedTools: [...HARD_DENIALS, ...SECRET_DENIALS], hooks };
+  }
+  return { permissionMode: "dontAsk", allowedTools, disallowedTools: [...HARD_DENIALS, ...SECRET_DENIALS], hooks };
+}
+
 function now(): string {
   return new Date().toISOString();
 }
@@ -206,7 +246,7 @@ function writeHandoff(sessionId: string, cwd: string, taskId: number, project: s
 }
 
 /** One session of the implementer; `retry` resumes it with what to fix. */
-async function implement(task: Task, worktree: string, base: string, opts: RunOptions,
+export async function implement(task: Task, worktree: string, base: string, opts: RunOptions,
   retry?: { sessionId: string; prompt: string }) {
   const gateConfig = await context.gateConfig(opts.project);
   const cfg = gateConfig.config;
@@ -217,19 +257,17 @@ async function implement(task: Task, worktree: string, base: string, opts: RunOp
   let cost = 0;
   let stop = "";
   try {
-    for await (const msg of query({
+    for await (const msg of (opts.seams?.query ?? query)({
       prompt: retry?.prompt ?? `Run task #${task.id}: ${task.body.title}. Read the briefing, then implement it.`,
       options: {
         resume: retry?.sessionId,
         cwd: worktree,
         ...sdkModel(roleModel(cfg, "implementer", opts)),
         abortController: abort,
-        permissionMode: "dontAsk",
-        allowedTools: implementerTools(gateConfig),
-        hooks: { PreToolUse: [scopedFileCommands(worktree, bashPrefixes(implementerTools(gateConfig)))] },
+        ...implementerPermissions(gateConfig, worktree),
         settingSources: ["project"],
         plugins: [{ type: "local", path: PLUGIN_ROOT }],
-        systemPrompt: { type: "preset", preset: "claude_code", append: IMPLEMENTER_PROMPT },
+        systemPrompt: { type: "preset", preset: "claude_code", append: implementerPrompt(gateConfig) },
         env: sessionEnv({
           AUTONOME_RUN: "1",
           AUTONOME_TASK_ID: String(task.id),

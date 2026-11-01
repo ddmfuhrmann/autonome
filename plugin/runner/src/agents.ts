@@ -26,13 +26,15 @@ export interface Consult {
   language?: string;
   /** Every SDK message, for the live view. */
   onMessage?: (msg: unknown) => void;
+  /** Tests replace the SDK's `query` with a fake. */
+  query?: typeof query;
 }
 
 /** Runs one read-only session and returns its structured answer. */
 export async function consult<T>(c: Consult): Promise<{ answer: T; cost: number }> {
   let answer: T | undefined;
   let cost = 0;
-  for await (const msg of query({
+  for await (const msg of (c.query ?? query)({
     prompt: c.prompt,
     options: {
       cwd: c.cwd,

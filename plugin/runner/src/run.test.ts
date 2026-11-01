@@ -4,7 +4,8 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { judgeTask, preflightPlan, recordRunnerError, verdictLine, type JudgeSeams, type RunOptions } from "./run.js";
+import { consult } from "./agents.js";
+import { implement, implementerPermissions, implementerTools, judgeTask,preflightPlan, recordRunnerError, verdictLine, type JudgeSeams, type RunOptions } from "./run.js";
 import type { Finding, GateConfig, Plan, ReviewResult, Run, Task } from "./context.js";
 import { earlierFindingsSection, gatesSection, recordRound, retryMessage, settleOutcomes, settleRun } from "./review.js";
 
@@ -248,6 +249,87 @@ test("a merged run between two errors resets the count", async () => {
   const { task, calls, transition } = errorsFor(["error", "merged", "error"]);
   assert.equal(await recordRunnerError(task, new Error("boom"), transition), "pending");
   assert.equal(calls[0].to, "pending");
+});
+
+const gcWith = (permissions?: string) => ({
+  version: 1,
+  config: { gates: [{ name: "runner", run: "pnpm test" }], allowed_commands: [], permissions,
+    retries: { max: 2, stop_on_repeat: true }, budget: { task_tokens: 1e6, task_minutes: 5, plan_tokens: 1e6 },
+    review: { enabled: false, max_rounds: 1 }, smoke_test: null },
+}) as unknown as GateConfig;
+
+const GIT_DENIED = ["commit", "push", "reset", "checkout", "switch", "rebase", "merge", "tag", "branch", "stash", "-C"].map((c) => `Bash(git ${c}:*)`);
+
+const SECRET_DENIED = ["Read(~/.autonome/**)", "Edit(~/.autonome/**)", "Bash(cat ~/.autonome:*)"];
+
+test("allowlist, a missing key and an unknown value give today's dontAsk session", () => {
+  for (const p of ["allowlist", undefined, "yolo"]) {
+    const gc = gcWith(p);
+    const perms = implementerPermissions(gc, "/wt");
+    assert.equal(perms.permissionMode, "dontAsk");
+    assert.equal("permissionPrompts" in perms, false);
+    assert.deepEqual(perms.allowedTools, implementerTools(gc));
+    assert.equal(perms.hooks.PreToolUse.length, 1);
+    for (const d of [...GIT_DENIED, ...SECRET_DENIED]) assert.ok(perms.disallowedTools.includes(d), d);
+  }
+});
+
+test("auto asks the classifier, never prompts, and keeps the hard limits by rule", () => {
+  const gc = gcWith("auto");
+  const perms = implementerPermissions(gc, "/wt");
+  assert.equal(perms.permissionMode, "auto");
+  assert.equal(perms.permissionPrompts, "none");
+  assert.deepEqual(perms.allowedTools, implementerTools(gc));
+  assert.equal(perms.hooks.PreToolUse.length, 1);
+  assert.equal(perms.hooks.PreToolUse[0].matcher, "Bash");
+  for (const d of [...GIT_DENIED, ...SECRET_DENIED]) {
+    assert.ok(perms.disallowedTools.includes(d), d);
+  }
+});
+
+test("in every mode the options' hook denies a file command outside the worktree", async () => {
+  for (const mode of ["allowlist", "auto"]) {
+    const hook = implementerPermissions(gcWith(mode), "/wt").hooks.PreToolUse[0].hooks[0];
+    const ask = (command: string) => hook({ tool_input: { command } } as never, undefined, { signal: new AbortController().signal });
+    assert.equal(((await ask("rm /etc/x")) as any).hookSpecificOutput.permissionDecision, "deny", mode);
+    assert.equal(((await ask("rm -rf build")) as any).hookSpecificOutput.permissionDecision, "allow", mode);
+  }
+});
+
+test("the implementer's query gets what implementerPermissions returns, and the prompt follows the mode", async () => {
+  for (const mode of ["allowlist", "auto"]) {
+    const gc = gcWith(mode);
+    globalThis.fetch = async () => new Response(JSON.stringify(gc), { headers: { "content-type": "application/json" } });
+    let seen: any;
+    const fake = (async function* (args: { options: unknown }) { seen = args.options; }) as never;
+    const opts = { ...preflightOpts([]), seams: { query: fake } } as RunOptions;
+    try {
+      await implement(task, "/wt", "main", opts);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    const expected = implementerPermissions(gc, "/wt");
+    for (const k of ["permissionMode", "permissionPrompts", "allowedTools", "disallowedTools"] as const) {
+      assert.deepEqual(seen[k], expected[k], `${mode} ${k}`);
+    }
+    assert.equal(seen.hooks.PreToolUse.length, 1);
+    const prompt: string = seen.systemPrompt.append;
+    if (mode === "auto") assert.match(prompt, /script or `sed -i`/);
+    else assert.match(prompt, /Writing through the shell[\s\S]*is denied/);
+  }
+});
+
+test("consult stays read-only dontAsk even when the project turns auto on", async () => {
+  let seen: any;
+  const fake = (async function* (args: { options: unknown }) {
+    seen = args.options;
+    yield { type: "result", subtype: "success", total_cost_usd: 0, structured_output: {} };
+  }) as never;
+  await consult({ cwd: ".", prompt: "p", role: "r", schema: {}, query: fake });
+  assert.equal(seen.permissionMode, "dontAsk");
+  assert.equal(seen.permissionPrompts, undefined);
+  assert.ok(seen.allowedTools.includes("Read"));
+  assert.ok(!seen.allowedTools.some((t: string) => t === "Edit" || t === "Write"));
 });
 
 test("a later review round gets the earlier findings to check, and no new medium ones", () => {
