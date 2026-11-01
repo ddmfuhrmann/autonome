@@ -3,27 +3,39 @@
 {% block title %}{{ doc|ref }}{% endblock %}
 {% block crumbs %}<a href="/ui/p/{{ project }}/documents?type={{ doc.type }}">{{ doc.type|label }}</a><span class="sep">/</span><span aria-current="page">{{ doc|ref }}</span>{% endblock %}
 {% block main %}
-<div class="page-head">
+{% if actions|rejectattr('style', 'equalto', 'danger')|list %}
+<div class="yourcall"><span class="yourcall__label">Your call</span>{{ ui.decision(project, doc, actions) }}</div>
+{% endif %}
+<header class="page-head">
   <div class="page-head__text">
-    <div class="page-head__title"><span class="id">{{ doc|ref }}</span><h1>{{ doc.body.title or (doc.body.summary.split('. ')[0]|truncate(140) if doc.body.summary) or doc.type|label }}</h1>{% if doc.status %}{{ ui.st(doc.status) }}{% endif %}</div>
-    <div class="page-head__meta"><span class="tag">{{ doc.type }}</span>{{ ui.tags(doc) }}
-      <span>version {{ doc.version }}</span><span>{{ doc.created_at|when }}</span>
-      {% if doc.commit_sha %}<span class="mono">commit {{ doc.commit_sha[:10] }}</span>{% endif %}
-      {% if doc.type == 'handoff' and doc.body.adherence_score is not none %}<span class="mono">adherence {{ '%.2f'|format(doc.body.adherence_score) }}</span>{% endif %}</div>
+    <h1>{{ doc.body.title or (doc.body.summary.split('. ')[0]|truncate(140) if doc.body.summary) or doc.type|label }}</h1>
+    <p class="subtitle" style="font-size: 15px">
+      <span>{{ doc.type|label|lower }} {{ doc|ref }}</span>
+      {% if doc.status %}{{ ui.st(doc.status) }}{% endif %}
+      {% if doc.feature %}<a href="/ui/p/{{ project }}/features/{{ doc.feature }}">{{ doc.feature }}</a>{% endif %}
+      {% if doc.layers %}<span>layers {{ doc.layers|join(', ') }}</span>{% endif %}
+      <span>v{{ doc.version }} · {{ doc.created_at|when }}</span>
+      {% if doc.commit_sha %}<span class="mono" style="font-size: 13px">commit {{ doc.commit_sha[:10] }}</span>{% endif %}
+      {% if doc.type == 'handoff' and doc.body.adherence_score is not none %}<span>adherence {{ '%.2f'|format(doc.body.adherence_score) }}</span>{% endif %}
+    </p>
   </div>
   <div class="page-head__actions">{{ ui.head_danger(project, doc, actions) }}</div>
-</div>
-{{ ui.decision(project, doc, actions) }}
-<div class="grid grid--main-aside">
-  <div class="stack">
+</header>
+<div class="twocol">
+  <article>
     {% with body = doc.body %}{% include "_body.html" %}{% endwith %}
-  </div>
-  <aside class="stack">
+  </article>
+  <aside>
     {% if links %}
-    <div class="card"><div class="card__head"><h2 class="card__title">Links</h2></div>
-      <div class="card__body"><dl class="kv">{% for l in links %}<dt>{{ l.kind|replace('_', ' ') }}{{ ' (from)' if l.direction == 'in' }}</dt><dd><a href="/ui/p/{{ project }}/documents/{{ l.id }}">{{ l.id|ref(l.type) }}</a> {% if l.status %}{{ ui.st(l.status, sm=true) }}{% endif %}</dd>{% endfor %}</dl></div>
-    </div>
+    <section>
+      <h2>Links</h2>
+      <ul class="links">{% for l in links %}<li><a href="/ui/p/{{ project }}/documents/{{ l.id }}"><span class="id">{{ l.id|ref(l.type) }}</span>{% if l.status %}{{ ui.st(l.status, sm=true) }}{% endif %}<span class="rel">{{ l.kind|replace('_', ' ') }}{{ ' (from)' if l.direction == 'in' }}</span></a></li>{% endfor %}</ul>
+    </section>
     {% endif %}
+    <section>
+      <h2>Versions</h2>
+      <p class="footnote">Version {{ doc.version }}{% if doc.version > 1 %} · updated {{ doc.updated_at|ago }}{% endif %} · created {{ doc.created_at|when }}</p>
+    </section>
   </aside>
 </div>
 {% endblock %}

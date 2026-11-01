@@ -5,24 +5,24 @@
 {% set code_keys = ('yaml', 'diff', 'diff_stat', 'output', 'mermaid', 'last_output', 'transcript') %}
 {% set keys = (['summary'] if body.summary else []) + body.keys()|reject('equalto', 'summary')|list %}
 {% macro cell(v) -%}
-{% if v is sameas true or v is sameas false %}<span class="st st--sm st--{{ 'passed' if v else 'failed' }}">{{ 'yes' if v else 'no' }}</span>
-{%- elif v is mapping %}<span class="wrap mono" style="font-size: 12px">{{ v|tojson }}</span>
+{% if v is sameas true or v is sameas false %}<span class="st st--{{ 'passed' if v else 'failed' }}">{{ 'yes' if v else 'no' }}</span>
+{%- elif v is mapping %}<span class="wrap mono" style="font-size: 12px; color: var(--muted)">{{ v|tojson }}</span>
 {%- elif v is sequence and v is not string %}{{ v|join('; ') }}
 {%- else %}<span class="wrap">{{ v|mdi }}</span>{% endif %}
 {%- endmacro %}
 {% for key in keys if key not in hidden and body[key] not in (None, '', [], {}) %}{% set value = body[key] %}
-<section class="card">
-  <div class="card__head"><h2 class="card__title">{{ key|replace('_', ' ')|capitalize }}</h2>{% if value is sequence and value is not string %}<span class="push count-pill">{{ value|length }}</span>{% endif %}</div>
-  {% if value is string and key in code_keys %}<div class="card__body"><pre class="code">{{ value }}</pre></div>
-  {% elif value is string %}<div class="card__body prose">{{ value|md }}</div>
-  {% elif value is mapping %}<div class="card__body"><dl class="kv">{% for k, v in value.items() %}<dt>{{ k|replace('_', ' ') }}</dt><dd>{{ cell(v) }}</dd>{% endfor %}</dl></div>
+<section>
+  <h2>{{ key|replace('_', ' ')|capitalize }}{% if value is sequence and value is not string %} <span class="n">{{ value|length }}</span>{% endif %}</h2>
+  {% if value is string and key in code_keys %}<pre class="code">{{ value }}</pre>
+  {% elif value is string %}<div class="prose">{{ value|md }}</div>
+  {% elif value is mapping %}<dl class="kv" style="padding-top: 6px">{% for k, v in value.items() %}<dt>{{ k|replace('_', ' ') }}</dt><dd>{{ cell(v) }}</dd>{% endfor %}</dl>
   {% elif value is sequence and value[0] is mapping %}
     {% set cols = value[0].keys()|list %}
-    <div class="card__body card__body--flush" style="overflow-x: auto"><table class="table"><thead><tr>{% if key == 'tasks' %}<th>#</th>{% endif %}{% for c in cols %}<th>{{ c|replace('_', ' ') }}</th>{% endfor %}</tr></thead>
+    <div class="table-wrap" style="padding-top: 6px"><table class="table" style="font-size: 13px"><thead><tr>{% if key == 'tasks' %}<th>#</th>{% endif %}{% for c in cols %}<th>{{ c|replace('_', ' ') }}</th>{% endfor %}</tr></thead>
     <tbody>{% for row in value %}<tr>{% if key == 'tasks' %}<td class="mono">{{ loop.index }}</td>{% endif %}{% for c in cols %}<td>{{ cell(row[c]) }}</td>{% endfor %}</tr>{% endfor %}</tbody>
     </table></div>
-  {% elif value is sequence %}<div class="card__body prose"><ul>{% for v in value %}<li>{{ v|mdi }}</li>{% endfor %}</ul></div>
-  {% else %}<div class="card__body"><p>{{ cell(value) }}</p></div>{% endif %}
+  {% elif value is sequence %}<div class="prose"><ul>{% for v in value %}<li>{{ v|mdi }}</li>{% endfor %}</ul></div>
+  {% else %}<p>{{ cell(value) }}</p>{% endif %}
 </section>
 {% endfor %}
-<details class="card"><summary class="card__head"><span class="card__title muted">Raw JSON</span></summary><div class="card__body"><pre class="code">{{ body|pretty }}</pre></div></details>
+<details><summary class="more" style="cursor: pointer; list-style: none">Raw JSON</summary><pre class="code" style="margin-top: 10px">{{ body|pretty }}</pre></details>

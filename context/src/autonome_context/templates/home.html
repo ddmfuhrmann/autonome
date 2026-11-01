@@ -1,9 +1,28 @@
 {% extends "base.html" %}
 {% block title %}Projects{% endblock %}
 {% block main %}
-<div class="page-head"><div class="page-head__text"><h1>Projects</h1><p class="page-head__meta">Projects appear when their first handoff or plan arrives.</p></div></div>
-<div class="grid grid--3">
-{% for p in projects %}<a class="card" href="/ui/p/{{ p }}"><div class="card__head"><span class="card__title">{{ p }}</span></div></a>
-{% else %}<p class="empty">No project yet.</p>{% endfor %}
+<header class="page-head">
+  <div class="page-head__text">
+    <a class="brand" href="/ui">autonome</a>
+    <h1>Projects</h1>
+    <p class="subtitle">A project appears here when its first handoff or plan arrives.</p>
+  </div>
+</header>
+{% if projects %}
+<div class="entries">
+  {% for p in projects %}
+  <a class="entry" href="/ui/p/{{ p.slug }}">
+    <span class="entry__main">
+      <span class="entry__title">{{ p.slug }}</span>
+      <span class="entry__meta">{{ p.handoffs }} handoff{{ 's' if p.handoffs != 1 }}
+        {%- if p.playing %} · <span class="accent">{{ p.playing }} playing</span>{% endif %}
+        {%- if p.waiting %} · {{ p.waiting }} waiting for you{% endif %}
+        {%- if not p.playing and not p.waiting %} · idle{% endif %}</span>
+    </span>
+    <span class="entry__side">{{ p.last_activity|ago }}</span>
+  </a>
+  {% endfor %}
 </div>
+{% else %}<p class="empty">No project yet.</p>{% endif %}
+<p class="footnote">Add the plugin to a repo and run <span class="mono">/autonome:compose</span> or finish a session to register it.</p>
 {% endblock %}
