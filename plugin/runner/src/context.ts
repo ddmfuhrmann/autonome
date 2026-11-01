@@ -49,7 +49,10 @@ export interface Run {
   cost_usd?: number;
   diff_stat?: string;
   diff?: string;
+  /** The last round, kept for readers that predate `reviews`. */
   review?: ReviewResult;
+  /** Every reviewer round, in order. */
+  reviews?: ReviewResult[];
   review_rounds?: number;
   duration_s?: number;
   merged_sha?: string;
@@ -149,6 +152,8 @@ export interface Finding {
   convention?: string;
   file?: string;
   issue: string;
+  /** Set when the run ends: what became of the finding (see `settleOutcomes`). */
+  outcome?: "resolved" | "repeated" | "merged" | "blocked";
 }
 
 export interface ReviewResult {

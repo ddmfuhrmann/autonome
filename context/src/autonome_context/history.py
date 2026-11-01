@@ -59,10 +59,15 @@ async def build(conn: AsyncConnection, project: str, subject: str, embedder: Emb
             b = t["body"]
             runs = b.get("runs") or []
             for r in runs:
-                for x in (r.get("review") or {}).get("findings", []):
-                    if x.get("severity") == "high":
-                        out["review_blocks"].append({"feature": f, "task": t["id"], "kind": x.get("kind"),
-                                                     "convention": x.get("convention"), "issue": _cut(x.get("issue"))})
+                seen = set()
+                for rnd in r.get("reviews") or [r.get("review") or {}]:
+                    for x in rnd.get("findings", []):
+                        # A finding reported again in a later round is still one block.
+                        if x.get("severity") == "high" and (x.get("kind"), x.get("issue")) not in seen:
+                            seen.add((x.get("kind"), x.get("issue")))
+                            out["review_blocks"].append({"feature": f, "task": t["id"], "kind": x.get("kind"),
+                                                         "convention": x.get("convention"),
+                                                         "issue": _cut(x.get("issue"))})
             if t["status"] == "blocked" and runs:
                 out["blocked"].append({"feature": f, "task": t["id"], "title": _cut(b["title"]),
                                        "reason": _cut(runs[-1].get("reason"))})

@@ -473,7 +473,8 @@ async def reject_decision(conn: AsyncConnection, indexer: store.Indexer, decisio
 def loose_ends(run: dict | None) -> list[str]:
     """What a merged run left open: reviewer findings of medium severity (high ones never merge).
     They do not block; they wait for the human's review instead of vanishing."""
-    review = (run or {}).get("review") or {}
+    run = run or {}
+    review = (run.get("reviews") or [run.get("review") or {}])[-1]
     return [f"review, {f['severity']} {f.get('kind', '')}: " + " ".join(str(f.get("issue", "")).split())
             for f in review.get("findings", []) if f.get("severity") in ("medium", "high")]
 

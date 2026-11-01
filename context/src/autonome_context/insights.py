@@ -88,7 +88,8 @@ async def build(conn: AsyncConnection, project: str, embedder: Embedder, limit: 
     findings = [{"task_id": t["id"], "feature": t["feature"], "kind": f.get("kind"), "severity": f["severity"],
                  "convention": f.get("convention"), "issue": f["issue"][:400]}
                 for t in tasks for r in (t["body"].get("runs") or [])[-1:]
-                for f in (r.get("review") or {}).get("findings", []) if f.get("severity") != "high"]
+                for f in ((r.get("reviews") or [r.get("review") or {}])[-1]).get("findings", [])
+                if f.get("severity") != "high"]
     loose_ends = [{"task_id": t["id"], "title": t["body"]["title"], "feature": t["feature"],
                    "loose_ends": t["body"]["playback_review"]["loose_ends"]}
                   for t in tasks if (t["body"].get("playback_review") or {}).get("status") == "pending"

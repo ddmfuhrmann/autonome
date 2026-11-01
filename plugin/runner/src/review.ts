@@ -2,7 +2,7 @@
 // project's conventions, before anything merges. Gates check that the code passes; this checks that
 // it is the code the plan asked for.
 import { consult } from "./agents.js";
-import type { Finding, ReviewResult, RoleModel, Task } from "./context.js";
+import type { Finding, ReviewResult, RoleModel, Run, Task } from "./context.js";
 import { git } from "./git.js";
 
 const REVIEWER_PROMPT = `You review one task of the autonome process before it merges. You did not write it.
@@ -83,6 +83,32 @@ export async function review(task: Task, briefing: string, worktree: string, bas
   // The verdict follows the findings, whatever the agent wrote in it.
   const verdict = findings.some((f) => f.severity === "high") ? "fail" : "pass";
   return { result: { verdict, findings } as ReviewResult, cost };
+}
+
+const findingKey = (f: Finding) => [f.kind ?? "", f.file ?? "", f.issue.trim().toLowerCase()].join("|");
+
+/** What became of each finding once the run is over. A finding of an earlier round is `repeated` when
+ * the next round reported it again, else `resolved`; those of the last round are `merged` (left as a
+ * loose end) or `blocked` (the task blocked on them). */
+export function settleOutcomes(rounds: ReviewResult[], final?: "merged" | "blocked"): void {
+  rounds.forEach((r, i) => {
+    const next = rounds[i + 1];
+    const again = next ? new Set(next.findings.map(findingKey)) : null;
+    for (const f of r.findings) f.outcome = again ? (again.has(findingKey(f)) ? "repeated" : "resolved") : final;
+  });
+}
+
+/** Keeps a round on the run: `reviews` has every round, `review` stays the last for older readers. */
+export function recordRound(run: Pick<Run, "review" | "reviews" | "review_rounds">, result: ReviewResult, round: number): void {
+  run.review = result;
+  (run.reviews ??= []).push(result);
+  run.review_rounds = round;
+}
+
+/** Settles the run's rounds when it ends. The last round's findings are `blocked` only when the task
+ * blocked on the review; a block from anything else (gates, a merge conflict) leaves them unmarked. */
+export function settleRun(run: Pick<Run, "reviews">, last?: "merged" | "blocked"): void {
+  if (run.reviews) settleOutcomes(run.reviews, last);
 }
 
 /** The titles under the briefing's "Conventions for these layers" section. */

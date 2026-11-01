@@ -10,7 +10,7 @@ import { consult } from "./agents.js";
 import { ContextError, context, languageRule, roleModel, waitForContext, type Effort, type GateConfig, type Plan, type Rehearsal, type ReviewResult, type Run, type Task } from "./context.js";
 import { doctor, report } from "./doctor.js";
 import { bashPrefixes, scopedFileCommands } from "./fsguard.js";
-import { encoreMessage, findingsForEncore, review } from "./review.js";
+import { encoreMessage, findingsForEncore, recordRound, review, settleRun } from "./review.js";
 import { soundcheck } from "./soundcheck.js";
 import { sessionEnv } from "./secrets.js";
 import { triagePending } from "./triage-run.js";
@@ -355,8 +355,10 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<Run | unde
   let result = await play(task, worktree, base, opts);
   const run: Run = { at: now(), session_id: result.sessionId, branch, worktree, base, outcome: "",
     tokens: result.tokens, cost_usd: result.cost };
+  let blockedOnReview = false; // the reviewer's findings are why the task blocks, not a gate or the merge
   const block = async (reason: string) => {
     log(`  blocked: ${reason}`);
+    settleRun(run, blockedOnReview ? "blocked" : undefined);
     stage(opts, { task_id: task.id }, `blocked: ${reason}`);
     Object.assign(run, { outcome: "blocked", reason, duration_s: Math.round((Date.now() - started) / 1000) });
     await context.transition(task.id, "blocked", run);
@@ -402,15 +404,17 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<Run | unde
       const rv = await review(task, briefing, worktree, base,
         { ...roleModel(cfg, "reviewer", opts), language: languageRule(cfg) },
         live(opts, "reviewer", { task_id: task.id }), run.review?.findings);
-      run.review = rv.result;
-      run.review_rounds = round + 1;
+      recordRound(run, rv.result, round + 1);
       opts.events?.push({ task_id: task.id, role: "reviewer", kind: "say", text: verdictLine(rv.result) });
       run.cost_usd = (run.cost_usd ?? 0) + rv.cost;
       // Medium findings go back once; after that only high ones do, so rounds converge.
       const message = encoreMessage(rv.result, round < cfg.review.max_rounds && !mediumSent);
       mediumSent ||= rv.result.verdict === "pass" && !!message;
       if (rv.result.verdict === "pass" && !message) return null; // what is left becomes loose ends at merge
-      if (round >= cfg.review.max_rounds) return `review: still blocking after ${round} encore(s):\n${findingsForEncore(rv.result)}`;
+      if (round >= cfg.review.max_rounds) {
+        blockedOnReview = true;
+        return `review: still blocking after ${round} encore(s):\n${findingsForEncore(rv.result)}`;
+      }
       round++;
       const why = rv.result.verdict === "pass" ? "medium findings" : "blocking findings";
       log(`  review: ${why}; encore ${round}`);
@@ -439,6 +443,7 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<Run | unde
 
   run.duration_s = Math.round((Date.now() - started) / 1000);
   if (task.body.fermata) {
+    settleRun(run, "merged");
     log(`  green; held at the fermata for your review`);
     stage(opts, { task_id: task.id }, "held at the fermata");
     Object.assign(run, { outcome: "on_hold", diff_stat: git(worktree, "diff", "--stat", `${base}..HEAD`),
@@ -454,6 +459,7 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<Run | unde
   const r = integrate(repo, worktree, branch, opts.push);
   if (!r.ok) return block(r.reason ?? "could not merge");
   run.outcome = "merged";
+  settleRun(run, "merged"); // only now: a merge that fails blocks for its own reason
   run.merged_sha = git(repo, "rev-parse", "main");
   await recordMerged(task, run, opts);
   log(`  merged into main`);
