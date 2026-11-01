@@ -2,19 +2,19 @@
 
 autonome-context is the project's memory: what was planned, decided, built and learned, kept so
 that the next agent starts from it instead of from scratch. Agents read and write it through an MCP
-server; the plugin's hooks and the maestro through an HTTP API; the human through the web UI.
+server; the plugin's hooks and the runner through an HTTP API; the human through the web UI.
 
 ## The pieces
 
 ```mermaid
 flowchart LR
   subgraph you["You"]
-    ui["Web UI<br/>approvals, setlist, waves, config"]
+    ui["Web UI<br/>approvals, queue, waves, config"]
   end
   subgraph claude["Claude Code"]
-    compose["compose session"]
-    hooks["plugin hooks<br/>briefing · metronome · handoff"]
-    maestro["maestro (autonome conduct)<br/>musician · reviewer · rehearsal · listener · tune"]
+    plan["plan session"]
+    hooks["plugin hooks<br/>briefing · gate hook · handoff"]
+    runner["runner (autonome run)<br/>implementer · reviewer · preflight · tester · retro"]
   end
   subgraph context["autonome-context (Docker)"]
     mcp["MCP server<br/>/mcp"]
@@ -23,9 +23,9 @@ flowchart LR
     db[("Postgres + pgvector<br/>documents · versions · chunks · gate runs")]
     ollama["Ollama<br/>nomic-embed-text"]
   end
-  compose -- "search, plan_draft, plan_approve…" --> mcp
-  maestro -- "claim, transition, rehearsal, soundcheck" --> api
-  maestro -- "search, conventions, history" --> mcp
+  plan -- "search, plan_draft, plan_approve…" --> mcp
+  runner -- "claim, transition, preflight, smoke test" --> api
+  runner -- "search, conventions, history" --> mcp
   hooks -- "briefing, gate runs, handoffs" --> api
   ui --> web
   mcp & api & web --> db
@@ -42,24 +42,24 @@ each one is a new **version**, and search only sees the latest.
 
 | Type | What | Written by |
 |---|---|---|
-| `plan` | goal, scope, tasks, the conventions and gates it proposes | compose, with the human |
-| `wave` | several plans approved together, in order | compose |
-| `task` | one unit the maestro plays, with every run (review, gates, diff, cost) | approval, then the maestro |
-| `handoff` | what a session did against its plan: deviations, decisions, friction | the scribe, after every session |
+| `plan` | goal, scope, tasks, the conventions and gates it proposes | plan, with the human |
+| `wave` | several plans approved together, in order | plan |
+| `task` | one unit the runner runs, with every run (review, gates, diff, cost) | approval, then the runner |
+| `handoff` | what a session did against its plan: deviations, decisions, friction | the handoff writer, after every session |
 | `decision` | a choice and why (imported ADRs too); a deviation also keeps its `triage_history` | handoffs, `decision_propose`, imports, the runner's triage |
-| `convention` | a rule per layer the agents follow and the reviewer enforces | the human, plans, tune |
-| `gate_config` | the project's gates, review, models, playback… ([guide](configuration.md)) | the human, in the UI |
-| `feature_doc` | the living doc of a feature, and the system overview | the docs scribe, after merges |
-| `backlog` | the roadmap's waves, not yet composed | imports |
+| `convention` | a rule per layer the agents follow and the reviewer enforces | the human, plans, retro |
+| `gate_config` | the project's gates, review, models, review after merge… ([guide](configuration.md)) | the human, in the UI |
+| `feature_doc` | the living doc of a feature, and the system overview | the docs writer, after merges |
+| `backlog` | the roadmap's waves, not yet planned | imports |
 
 Plus two tables outside the documents: **gate runs** (every gate result, the facts behind the
-metronome and the insights) and the **raw transcripts** of sessions, compressed and never indexed.
+gate hook and the insights) and the **raw transcripts** of sessions, compressed and never indexed.
 
 ## From a session to something searchable
 
 ```mermaid
 flowchart LR
-  s["Session ends"] --> h["Scribe writes the handoff<br/>(another agent, facts from git and gate runs)"]
+  s["Session ends"] --> h["Handoff writer writes the handoff<br/>(another agent, facts from git and gate runs)"]
   h --> r["Redact<br/>CPF, emails, secrets"]
   r --> v["New document version"]
   v --> c["Chunk<br/>one chunk per section, several strategies"]
@@ -94,27 +94,27 @@ memory already shaped for their job:
 
 | Tool or call | Gives | Used by |
 |---|---|---|
-| briefing (SessionStart) | the task, its plan, the conventions of its layers, earlier friction, rehearsal notes | every session |
-| `conventions_get` | the rules of the layers a change touches | compose, musician, reviewer |
-| `history_get` | what went off plan before on the same subject: skipped items, deviations and who judged them (`judged_by`: a triage backend or `human`, with the `verdict`), reviewer blocks, fixes, blocked tasks | compose, rehearsal |
-| `insights_get` | adherence, gate failures, encores, friction grouped by meaning, advisory review findings, triage verdicts and what happened next, and `convention_effects`: per active convention, findings and friction before and after its adoption (`findings_before/after`, `friction_before/after`, `tasks_after`) and `holding` (true, false, or null when too little history) | tune |
-| `plan_get`, `plan_list`, `gate_config_get` | plans and the gates that will judge the work | compose, rehearsal |
+| briefing (SessionStart) | the task, its plan, the conventions of its layers, earlier friction, preflight notes | every session |
+| `conventions_get` | the rules of the layers a change touches | plan, implementer, reviewer |
+| `history_get` | what went off plan before on the same subject: skipped items, deviations and who judged them (`judged_by`: a triage backend or `human`, with the `verdict`), reviewer blocks, fixes, blocked tasks | plan, preflight |
+| `insights_get` | adherence, gate failures, retries, friction grouped by meaning, advisory review findings, triage verdicts and what happened next, and `convention_effects`: per active convention, findings and friction before and after its adoption (`findings_before/after`, `friction_before/after`, `tasks_after`) and `holding` (true, false, or null when too little history) | retro |
+| `plan_get`, `plan_list`, `gate_config_get` | plans and the gates that will judge the work | plan, preflight |
 
 ## How it learns
 
 ```mermaid
 flowchart LR
-  compose["compose<br/>reads decisions, conventions,<br/>history, backlog"] --> plan["plan + proposed<br/>conventions and gates"]
-  plan --> conduct["conduct<br/>musician → gates → reviewer → merge"]
-  conduct --> handoff["handoffs, gate runs,<br/>review findings"]
-  conduct --> after["soundcheck · playback<br/>fixes as new tasks"]
-  handoff & after --> tune["tune (after each wave)<br/>proposes conventions with evidence"]
-  tune --> you{"you approve"}
-  you --> compose
+  planning["plan<br/>reads decisions, conventions,<br/>history, backlog"] --> plan["plan + proposed<br/>conventions and gates"]
+  plan --> run["run<br/>implementer → gates → reviewer → merge"]
+  run --> handoff["handoffs, gate runs,<br/>review findings"]
+  run --> after["smoke test · review after merge<br/>fixes as new tasks"]
+  handoff & after --> retro["retro (after each wave)<br/>proposes conventions with evidence"]
+  retro --> you{"you approve"}
+  you --> planning
 ```
 
-The loop closes in two places: **tune** turns what repeated into conventions the next plans start
-from, and **compose** reads the history of the same subject so a lesson is applied, not relearned.
+The loop closes in two places: **retro** turns what repeated into conventions the next plans start
+from, and **plan** reads the history of the same subject so a lesson is applied, not relearned.
 
 ## Lifecycles
 
@@ -127,12 +127,12 @@ stateDiagram-v2
   state "plan" as P {
     [*] --> draft
     draft --> approved: human
-    approved --> held: rehearsal needs a revision
+    approved --> held: preflight needs a revision
     held --> approved: human (accept or keep), or the runner when Jev accepts the revision (preflight.triage)
-    approved --> blocked: soundcheck keeps failing
+    approved --> blocked: smoke test keeps failing
     blocked --> approved: human retries
     blocked --> done: human accepts as is
-    approved --> done: every task merged (and soundcheck passed)
+    approved --> done: every task merged (and smoke test passed)
   }
 ```
 
@@ -141,14 +141,14 @@ stateDiagram-v2
   direction LR
   state "task" as T {
     [*] --> pending
-    pending --> playing: maestro claims it
-    playing --> done: gates + reviewer pass, merged
-    playing --> blocked: repeated failure or budget
-    playing --> on_hold: fermata (stop before merge)
+    pending --> running: runner claims it
+    running --> done: gates + reviewer pass, merged
+    running --> blocked: repeated failure or budget
+    running --> on_hold: hold before merge
     on_hold --> released: human
     released --> done: merged
     blocked --> pending: human retries
-    playing --> pending: infrastructure error, usage limit
+    running --> pending: infrastructure error, usage limit
   }
 ```
 
@@ -166,8 +166,8 @@ reopens it as a deviation (`accepted → proposed`, `screened_as_deviation`) whe
 `reject_at`, then the triage judges it as any other. The human's reject outranks the triage: a
 decision from the handoff of an undo task for a decision the human rejected is marked
 `undo_of_human_reject` and accepted as the human's choice, neither screened nor judged (an undo of a
-triage reject is still judged, with its round). Proposed conventions, playback, fermata and blocked
-tasks stay with the human. A *playback* task is merged and
+triage reject is still judged, with its round). Proposed conventions, after-merge reviews, holds before merge and blocked
+tasks stay with the human. A task under *review after merge* is merged and
 waits for the human's review in the background; "needs a fix" becomes a new task.
 
 ## Where it lives and how to keep it

@@ -1,6 +1,6 @@
 # Configuration guide
 
-How to set a project up for autonome and tune how it plays. Almost everything is the project's
+How to set a project up for autonome and adjust how it runs. Almost everything is the project's
 **gate config**, a YAML document kept in the context and edited only by a human, in the UI
 (`http://127.0.0.1:8765/ui/p/<project>/config`). The rest is a few environment variables.
 
@@ -14,12 +14,12 @@ flowchart TB
   save --> cfg
   plan -- "on approval" --> conv[("conventions")]
   cfg --> doctor["doctor: context, Ollama, gate commands, clean main"]
-  doctor --> conduct["conduct"]
-  cfg -- "gates, encore, budget" --> metro["metronome and judge"]
-  cfg -- "review, models" --> agents["musician, reviewer, rehearsal,<br/>listener, tune, scribes"]
-  cfg -- "fermata / playback" --> human["your review: before or after merge"]
-  cfg -- "soundcheck" --> sc["feature tried in a running environment"]
-  conduct --> metro & agents
+  doctor --> run["run"]
+  cfg -- "gates, retries, budget" --> hook["gate hook and judge"]
+  cfg -- "review, models" --> agents["implementer, reviewer, preflight,<br/>tester, retro, handoff writers"]
+  cfg -- "hold_before_merge / review_after_merge" --> human["your review: before or after merge"]
+  cfg -- "smoke_test" --> sc["feature tried in a running environment"]
+  run --> hook & agents
 ```
 
 How the memory behind all this works is in [memory.md](memory.md).
@@ -31,7 +31,7 @@ How the memory behind all this works is in [memory.md](memory.md).
    project**: until then the plugin's hooks stay silent there (no briefing, no handoff, nothing
    spent). An approved plan that brings gates also activates it.
 3. The project's slug is its repo folder name. When they differ, set `AUTONOME_PROJECT` (or pass
-   `--project` to `autonome conduct`).
+   `--project` to `autonome run`).
 4. Optional, for projects that arrive with history:
 
    ```bash
@@ -41,7 +41,7 @@ How the memory behind all this works is in [memory.md](memory.md).
    uv run autonome-context import-conventions --project <slug> --dir <folder> [--layer api ...]
    ```
 
-5. Check it: `plugin/bin/autonome doctor --project <slug> --repo <path>`. `conduct` runs the same
+5. Check it: `plugin/bin/autonome doctor --project <slug> --repo <path>`. `run` runs the same
    checks and refuses to start while one fails.
 
 A greenfield project can start with `gates: []`: its first plan proposes the gates along with the
@@ -64,15 +64,15 @@ gates:
   - name: test
     run: ./gradlew check
 
-interactive: false        # also run the gates at the end of your own sessions, not only in conduct
-allowed_commands: []      # commands (first word) a conduct session may run besides the gates' own,
+interactive: false        # also run the gates at the end of your own sessions, not only in run
+allowed_commands: []      # commands (first word) a run session may run besides the gates' own,
                           # e.g. [./gradlew, docker, pnpm]. Need no entry: rm, mkdir, mv, cp, chmod
                           # and touch inside the task's worktree; git rm/mv/add/update-index/
                           # check-ignore/ls-files; ls, which, unzip -l, jar tf; find without
                           # -delete or -exec; VAR=value or env before an allowed command; bash,
                           # sh or python3 running a gate's script. Chained commands are denied
 
-encore: {max: 3, stop_on_repeat: true}   # gate failures sent back to the implementer before a task
+retries: {max: 3, stop_on_repeat: true}  # gate failures sent back to the implementer before a task
                                          # blocks; the same failure twice blocks at once
 budget: {task_tokens: 400000, task_minutes: 30, plan_tokens: 3000000}
 
@@ -84,38 +84,38 @@ review: {enabled: true, max_rounds: 2}   # an independent agent reviews each dif
                                          # and raise only new high ones
 
 # Human review of critical features. Feature slugs, glob patterns.
-fermata: {features: []}    # stop BEFORE merge and wait for the human (blocks what depends on it)
-playback: {features: []}   # merge, then the human reviews forward when they like (never blocks);
-                           # "Needs a fix…" queues a fix task with the reason
+hold_before_merge: {features: []}    # stop BEFORE merge and wait for the human (blocks what depends on it)
+review_after_merge: {features: []}   # merge, then the human reviews forward when they like (never blocks);
+                                     # "Needs a fix…" queues a fix task with the reason
 
-tune_after_wave: true      # when a wave finishes, propose conventions from its evidence
+retro_after_wave: true     # when a wave finishes, propose conventions from its evidence
 
-# What agents write for people (plans, handoffs, review findings, rehearsal notes, docs), e.g. pt-BR.
+# What agents write for people (plans, handoffs, review findings, preflight notes, docs), e.g. pt-BR.
 # Empty: English. Code, identifiers and commits follow the project.
 language: ""
 
 # Model and effort per agent role; roles left out keep these defaults.
 models:
-  musician:  {model: sonnet, effort: medium}   # implements each task
-  reviewer:  {model: sonnet, effort: medium}   # reviews each diff
-  rehearsal: {model: haiku,  effort: low}      # checks a waiting plan against the code and the gates
-  listener:  {model: sonnet, effort: medium}   # tries a finished feature in the soundcheck
-  tune:      {model: sonnet, effort: medium}   # learns from a finished wave
-  handoff:   {model: sonnet, effort: low}      # writes each session's handoff
-  docs:      {model: sonnet, effort: low}      # keeps the living docs
+  implementer: {model: sonnet, effort: medium}   # implements each task
+  reviewer:    {model: sonnet, effort: medium}   # reviews each diff
+  preflight:   {model: haiku,  effort: low}      # checks a waiting plan against the code and the gates
+  tester:      {model: sonnet, effort: medium}   # tries a finished feature in the smoke test
+  retro:       {model: sonnet, effort: medium}   # learns from a finished wave
+  handoff:     {model: sonnet, effort: low}      # writes each session's handoff
+  docs:        {model: sonnet, effort: low}      # keeps the living docs
 # Any role may add `fallback: <model>`: the model the session switches to when its own is overloaded
 # or unavailable (Agent SDK `fallbackModel`, `claude -p --fallback-model`). It does not help with the
 # account's usage limit, which hands the task back to pending. Ignored when equal to the model.
-#   musician:  {model: sonnet, effort: medium, fallback: haiku}
+#   implementer: {model: sonnet, effort: medium, fallback: haiku}
 
 # Optional: try each finished feature in a running environment (fakes, never real services).
-soundcheck:
+smoke_test:
   up: docker compose -f infra/compose.yml up -d --wait   # start and wait until ready
   down: docker compose -f infra/compose.yml down         # always runs
   url: http://127.0.0.1:8081                             # given to checks as AUTONOME_APP_URL
   seed: null                                             # synthetic data, once it is up
   checks: [{name: e2e, run: ./scripts/e2e.sh, timeout_s: 900}]
-  listener: true      # an agent exercises the plan's acceptance criteria on the running app
+  tester: true        # an agent exercises the plan's acceptance criteria on the running app
   max_fixes: 2        # fix rounds before the plan is blocked for the human
 
 # Optional: a classifier judges deviation decisions instead of the human (run by the runner).
@@ -126,15 +126,15 @@ triage:
   reject_at: 0.7      # score at which a deviation is rejected (0 < x <= 1)
   max_rounds: 2       # at the last round a rejection leaves the decision proposed, marked exhausted
 
-# Optional: scheduled checks that queue maintenance tasks (run `autonome cues` from cron).
-cues:
+# Optional: scheduled checks that queue maintenance tasks (run `autonome schedules` from cron).
+schedules:
   - {name: deps, kind: command, every_hours: 24, run: ./scripts/outdated.sh, task: Update dependencies}
   - {name: red-main, kind: main-red, every_hours: 6}
   - {name: docs, kind: doc-drift, every_hours: 24}
 ```
 
-A worked example for a FastAPI service, soundcheck included, is in
-[plugin/README.md](../plugin/README.md#the-soundcheck).
+A worked example for a FastAPI service, smoke test included, is in
+[plugin/README.md](../plugin/README.md#the-smoke-test).
 
 ### What a plan adds
 
@@ -144,7 +144,7 @@ Plans can propose `gates` (with `with_task`, the task that sets their tooling up
 ### The triage
 
 Opt-in. With no `triage` section, or `model: off`, deviations wait for review as before. The runner
-judges each deviation after a task and at the start of `conduct`; the human aligns through plans,
+judges each deviation after a task and at the start of `run`; the human aligns through plans,
 conventions and gates instead.
 
 | Field | Default | Meaning |
@@ -174,9 +174,9 @@ conventions and gates instead.
   `reject_at` or above it drops to medium (`downgraded`). Every checked finding keeps Jev's answer
   (`advisory`) or the failure (`advisory_error`) in the run's review rounds, and each round with a
   check adds a `triage advisory: …` line to the task's events (or `skipped, no Jev key`).
-- **Rehearsal revisions**: with `model: jev-latest` and a key, the runner also judges the revision a
-  rehearsal proposes for a held plan (only the tasks that changed, in the same position), after the
-  rehearsal and at the start of `conduct`. Three questions, `drops_acceptance`, `adds_out_of_scope`
+- **Preflight revisions**: with `model: jev-latest` and a key, the runner also judges the revision a
+  preflight proposes for a held plan (only the tasks that changed, in the same position), after the
+  preflight and at the start of `run`. Three questions, `drops_acceptance`, `adds_out_of_scope`
   and `changes_design`: all below `reject_at` → the runner approves the plan; otherwise the verdict
   `hold` is recorded and the plan stays held for you. A revision that adds, removes or reorders tasks
   is held without calling Jev. Jev only: `fallback` does not apply, and with no key or on failure the
@@ -190,16 +190,16 @@ conventions and gates instead.
 ## 3. Running
 
 ```bash
-plugin/bin/autonome conduct --project <slug> [--repo <path>]
+plugin/bin/autonome run --project <slug> [--repo <path>]
     [--model <model>] [--effort low|medium|high|xhigh|max]   # override every role
     [--max-tasks 50] [--push]                                 # --push pushes main after each merge
     [--watch [--every 60]]                                    # keep waiting for approved work
 plugin/bin/autonome doctor --project <slug> [--repo <path>]
-plugin/bin/autonome cues --project <slug> [--repo <path>] [--force]
+plugin/bin/autonome schedules --project <slug> [--repo <path>] [--force]
 plugin/bin/autonome bench [--configs haiku:low,sonnet:medium] [--runs 1] [--only <case>]
 ```
 
-`conduct` waits for a restarting context and for the account's usage limit to reset (with
+`run` waits for a restarting context and for the account's usage limit to reset (with
 `--watch`), hands a task back to pending on infrastructure errors (the usage limit, monthly spend
 limit included) and on any exception of the runner itself; the third such exception in a row blocks
 the task as `runner error`. It prints a summary when it stops. A merge it could not record is recorded by the next run.
@@ -210,8 +210,8 @@ the task as `runner error`. It prints a summary when it stops. A merge it could 
 |---|---|---|
 | `AUTONOME_PROJECT` | repo folder name | the project slug, when it differs from the folder |
 | `AUTONOME_CONTEXT_URL` | `http://127.0.0.1:8765` | where the plugin finds the context |
-| `AUTONOME_CONTEXT_WAIT_S` | `300` (conduct, docs) | how long to wait for a restarting context |
-| `AUTONOME_<ROLE>_MODEL`, `AUTONOME_<ROLE>_EFFORT` | gate config | override a scribe's model (`HANDOFF`, `DOCS`) |
+| `AUTONOME_CONTEXT_WAIT_S` | `300` (run, docs) | how long to wait for a restarting context |
+| `AUTONOME_<ROLE>_MODEL`, `AUTONOME_<ROLE>_EFFORT` | gate config | override a handoff writer's model (`HANDOFF`, `DOCS`) |
 | `AUTONOME_MIN_USER_TURNS` | `3` | shorter interactive sessions get no handoff |
 | `AUTONOME_HOME` | `~/.autonome` | local state and logs of the plugin |
 | `AUTONOME_SEARCH_MIN_SIMILARITY` | `0.6` | vector hits below this cosine similarity are dropped, so an empty answer means nothing relevant (measured for nomic-embed-text) |

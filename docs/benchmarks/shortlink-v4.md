@@ -1,7 +1,7 @@
 # Benchmark: shortlink v4 (project `shortlink-4`, wave #190)
 
 Not the same starting point as v1 and v2: a greenfield repo (an `init` commit, no scaffold), so
-the compose also chose the stack (Python, FastAPI, SQLAlchemy over SQLite) and a layered
+the planning also chose the stack (Python, FastAPI, SQLAlchemy over SQLite) and a layered
 architecture (domain, application with ports, persistence, api). Same two features, same "add gates
 for style, linter and import limits" answer. Raw data: [`shortlink-v4.json`](shortlink-v4.json).
 
@@ -43,13 +43,13 @@ not normalised (reviewer, advisory); the stats route's storage error says "could
 
 ## What the process still got wrong
 
-1. The musician still trips on the shell: about 20 of 90 Bash calls denied, not all of them as the
+1. The implementer still trips on the shell: about 20 of 90 Bash calls denied, not all of them as the
    handoffs claim ("denied for the whole session" in 7 of 8). Denied: bare `python`/`pytest`/`ruff`
    instead of `uv run`, subshells and `${pipestatus}`, `grep`, `cd` into a subfolder. Also
-   `gate_config_get`, which the musician is not allowed.
-2. The scribe overstates denials; it should count them.
+   `gate_config_get`, which the implementer is not allowed.
+2. The handoff writer overstates denials; it should count them.
 
-## Learned (tune)
+## Learned (retro)
 
 Five conventions proposed with evidence: run gates as plain separate commands, read conventions
 first, changing a port updates every implementer (fake), exact error messages per operation, and
