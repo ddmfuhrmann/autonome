@@ -165,6 +165,77 @@ def test_insights_keep_the_reviewers_advisory_findings_for_the_tune_loop(run_db,
         ("links", "missing", "control characters accepted")]
 
 
+def _run(at: str, *issues: str, old_shape: bool = False) -> dict:
+    review = {"verdict": "pass", "findings": [{"kind": "missing", "severity": "medium", "issue": i} for i in issues]}
+    return {"at": at, **({"review": review} if old_shape else {"reviews": [{"findings": []}, review]})}
+
+
+def test_convention_effects_tell_holding_from_not_holding(run_db, project, indexer):
+    from autonome_context import insights
+
+    before, after = "2000-01-01T00:00:00+00:00", "2999-01-01T00:00:00+00:00"
+
+    async def go(conn):
+        async with conn.transaction():
+            for title in ["Tests assert behaviour", "Money is integer cents", "Validate input"]:
+                await store.create_document(conn, indexer, project=project, type="convention", status="active",
+                                            body={"title": title, "rule": f"{title} rule"})
+            runs = [[_run(before, "violates Tests assert behaviour: weak test"),
+                     _run(after, "weak test, see tests assert behaviour"),
+                     _run(after, "again", old_shape=True)],
+                    [_run(after, "money is integer cents is broken", old_shape=True)],
+                    [_run(after)], [_run(after)], [_run(after)]]
+            runs[0][2]["review"]["findings"][0]["convention"] = "Tests assert behaviour"
+            for r in runs:
+                await store.create_document(conn, indexer, project=project, type="task", status="done",
+                                            body={"title": "t", "spec": "s", "runs": r})
+        return {e["title"]: e for e in (await insights.build(conn, project, indexer.embedder))["convention_effects"]}
+
+    e = run_db(go)
+    behaviour = e["Tests assert behaviour"]
+    assert (behaviour["findings_before"], behaviour["findings_after"]) == (1, 2)  # the old-shape run counts too
+    assert behaviour["holding"] is False
+    assert e["Money is integer cents"]["findings_after"] == 1 and e["Money is integer cents"]["holding"] is None
+    assert e["Validate input"]["tasks_after"] == 5 and e["Validate input"]["holding"] is True
+
+
+def test_convention_with_one_later_task_is_too_early_to_tell(run_db, project, indexer):
+    from autonome_context import insights
+
+    async def go(conn):
+        async with conn.transaction():
+            await store.create_document(conn, indexer, project=project, type="convention", status="active",
+                                        body={"title": "Validate input", "rule": "Validate input"})
+            await store.create_document(conn, indexer, project=project, type="task", status="done",
+                                        body={"title": "t", "spec": "s", "runs": [_run("2999-01-01T00:00:00+00:00")]})
+        return (await insights.build(conn, project, indexer.embedder))["convention_effects"]
+
+    [effect] = run_db(go)
+    assert effect["tasks_after"] == 1 and effect["holding"] is None
+
+
+def test_convention_effects_split_friction_close_to_the_rule_by_adoption(run_db, project, indexer):
+    from autonome_context import insights
+
+    async def go(conn):
+        async with conn.transaction():
+            await store.create_document(conn, indexer, project=project, type="convention", status="active",
+                                        body={"title": "Validate input", "rule": "Validate input rule"})
+        old = await store.put_handoff(conn, indexer, make_handoff(project, session_id="s-old",
+                                                                  friction=["validate input rule"]), None)
+        await store.put_handoff(conn, indexer, make_handoff(project, session_id="s-new",
+                                                            friction=["validate input rule"]), None)
+        await store.put_handoff(conn, indexer, make_handoff(project, session_id="s-other",
+                                                            friction=["flaky docker startup"]), None)
+        async with conn.transaction():
+            await conn.execute("update document set created_at = now() - interval '1 day' where id = %s", (old,))
+        return (await insights.build(conn, project, indexer.embedder))["convention_effects"]
+
+    [effect] = run_db(go)
+    assert (effect["friction_before"], effect["friction_after"]) == (1, 1)
+    assert effect["holding"] is None  # one recurrence after: too early to say
+
+
 def test_deleting_a_project_removes_everything_in_it_and_nothing_else(run_db, project, indexer):
     async def go(conn):
         await store.put_handoff(conn, indexer, make_handoff(project), "raw transcript")
