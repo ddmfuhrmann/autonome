@@ -327,6 +327,81 @@ export function verdictLine(r: ReviewResult): string {
     `- ${f.severity} ${f.kind}${f.file ? ` in \`${f.file}\`` : ""}: ${f.issue.replace(/\s+/g, " ")}`).join("\n");
 }
 
+/** What `judgeTask` calls out to; tests swap them (a reviewer that fails round 1 and passes round 2). */
+export interface JudgeSeams {
+  gates: (cwd: string, base: string) => { passed: boolean; summary: string };
+  review: typeof review;
+  briefing: () => Promise<string>;
+}
+
+export interface JudgeInput {
+  task: Task;
+  cfg: GateConfig["config"];
+  opts: ConductOptions;
+  run: Run;
+  worktree: string;
+  base: string;
+  /** The musician's latest session; changes after each encore. */
+  current: () => { sessionId: string; stop: string };
+  encore: (prompt: string) => Promise<void>;
+}
+
+/** Gates, then the reviewer; blocking findings send the musician back to the same session.
+ * Returns why the task cannot merge (null when it can) and whether the reviewer's findings are the reason. */
+export async function judgeTask(input: JudgeInput, seams: JudgeSeams): Promise<{ failure: string | null; blockedOnReview: boolean }> {
+  const { task, cfg, opts, run, worktree, base, encore } = input;
+  const log = opts.log;
+  let cleanups = 0;
+  let mediumSent = false;
+  for (let round = 0; ; ) {
+    const result = input.current();
+    const state = result.sessionId ? metronomeState(result.sessionId) : {};
+    if (result.stop && isUsageLimit(result.stop)) throw new UsageLimitError(result.stop);
+    if (result.stop) return { failure: result.stop, blockedOnReview: false };
+    if (state.status === "blocked") return { failure: `metronome: ${state.reason}`, blockedOnReview: false };
+    stageWork(worktree);
+    if (!git(worktree, "status", "--porcelain")) return { failure: "the session changed nothing", blockedOnReview: false };
+    // Built in, whatever the project's gates: nothing ignored or unasked-for binary gets committed.
+    const stray = strayFiles(worktree, base, `${task.body.title}\n${task.body.spec}`);
+    if (stray.length) {
+      const list = stray.map((p) => `- ${p}`).join("\n");
+      if (cleanups >= cfg.encore.max) return { failure: `stray files still in the change:\n${list}`, blockedOnReview: false };
+      cleanups++;
+      log(`  stray files in the change; encore ${cleanups}`);
+      stage(opts, { task_id: task.id }, `encore: stray files in the change`);
+      await encore(`These files would be committed but do not belong in the change. Add them (or their ` +
+        `pattern) to .gitignore; the runner restages from scratch, so ignoring them is enough:\n${list}`);
+      continue;
+    }
+    stage(opts, { task_id: task.id }, "gates");
+    const check = seams.gates(worktree, base);
+    stage(opts, { task_id: task.id }, check.passed ? "gates passed" : `gates: ${check.summary.split(":")[0]}`);
+    if (!check.passed) return { failure: check.summary, blockedOnReview: false };
+    if (!cfg.review.enabled) return { failure: null, blockedOnReview: false };
+    const briefing = await seams.briefing();
+    stage(opts, { task_id: task.id }, `review, round ${round + 1}`);
+    const rv = await seams.review(task, briefing, worktree, base,
+      { ...roleModel(cfg, "reviewer", opts), language: languageRule(cfg) },
+      live(opts, "reviewer", { task_id: task.id }), run.review?.findings,
+      { cfg: cfg.triage, key: cfg.triage?.model === "jev-latest" ? jevKey((l) => opts.log(`triage: ${l}`)) : undefined });
+    recordRound(run, rv.result, round + 1);
+    opts.events?.push({ task_id: task.id, role: "reviewer", kind: "say", text: verdictLine(rv.result) });
+    run.cost_usd = (run.cost_usd ?? 0) + rv.cost;
+    // Medium findings go back once; after that only high ones do, so rounds converge.
+    const message = encoreMessage(rv.result, round < cfg.review.max_rounds && !mediumSent);
+    mediumSent ||= rv.result.verdict === "pass" && !!message;
+    if (rv.result.verdict === "pass" && !message) return { failure: null, blockedOnReview: false }; // what is left becomes loose ends at merge
+    if (round >= cfg.review.max_rounds) {
+      return { failure: `review: still blocking after ${round} encore(s):\n${findingsForEncore(rv.result)}`, blockedOnReview: true };
+    }
+    round++;
+    const why = rv.result.verdict === "pass" ? "medium findings" : "blocking findings";
+    log(`  review: ${why}; encore ${round}`);
+    stage(opts, { task_id: task.id }, `encore ${round}: back to the musician with the reviewer's ${why}`);
+    await encore(message!);
+  }
+}
+
 /** Plays one task; returns its last run, for the summary. */
 async function conductTask(task: Task, opts: ConductOptions): Promise<Run | undefined> {
   const { repo, log } = opts;
@@ -372,60 +447,15 @@ async function conductTask(task: Task, opts: ConductOptions): Promise<Run | unde
     run.tokens = (run.tokens ?? 0) + result.tokens;
     run.cost_usd = (run.cost_usd ?? 0) + result.cost;
   };
-  const judge = async (): Promise<string | null> => {
-    let cleanups = 0;
-    let mediumSent = false;
-    for (let round = 0; ; ) {
-      const state = result.sessionId ? metronomeState(result.sessionId) : {};
-      if (result.stop && isUsageLimit(result.stop)) throw new UsageLimitError(result.stop);
-      if (result.stop) return result.stop;
-      if (state.status === "blocked") return `metronome: ${state.reason}`;
-      stageWork(worktree);
-      if (!git(worktree, "status", "--porcelain")) return "the session changed nothing";
-      // Built in, whatever the project's gates: nothing ignored or unasked-for binary gets committed.
-      const stray = strayFiles(worktree, base, `${task.body.title}\n${task.body.spec}`);
-      if (stray.length) {
-        const list = stray.map((p) => `- ${p}`).join("\n");
-        if (cleanups >= cfg.encore.max) return `stray files still in the change:\n${list}`;
-        cleanups++;
-        log(`  stray files in the change; encore ${cleanups}`);
-        stage(opts, { task_id: task.id }, `encore: stray files in the change`);
-        await encore(`These files would be committed but do not belong in the change. Add them (or their ` +
-          `pattern) to .gitignore; the runner restages from scratch, so ignoring them is enough:\n${list}`);
-        continue;
-      }
-      stage(opts, { task_id: task.id }, "gates");
-      const check = gates(worktree, base);
-      stage(opts, { task_id: task.id }, check.passed ? "gates passed" : `gates: ${check.summary.split(":")[0]}`);
-      if (!check.passed) return check.summary;
-      if (!cfg.review.enabled) return null;
-      const briefing = (await context.briefing(opts.project, task.id)).text;
-      stage(opts, { task_id: task.id }, `review, round ${round + 1}`);
-      const rv = await review(task, briefing, worktree, base,
-        { ...roleModel(cfg, "reviewer", opts), language: languageRule(cfg) },
-        live(opts, "reviewer", { task_id: task.id }), run.review?.findings,
-        { cfg: cfg.triage, key: cfg.triage?.model === "jev-latest" ? jevKey((l) => opts.log(`triage: ${l}`)) : undefined });
-      recordRound(run, rv.result, round + 1);
-      opts.events?.push({ task_id: task.id, role: "reviewer", kind: "say", text: verdictLine(rv.result) });
-      run.cost_usd = (run.cost_usd ?? 0) + rv.cost;
-      // Medium findings go back once; after that only high ones do, so rounds converge.
-      const message = encoreMessage(rv.result, round < cfg.review.max_rounds && !mediumSent);
-      mediumSent ||= rv.result.verdict === "pass" && !!message;
-      if (rv.result.verdict === "pass" && !message) return null; // what is left becomes loose ends at merge
-      if (round >= cfg.review.max_rounds) {
-        blockedOnReview = true;
-        return `review: still blocking after ${round} encore(s):\n${findingsForEncore(rv.result)}`;
-      }
-      round++;
-      const why = rv.result.verdict === "pass" ? "medium findings" : "blocking findings";
-      log(`  review: ${why}; encore ${round}`);
-      stage(opts, { task_id: task.id }, `encore ${round}: back to the musician with the reviewer's ${why}`);
-      await encore(message!);
-    }
-  };
   let failure: string | null;
   try {
-    failure = await judge();
+    const judged = await judgeTask({ task, cfg, opts, run, worktree, base, current: () => result, encore }, {
+      gates,
+      review,
+      briefing: async () => (await context.briefing(opts.project, task.id)).text,
+    });
+    failure = judged.failure;
+    blockedOnReview = judged.blockedOnReview;
   } catch (e) {
     // Out of usage (in the musician or a reviewer): the work so far is dropped, the task plays again later.
     if (e instanceof UsageLimitError || isUsageLimit(String(e))) {

@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { verdictLine } from "./conduct.js";
-import type { Finding, ReviewResult, Run } from "./context.js";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { judgeTask, verdictLine, type ConductOptions, type JudgeSeams } from "./conduct.js";
+import type { Finding, GateConfig, ReviewResult, Run, Task } from "./context.js";
 import { earlierFindingsSection, encoreMessage, recordRound, settleOutcomes, settleRun } from "./review.js";
 
 test("every round keeps its findings, each marked with what became of it", () => {
@@ -38,6 +42,67 @@ test("a block that is not the reviewer's leaves the last round's findings unmark
   recordRound(run, { verdict: "pass", findings: [medium] }, 1);
   settleRun(run, undefined); // e.g. the merge failed
   assert.equal(medium.outcome, undefined);
+});
+
+/** Runs the real review loop of conduct over a temp repo, with a scripted reviewer and fake gates. */
+async function runLoop(rounds: ReviewResult[], maxRounds: number) {
+  const dir = mkdtempSync(join(tmpdir(), "judge-"));
+  const sh = (...a: string[]) => execFileSync("git", a, { cwd: dir, encoding: "utf8" }).trim();
+  sh("init", "-q", "-b", "main");
+  sh("config", "user.email", "t@t");
+  sh("config", "user.name", "t");
+  writeFileSync(join(dir, "a.txt"), "one\n");
+  sh("add", "-A");
+  sh("commit", "-q", "-m", "base");
+  const base = sh("rev-parse", "HEAD");
+  writeFileSync(join(dir, "a.txt"), "two\n");
+
+  const run: Run = { at: "", branch: "", worktree: dir, base, outcome: "" };
+  const task = { id: 1, project: "p", body: { title: "t", spec: "s" } } as unknown as Task;
+  const cfg = { review: { enabled: true, max_rounds: maxRounds }, encore: { max: 1 }, models: {} } as unknown as GateConfig["config"];
+  const opts = { project: "p", repo: dir, maxTasks: 1, push: false, log: () => {} } as ConductOptions;
+  let call = 0;
+  let encores = 0;
+  const seams: JudgeSeams = {
+    gates: () => ({ passed: true, summary: "all gates passed" }),
+    briefing: async () => "briefing",
+    // A fresh copy per call, as a real reviewer returns: rounds never share an object.
+    review: (async () => ({ result: structuredClone(rounds[Math.min(call++, rounds.length - 1)]), cost: 0 })) as JudgeSeams["review"],
+  };
+  const judged = await judgeTask({ task, cfg, opts, run, worktree: dir, base, current: () => ({ sessionId: "", stop: "" }),
+    encore: async () => { encores++; } }, seams);
+  return { run, judged, encores: () => encores };
+}
+
+test("conduct's review loop keeps every round; fixed findings resolve and the last round's merge", async () => {
+  const f = (severity: "high" | "medium" | "low", issue: string): Finding => ({ kind: "missing", severity, issue });
+  const r1: ReviewResult = { verdict: "fail", findings: [f("high", "no test")] };
+  const r2: ReviewResult = { verdict: "pass", findings: [f("medium", "weak name")] };
+  const r3: ReviewResult = { verdict: "pass", findings: [f("low", "nit")] };
+  const { run, judged, encores } = await runLoop([r1, r2, r3], 3);
+  assert.equal(judged.failure, null);
+  assert.equal(judged.blockedOnReview, false);
+  assert.equal(encores(), 2); // round 1 high, round 2 medium once; round 3 only has a low one
+  const rounds = run.reviews!;
+  assert.equal(rounds.length, 3);
+  assert.equal(new Set(rounds).size, 3); // each round is its own result
+  assert.deepEqual(rounds.map((r) => r.findings[0].issue), ["no test", "weak name", "nit"]);
+  assert.equal(run.review, rounds[2]);
+  assert.equal(run.review_rounds, 3);
+  settleRun(run, "merged");
+  assert.deepEqual(rounds.map((r) => r.findings[0].outcome), ["resolved", "resolved", "merged"]);
+});
+
+test("conduct's review loop blocks when the reviewer keeps failing until max_rounds", async () => {
+  const bad: Finding = { kind: "missing", severity: "high", issue: "raw 500" };
+  const fail = (): ReviewResult => ({ verdict: "fail", findings: [{ ...bad }] });
+  const { run, judged } = await runLoop([fail(), fail(), fail()], 2);
+  assert.match(judged.failure!, /still blocking after 2 encore/);
+  assert.equal(judged.blockedOnReview, true);
+  assert.equal(run.reviews?.length, 3);
+  settleRun(run, judged.blockedOnReview ? "blocked" : undefined);
+  assert.deepEqual(run.reviews?.slice(0, 2).map((r) => r.findings[0].outcome), ["repeated", "repeated"]);
+  assert.equal(run.review?.findings[0].outcome, "blocked");
 });
 
 test("the reviewer's verdict reads as a short list in the live view", () => {
