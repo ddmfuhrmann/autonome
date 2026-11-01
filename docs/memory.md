@@ -97,7 +97,7 @@ memory already shaped for their job:
 | briefing (SessionStart) | the task, its plan, the conventions of its layers, earlier friction, rehearsal notes | every session |
 | `conventions_get` | the rules of the layers a change touches | compose, musician, reviewer |
 | `history_get` | what went off plan before on the same subject: skipped items, deviations and who judged them (`judged_by`: a triage backend or `human`, with the `verdict`), reviewer blocks, fixes, blocked tasks | compose, rehearsal |
-| `insights_get` | adherence, gate failures, encores, friction grouped by meaning, advisory review findings, triage verdicts and what happened next | tune |
+| `insights_get` | adherence, gate failures, encores, friction grouped by meaning, advisory review findings, triage verdicts and what happened next, and `convention_effects`: per active convention, findings and friction before and after its adoption (`findings_before/after`, `friction_before/after`, `tasks_after`) and `holding` (true, false, or null when too little history) | tune |
 | `plan_get`, `plan_list`, `gate_config_get` | plans and the gates that will judge the work | compose, rehearsal |
 
 ## How it learns
@@ -159,8 +159,9 @@ or `rejected`) with the classifier's verdict, which is kept in the decision's `t
 undo it; when `max_rounds` run out it stays proposed, marked exhausted, off the queue. With the
 triage off it waits for the human as before. Every reviewer round of a task is kept in the run's
 `reviews`, with each finding's outcome. Deviations are triaged, and so is every accepted decision: the runner
-screens it first (one question, `is_deviation`) and reopens it as a deviation when the classifier judges
-it so, then the triage judges it as any other. Proposed conventions, playback, fermata and blocked
+screens it first (one question, `is_deviation`; the result is kept in the decision's `screening`) and
+reopens it as a deviation (`accepted → proposed`, `screened_as_deviation`) when the score reaches
+`reject_at`, then the triage judges it as any other. Proposed conventions, playback, fermata and blocked
 tasks stay with the human. A *playback* task is merged and
 waits for the human's review in the background; "needs a fix" becomes a new task.
 

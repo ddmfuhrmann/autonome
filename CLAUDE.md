@@ -54,7 +54,9 @@ plugin/runner/  the maestro (TypeScript, Claude Agent SDK): one session + worktr
   never real external services.
 - **Triage**: `triage` in the gate config (opt-in) lets a classifier judge deviations in the runner:
   Jev (Typesafe, `jev-latest`) with a Haiku fallback. Atomic questions, verdict decided in code from
-  thresholds; rounds that run out leave the decision proposed, off the queue, shown in insights. The
+  thresholds; rounds that run out leave the decision proposed, off the queue, shown in insights. Every
+  accepted decision is screened first (`is_deviation`); at or above `reject_at` it is reopened as a
+  deviation and judged like one, so a deviation the scribe missed is still caught. The
   Jev key (`TYPESAFE_API_KEY`) lives in the runner's environment or `~/.autonome/secrets.env`, never in
   the gate config, and never reaches agent sessions.
 - **Models**: every agent role (musician, reviewer, rehearsal, listener, tune, handoff, docs) has a
@@ -77,7 +79,8 @@ plugin/runner/  the maestro (TypeScript, Claude Agent SDK): one session + worktr
   findings, notes, docs); code, identifiers and commits follow the project.
 - **Loops**: compose (human + agent, the only conversation) → conduct (one session per task) →
   tune (after each wave, automatically; reads `insights`, only proposes conventions and at most one
-  plan) ← cues (scheduled checks that only queue tasks into a maintenance plan a human approved once).
+  plan; measures adopted conventions with `convention_effects`, escalates the ones that do not hold
+  to a gate, one remedy per problem) ← cues (scheduled checks that only queue tasks into a maintenance plan a human approved once).
   Only conduct writes code.
 - **Infrastructure is not the task's fault.** A context outage, a restart or the account's usage
   limit hands the task back to pending (waiting where it can); it never blocks a task. A merge the

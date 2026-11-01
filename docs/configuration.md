@@ -154,6 +154,10 @@ conventions and gates instead.
 | `reject_at` | `0.7` | score at which a deviation is rejected, `0 < x <= 1`; thresholds are a rule you edit |
 | `max_rounds` | `2` | rounds before a rejected deviation stays proposed (each earlier rejection queues an undo task) |
 
+- **Screening**: every accepted decision made since the triage was turned on is screened first, with
+  one question, `is_deviation`. At or above `reject_at` it is reopened as a proposed deviation and
+  judged like any other; below it, it stays accepted. The screening is always recorded in the
+  decision. Decisions from before the triage was on are not screened.
 - **On failure**: Jev down or no key → the fallback judges; if that fails too (or is `off`) nothing
   is recorded, the decision stays proposed and is tried again at the next run. A failed triage never
   breaks storing a handoff.
