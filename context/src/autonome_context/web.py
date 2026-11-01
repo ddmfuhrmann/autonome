@@ -193,6 +193,22 @@ def _escalated(d: dict) -> bool:
     return bool(d["body"].get("triage_conflict"))
 
 
+def revision_triage_line(triage: dict | None) -> str:
+    """The classifier's verdict on a held revision, with the flag that weighed most: `triage: hold (flag 0.93)`."""
+    if not triage:
+        return ""
+    def score(a):
+        try:
+            return float(a[1])
+        except ValueError:
+            return -1.0
+    top = max((triage.get("answers") or {}).items(), key=score, default=None)
+    return f"triage: {triage['verdict']}" + (f" ({top[0]} {top[1]})" if top else "")
+
+
+templates.env.filters["revision_triage"] = revision_triage_line
+
+
 async def _triage_on(conn, project: str) -> bool:
     cfg = await _gate_config(conn, project)
     return bool(cfg and cfg.triage and cfg.triage.model != "off")

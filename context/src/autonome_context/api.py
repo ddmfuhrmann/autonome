@@ -250,6 +250,97 @@ async def post_triage(request: Request) -> JSONResponse:
     return _json({"status": "rejected" if v.verdict == "reject" else "accepted"})
 
 
+class RevisionVerdict(BaseModel):
+    model: str
+    state: str
+    answers: dict[Annotated[str, StringConstraints(min_length=1, max_length=80)],
+                  Annotated[str, StringConstraints(min_length=1, max_length=32, pattern=r"^[A-Za-z0-9_.-]+$")]]
+    verdict: Literal["accept", "hold"]
+
+
+class _Refused(Exception):
+    pass
+
+
+async def post_rehearsal_triage(request: Request) -> JSONResponse:
+    """The runner's classifier judged a rehearsal's revision: keep the verdict; accepting starts the plan."""
+    try:
+        v = RevisionVerdict.model_validate(await request.json())
+    except ValueError as e:
+        detail = e.errors(include_context=False, include_input=False) if isinstance(e, ValidationError) else str(e)
+        return _json({"error": "invalid_triage", "detail": detail}, 422)
+    plan_id = int(request.path_params["doc_id"])
+    pool, indexer = await services.get()
+    async with pool.connection() as conn:
+        try:
+            async with conn.transaction():
+                # Concurrent verdicts on one plan wait here; the second sees the verdict and is refused.
+                await conn.execute("select 1 from document where id = %s for update", (plan_id,))
+                plan = await store.get_document(conn, plan_id)
+                if not plan or plan["type"] != "plan":
+                    return _json({"error": "not a plan"}, 404)
+                cfg = (await gate_config_body(conn, plan["project"]))["config"]
+                if not cfg.get("triage") or cfg["triage"]["model"] != "jev-latest" or v.model != "jev-latest":
+                    raise _Refused("only jev-latest judges revisions")
+                r = plan["body"].get("rehearsal") or {}
+                if plan["status"] != "held" or not r.get("plan"):
+                    raise _Refused("only a held plan with a proposed revision is triaged")
+                if r.get("triage"):
+                    raise _Refused("this revision was already judged")
+                triage = {"model": v.model, "answers": v.answers, "verdict": v.verdict, "at": plans._now()}
+                await store.add_version(conn, indexer, plan_id, {**plan["body"], "rehearsal": {**r, "triage": triage}})
+                if v.verdict == "accept":
+                    await plans.resolve_rehearsal(conn, indexer, plan_id, accept=True, actor="runner")
+        except (_Refused, rules.Forbidden) as e:  # the transaction rolled back: nothing changed
+            return _json({"error": str(e)}, 403)
+    return _json({"status": "approved" if v.verdict == "accept" else "held"})
+
+
+def _revision_state(plan: dict) -> tuple[dict, bool]:
+    """What the classifier is shown of a held plan's revision: only the tasks that changed, by position."""
+    r = plan["body"]["rehearsal"]
+    old, new = plan["body"].get("tasks") or [], r["plan"].get("tasks") or []
+
+    def part(t: dict | None, i: int) -> dict | None:
+        return {"position": i + 1, **{k: t.get(k) for k in ("title", "spec", "acceptance") if t.get(k)}} if t else None
+
+    original, revised = [], []
+    for i in range(max(len(old), len(new))):
+        o = old[i] if i < len(old) else None
+        n = new[i] if i < len(new) else None
+        if any((o or {}).get(k) != (n or {}).get(k) for k in ("title", "spec", "acceptance")):
+            original += [p for p in [part(o, i)] if p]
+            revised += [p for p in [part(n, i)] if p]
+    titles = [t.get("title") for t in old]
+    shape_changed = len(old) != len(new) or any(
+        t.get("title") in titles and titles.index(t.get("title")) != i for i, t in enumerate(new))
+    state: dict = {}
+    if plan_part := {k: plan["body"][k] for k in ("goal", "out_of_scope", "design") if plan["body"].get(k)}:
+        state["plan"] = plan_part
+    state["original"], state["revised"] = original, revised
+    if r.get("notes"):
+        state["notes"] = _cut_text(r["notes"], 3000)
+    return state, shape_changed
+
+
+def _cut_text(text: str, n: int) -> str:
+    return text if len(text) <= n else text[:n]
+
+
+async def _pending_revisions(conn, project: str) -> list[dict]:
+    """Held plans with a revision the classifier has yet to judge, oldest first."""
+    out = []
+    for p in await store.list_documents(conn, project, type="plan", status="held", limit=None, oldest_first=True):
+        r = p["body"].get("rehearsal") or {}
+        if not r.get("plan") or r.get("triage"):
+            continue
+        state, shape_changed = _revision_state(p)
+        out.append({"plan_id": p["id"], "state": state, "shape_changed": shape_changed})
+        if len(out) == 20:
+            break
+    return out
+
+
 async def _decision_task(conn, decision_id: int) -> dict | None:
     """The task whose session made this decision: decision <-records- handoff -reports-> task."""
     for h in (l for l in await store.links_of(conn, decision_id) if l["kind"] == "records" and l["direction"] == "in"):
@@ -328,7 +419,8 @@ async def get_triage(request: Request) -> JSONResponse:
             if len(out) == 50:
                 break
         screen = await _screen_pending(conn, project)
-    return _json({"deviations": out, "screen": screen})
+        revisions = await _pending_revisions(conn, project)
+    return _json({"deviations": out, "screen": screen, "revisions": revisions})
 
 
 async def _triage_since(conn, project: str) -> str | None:
@@ -494,6 +586,7 @@ def routes() -> list:
         Route("/api/projects/{project}/waves/untuned", untuned_waves),
         Route("/api/projects/{project}/triage", get_triage),
         Route("/api/decisions/{doc_id:int}/triage", post_triage, methods=["POST"]),
+        Route("/api/plans/{doc_id:int}/rehearsal-triage", post_rehearsal_triage, methods=["POST"]),
         Route("/api/decisions/{doc_id:int}/screen", post_screen, methods=["POST"]),
         Route("/api/waves/{doc_id:int}/tuned", wave_tuned, methods=["POST"]),
         Route("/api/projects/{project}/briefing", get_briefing),

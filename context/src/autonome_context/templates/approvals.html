@@ -35,6 +35,7 @@
       {% endif %}
     {% elif item.kind == 'held' %}{% set r = d.body.rehearsal %}
       <p class="muted">The rehearsal checked the plan against <span class="mono">main</span> before its first task and {{ 'proposes a revision' if r.plan else 'held it' }}.</p>
+      {% if r.triage %}<p class="muted">{{ r.triage|revision_triage }}</p>{% endif %}
       {% if r.notes %}<div class="callout callout--hold"><div class="prose">{{ r.notes|md }}</div></div>{% endif %}
       {% if r.plan %}
       <div class="split">
