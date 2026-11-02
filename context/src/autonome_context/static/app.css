@@ -661,6 +661,21 @@ pre.mermaid { margin: 0; padding: 16px 0; background: none; border-top: 1px soli
 .sfield__help { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
 .sfield__default { color: var(--faint); font-size: 12px; margin: 4px 0 0; }
 .sfield__error { color: var(--stop); font-size: 13px; margin: 4px 0 0; }
+.sfield.has-error input, .sfield.has-error select, .sfield.has-error textarea, .srow.has-error input,
+.srow.has-error select, .srow.has-error textarea { border-color: var(--stop); }
+.srow__error { grid-column: 1 / -1; margin: 0; }
+.sproblems { margin: 6px 0 0; padding-left: 18px; }
+.sproblems a { color: inherit; }
+.sdot { display: inline-block; width: 7px; height: 7px; margin-left: 6px; border-radius: 50%; background: var(--accent); }
+.sdot--bad { background: var(--stop); }
+.ssec.is-changed > h2::after, .ssec.has-error > h2::after {
+  content: ""; display: inline-block; width: 7px; height: 7px; margin-left: 8px; border-radius: 50%; background: var(--accent); vertical-align: middle; }
+.ssec.has-error > h2::after { background: var(--stop); }
+.srow.is-dragging { opacity: .5; }
+.srow[draggable="true"] { cursor: grab; }
+.y-bad { background: rgba(255, 69, 58, .25); }
+.y-bad-n { color: var(--stop); font-weight: 600; }
+.seg button.seg__opt { border: 0; background: none; padding: 0; font: inherit; }
 .sfield__control { min-width: 0; }
 .sfield__control input[type="text"], .sfield__control input[type="number"], .sfield__control select, .sfield__control textarea { width: 100%; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; padding-bottom: 6px; }

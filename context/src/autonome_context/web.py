@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import markdown as md
 import markupsafe
+import yaml
 from markupsafe import Markup
 
 from starlette.requests import Request
@@ -788,11 +789,123 @@ SETTINGS_SECTIONS = ["Gates", "Execution", "Human checkpoints", "Review", "Triag
                      "Agents", "Other"]
 
 
+_GATE_ROW = ("name", "run", "mode", "fast", "when", "timeout_s")
+_SCHEDULE_ROW = ("name", "kind", "every_hours", "run", "task")
+_CHECK_ROW = ("name", "run", "timeout_s")
+_ROW_LISTS = {"gates": _GATE_ROW, "schedules": _SCHEDULE_ROW, "smoke_test-checks": _CHECK_ROW}
+_ROW_IDENTITY = ("name", "run", "task", "when")  # a row with none of these filled is the blank one to add
+
+_SECTION_OF = {"gates": "Gates", "permissions": "Execution", "retries": "Execution", "budget": "Execution",
+               "allowed_commands": "Execution", "interactive": "Execution",
+               "hold_before_merge": "Human checkpoints", "review_after_merge": "Human checkpoints",
+               "review": "Review", "triage": "Triage", "smoke_test": "Smoke test", "schedules": "Schedules",
+               "models": "Agents"}
+_LIST_FIELDS = ("allowed_commands", "hold_before_merge-features", "review_after_merge-features")
+_ACTION_FIELDS = ("action", "yaml", "reset", "move", "remove")
+
+
 def _form_rows(form: dict[str, str], prefix: str, fields: tuple[str, ...]) -> list[dict[str, str]]:
-    n = 0
-    while f"{prefix}-{n}-{fields[0]}" in form:
-        n += 1
-    return [{f: form[f"{prefix}-{i}-{f}"] for f in fields} for i in range(n)]
+    """The rows of a list in index order, each with its form index as `i`; blank rows (nothing to say) are dropped."""
+    rows = []
+    for i in settings_form._indexes(form, prefix):
+        row = {f: form.get(f"{prefix}-{i}-{f}", "") for f in fields}
+        if any(row.get(f) for f in _ROW_IDENTITY):
+            rows.append({"i": i, **row})
+    return rows
+
+
+def _section_of(key: str) -> str:
+    return _SECTION_OF.get(key.split("-")[0], "Other")
+
+
+def _anchor(key: str, known: dict) -> str:
+    """Where a problem's link goes: the field, its row, or else its section."""
+    if m := settings_form._ROW_INDEX.match(key):
+        return f"f-{m.group(1)}-{m.group(2)}"
+    return f"f-{key}" if key in known else _section_of(key).lower().replace(" ", "-")
+
+
+def _posted(data) -> dict[str, str | list[str]]:
+    out: dict[str, str | list[str]] = {}
+    for key in dict.fromkeys(data.keys()):
+        values = [str(v) for v in data.getlist(key)]
+        out[key] = values[0] if len(values) == 1 else values
+    return out
+
+
+def _apply_row_buttons(posted: dict, defaults: dict[str, str]) -> dict:
+    """The posted fields after a row button without JS: `remove=gates-1`, `move=gates-1-up|down`, `reset=<field>`."""
+    out = dict(posted)
+
+    def rename(prefix: str, src: int, dst: int) -> dict:
+        return {f"{prefix}-{dst}-{k[len(f'{prefix}-{src}-'):]}": v for k, v in out.items()
+                if k.startswith(f"{prefix}-{src}-")}
+
+    def take(prefix: str, i: int) -> None:
+        for k in [k for k in out if k.startswith(f"{prefix}-{i}-")]:
+            del out[k]
+
+    if m := re.fullmatch(r"(gates|schedules|smoke_test-checks)-(\d+)", str(out.get("remove", ""))):
+        take(m.group(1), int(m.group(2)))
+    if m := re.fullmatch(r"(gates|schedules|smoke_test-checks)-(\d+)-(up|down)", str(out.get("move", ""))):
+        prefix, i = m.group(1), int(m.group(2))
+        order = settings_form._indexes(out, prefix)
+        at = order.index(i) if i in order else -1
+        j = at + (-1 if m.group(3) == "up" else 1)
+        if at >= 0 and 0 <= j < len(order):
+            other = order[j]
+            a, b = rename(prefix, i, other), rename(prefix, other, i)
+            take(prefix, i), take(prefix, other)
+            out |= a | b
+    reset = str(out.get("reset", ""))
+    if reset.startswith("models-") and reset.count("-") == 1:
+        out |= {k: v for k, v in defaults.items() if k.startswith(f"{reset}-")}
+    elif reset in defaults:
+        out[reset] = defaults[reset]
+    return out
+
+
+def _draft_form(posted: dict, defaults: dict[str, str]) -> dict[str, str]:
+    """The posted fields as the page shows them: text as typed, lists joined by lines, unposted fields empty."""
+    form = dict.fromkeys(defaults, "")
+    for key, value in posted.items():
+        if key not in _ACTION_FIELDS:
+            form[key] = "\n".join(value) if isinstance(value, list) else value
+    return form
+
+
+def _signature(form: dict[str, str]) -> dict[str, object]:
+    """What a section holds, for comparing a draft with the saved version: lists of items, rows without the blank one."""
+    sig: dict[str, object] = {}
+    for key, value in form.items():
+        if key.split("-")[0] in ("gates", "schedules") or key.startswith("smoke_test-checks-"):
+            continue
+        sig[key] = settings_form._items({key: value}, key) if key in _LIST_FIELDS else value.strip()
+    for prefix, fields in _ROW_LISTS.items():
+        sig[prefix] = [tuple(r[f].strip() if f != "when" else tuple(settings_form._items({"w": r[f]}, "w", False))
+                             for f in fields) for r in _form_rows(form, prefix, fields)]
+    return sig
+
+
+def _changed_sections(saved: dict[str, str], draft: dict[str, str]) -> list[str]:
+    a, b = _signature(saved), _signature(draft)
+    return [s for s in SETTINGS_SECTIONS
+            if any(a.get(k) != b.get(k) for k in {*a, *b} if _section_of(k) == s
+                   and (a.get(k) not in (None, "", []) or b.get(k) not in (None, "", [])))]
+
+
+def _parse_yaml(text: str, catalog: set[str]) -> tuple[GateConfig | None, str | None, int | None, dict[str, str]]:
+    """(config, error, line of a syntax error, extra checks by field): the config is None when the text is not valid."""
+    try:
+        cfg = GateConfig.from_yaml(text)
+    except yaml.YAMLError as e:
+        mark = getattr(e, "problem_mark", None)
+        line = mark.line + 1 if mark else None
+        problem = getattr(e, "problem", None) or str(e)
+        return None, f"YAML inválido{f' na linha {line}' if line else ''}: {problem}", line, {}
+    except Exception as e:  # schema error
+        return None, str(e), None, {}
+    return cfg, None, None, settings_form.extra_checks(cfg, catalog)
 
 
 def _version_origin(body: dict) -> str | None:
@@ -805,8 +918,12 @@ def _version_origin(body: dict) -> str | None:
 
 
 async def settings_page(request: Request) -> Response:
+    """A POST never saves from the form: it turns the posted fields into a draft shown in the requested view
+    (`action`: view_form, view_yaml, validate). Only the YAML view saves, as before."""
     project = request.path_params["project"]
-    error, text = None, None
+    error, error_line, text = None, None, None
+    view = "yaml" if request.query_params.get("view") == "yaml" else "form"
+    posted, draft_cfg, draft_dict, errors, notice = None, None, None, {}, None
     pool, indexer = await services.get()
     async with pool.connection() as conn:
         if not await store.project_exists(conn, project):
@@ -814,44 +931,66 @@ async def settings_page(request: Request) -> Response:
         catalog = [f["slug"] for f in await store.catalog(conn, project)]
         if request.method == "POST":
             data = await request.form()
-            if "yaml" not in data:
-                error = "Salvar pelo formulário ainda não está disponível: use a visão YAML."
+            action = str(data.get("action", ""))
+            if "yaml" in data:
+                text, view = str(data["yaml"]), "yaml"
+                parsed, error, error_line, checks = _parse_yaml(text, set(catalog))
+                if parsed is not None and action == "view_form":
+                    view, draft_cfg, errors = "form", parsed, checks
+                elif checks:
+                    error = "\n".join(checks.values())
+                elif parsed is not None and action in ("", "save"):
+                    await store.save_singleton(conn, indexer, project, "gate_config",
+                                               {"yaml": text, "source": "human"})
+                    return RedirectResponse(f"/ui/p/{project}/settings?view=yaml", status_code=303)
+                elif parsed is not None:
+                    notice = "Válido. Nada foi salvo."
             else:
-                text = str(data["yaml"])
-                try:
-                    checks = settings_form.extra_checks(GateConfig.from_yaml(text), set(catalog))
-                except Exception as e:  # YAML or schema error: show it, keep the text
-                    error = str(e)
-                else:
-                    if checks:
-                        error = "\n".join(checks.values())
-                    else:
-                        await store.save_singleton(conn, indexer, project, "gate_config",
-                                                   {"yaml": text, "source": "human"})
-                        return RedirectResponse(f"/ui/p/{project}/settings?view=yaml", status_code=303)
+                posted, view = _apply_row_buttons(_posted(data), settings_form.config_to_form(GateConfig())), "form"
+                draft_dict, errors = settings_form.form_to_config(posted, set(catalog))
+                if action == "view_yaml" and not errors:
+                    text, view = yaml.safe_dump(draft_dict, sort_keys=False, allow_unicode=True), "yaml"
+                elif not errors and action == "validate":
+                    notice = "Válido. Nada foi salvo."
         doc = await store.latest_of_type(conn, project, "gate_config")
         pending = await store.pending_gates(conn, project)
-    view = "yaml" if request.query_params.get("view") == "yaml" or text is not None else "form"
-    cfg = GateConfig()
+    saved_cfg = GateConfig()
     if doc:
         try:
-            cfg = GateConfig.from_yaml(doc["body"]["yaml"])
+            saved_cfg = GateConfig.from_yaml(doc["body"]["yaml"])
         except Exception as e:  # a version saved before the schema changed: only the YAML can be shown
-            cfg, view = None, "yaml"
-            error = error or str(e)
+            saved_cfg = None
+            if posted is None and draft_cfg is None:
+                view, error = "yaml", error or str(e)
     if text is None:
         text = doc["body"]["yaml"] if doc else EXAMPLE
-    ctx: dict = {"doc": doc, "view": view, "text": text, "error": error, "cfg": cfg, "pending": pending,
-                 "origin": _version_origin(doc["body"]) if doc else None, "sections": SETTINGS_SECTIONS}
-    if cfg is not None:
-        form = settings_form.config_to_form(cfg)
-        ctx |= {"form": form, "defaults": settings_form.config_to_form(GateConfig()), "info": FIELD_INFO,
-                "errors": {}, "features": catalog, "roles": [(r, ROLE_GLOSS.get(r, "")) for r in DEFAULT_MODELS],
-                "gates": _form_rows(form, "gates", ("name", "run", "mode", "fast", "when", "timeout_s")),
-                "schedules": _form_rows(form, "schedules", ("name", "kind", "every_hours", "run", "task")),
-                "checks": _form_rows(form, "smoke_test-checks", ("name", "run", "timeout_s")),
-                "chips": {k: form[f"{k}-features"].split("\n") if form[f"{k}-features"] else []
-                          for k in ("hold_before_merge", "review_after_merge")}}
+    ctx: dict = {"doc": doc, "view": view, "text": text, "error": error, "error_line": error_line,
+                 "notice": notice, "pending": pending, "origin": _version_origin(doc["body"]) if doc else None,
+                 "sections": SETTINGS_SECTIONS, "errors": {}, "problems": [], "bad_sections": [],
+                 "changed_sections": []}
+    if view == "form":
+        defaults = settings_form.config_to_form(GateConfig())
+        saved_form = settings_form.config_to_form(saved_cfg or GateConfig())
+        if posted is not None:
+            form = _draft_form(posted, defaults)
+            # a draft the schema accepts is compared by what it means, so "400k" and "400000" are the same
+            same = settings_form.config_to_form(GateConfig.model_validate(draft_dict)) if not errors else form
+        elif draft_cfg is not None:
+            form = same = settings_form.config_to_form(draft_cfg)
+        else:
+            form = same = saved_form
+        problems = [{"key": k, "message": m, "anchor": _anchor(k, form)} for k, m in errors.items()]
+        ctx |= {"form": form, "defaults": defaults, "info": FIELD_INFO, "errors": errors, "problems": problems,
+                "bad_sections": sorted({_section_of(k) for k in errors}),
+                "bad_rows": {f"{m.group(1)}-{m.group(2)}" for k in errors
+                             if (m := re.match(r"^(gates|schedules|smoke_test-checks|models)-(\w+?)-", k))},
+                "changed_sections": _changed_sections(saved_form, same), "features": catalog,
+                "roles": [(r, ROLE_GLOSS.get(r, "")) for r in DEFAULT_MODELS],
+                "gates": _form_rows(form, "gates", _GATE_ROW),
+                "schedules": _form_rows(form, "schedules", _SCHEDULE_ROW),
+                "checks": _form_rows(form, "smoke_test-checks", _CHECK_ROW),
+                "chips": {k: settings_form._items(form, f"{k}-features") for k in
+                          ("hold_before_merge", "review_after_merge")}}
     return await render(request, "settings.html", **ctx)
 
 

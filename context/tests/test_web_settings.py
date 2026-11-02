@@ -1,8 +1,13 @@
+import html
+import re
+
 import psycopg_pool
 import pytest
+import yaml
 from starlette.testclient import TestClient
 
-from autonome_context import plans, services, store
+from autonome_context import plans, services, settings_form, store
+from autonome_context.gates import GateConfig
 from autonome_context.plans import PlanBody, ProposedGate, TaskSpec
 from autonome_context.server import build_app
 
@@ -154,6 +159,138 @@ def test_the_yaml_view_still_saves_and_a_bad_text_is_refused(client, project, sa
         return (await store.latest_of_type(conn, project, "gate_config"))["version"]
 
     assert run_db(go) == 2
+
+
+def _fields(yaml_text: str = YAML) -> dict[str, str]:
+    return settings_form.config_to_form(GateConfig.from_yaml(yaml_text))
+
+
+def _versions(run_db, project) -> int:
+    async def go(conn):
+        return (await store.latest_of_type(conn, project, "gate_config"))["version"]
+
+    return run_db(go)
+
+
+def test_validate_keeps_what_was_typed_marks_the_field_and_disables_saving(client, project, saved, run_db):
+    saved(YAML)
+    page = client.post(f"/ui/p/{project}/settings", data=_fields() | {
+        "action": "validate", "triage-model": "jev-latest", "triage-reject_at": "1.4"})
+    assert page.status_code == 200
+    assert 'name="triage-reject_at" value="1.4"' in page.text  # the typed value stays
+    assert '<div class="sfield is-changed has-error" id="f-triage-reject_at-field">' in page.text
+    assert "1 problema impede salvar" in page.text and 'href="#f-triage-reject_at"' in page.text
+    assert 'class="sdot sdot--bad"' in page.text and 'class="ssec has-error" id="triage"' in page.text
+    assert 'value="review" disabled>' in page.text
+    assert _versions(run_db, project) == 1
+
+
+def test_a_valid_draft_can_be_reviewed_and_marks_the_changed_sections(client, project, saved, run_db):
+    saved(YAML)
+    page = client.post(f"/ui/p/{project}/settings", data=_fields() | {"action": "validate", "retries-max": "9"})
+    assert "disabled" not in page.text.split("Review &amp; save")[0].rsplit("<button", 1)[1]
+    assert "problema" not in page.text and 'class="ssec is-changed" id="execution"' in page.text
+    assert 'class="ssec" id="gates"' in page.text and 'value="9"' in page.text
+    assert _versions(run_db, project) == 1
+
+
+def test_the_yaml_view_of_a_draft_is_canonical_and_goes_back_to_the_same_fields(client, project, saved, run_db):
+    saved(YAML)
+    draft = _fields() | {"retries-max": "9", "budget-task_tokens": "400k"}
+    yaml_page = client.post(f"/ui/p/{project}/settings", data=draft | {"action": "view_yaml"})
+    assert 'name="yaml"' in yaml_page.text and "<h2>Gates</h2>" not in yaml_page.text
+    text = html.unescape(re.search(r'<textarea name="yaml"[^>]*>(.*?)</textarea>', yaml_page.text, re.S).group(1))
+    canonical = GateConfig.model_validate(settings_form.form_to_config(draft, {"links"})[0])
+    assert GateConfig.from_yaml(text) == canonical and "max: 9" in text
+    back = client.post(f"/ui/p/{project}/settings", data={"yaml": text, "action": "view_form"})
+    assert "<h2>Gates</h2>" in back.text
+    shown = {k: v for k, v in settings_form.config_to_form(canonical).items()}
+    for key in ("retries-max", "budget-task_tokens", "gates-0-run", "gates-1-run", "permissions", "language"):
+        assert re.search(rf'name="{key}"[^>]*value="{re.escape(shown[key])}"|value="{re.escape(shown[key])}" checked',
+                         back.text), key
+    assert _versions(run_db, project) == 1
+
+
+def test_a_yaml_syntax_error_stays_in_the_yaml_view_with_the_line(client, project, saved, run_db):
+    saved(YAML)
+    bad = "gates:\n  - {name: lint, run: ruff}\nretries: [unclosed\n"
+    for action in ("view_form", "validate"):
+        page = client.post(f"/ui/p/{project}/settings", data={"yaml": bad, "action": action})
+        assert page.status_code == 200 and 'name="yaml"' in page.text and "<h2>Gates</h2>" not in page.text
+        assert re.search(r"na linha \d+", page.text) and 'data-error-line="' in page.text
+        assert "retries: [unclosed" in page.text
+    assert not re.search(r'data-error-line=""', page.text)
+    assert _versions(run_db, project) == 1
+
+
+def test_a_feature_outside_the_catalog_is_an_error_on_its_field(client, project, saved, run_db):
+    saved(YAML)
+    page = client.post(f"/ui/p/{project}/settings", data=_fields() | {
+        "action": "validate", "hold_before_merge-features": "links, no-such-feature"})
+    assert "Feature fora do catálogo: no-such-feature." in page.text
+    assert 'id="f-hold_before_merge-features-field"' in page.text and "has-error" in page.text
+    assert 'name="hold_before_merge-features" value="links, no-such-feature"' in page.text
+    assert 'class="ssec has-error" id="human-checkpoints"' in page.text
+    assert _versions(run_db, project) == 1
+
+
+def test_gates_posted_out_of_order_come_out_in_the_order_of_their_indexes(client, project, saved, run_db):
+    saved(YAML)
+    rows = {}
+    for i, name in ((2, "third"), (0, "first"), (1, "second")):  # the body lists 2, 0, 1
+        rows |= {f"gates-{i}-name": name, f"gates-{i}-run": f"run-{name}", f"gates-{i}-mode": "block",
+                 f"gates-{i}-timeout_s": "900"}
+    base = {k: v for k, v in _fields().items() if not k.startswith("gates-")}
+    page = client.post(f"/ui/p/{project}/settings", data=base | rows | {"action": "view_yaml"})
+    text = html.unescape(re.search(r'<textarea name="yaml"[^>]*>(.*?)</textarea>', page.text, re.S).group(1))
+    assert [g["name"] for g in yaml.safe_load(text)["gates"]] == ["first", "second", "third"]
+    form = client.post(f"/ui/p/{project}/settings", data=base | rows | {"action": "validate"})
+    assert [form.text.index(f'value="{n}"') for n in ("first", "second", "third")] == sorted(
+        form.text.index(f'value="{n}"') for n in ("first", "second", "third"))
+    assert _versions(run_db, project) == 1
+
+
+def test_a_row_error_is_shown_on_its_row_and_linked(client, project, saved, run_db):
+    saved(YAML)
+    base = {k: v for k, v in _fields().items() if not k.startswith("gates-")}
+    page = client.post(f"/ui/p/{project}/settings", data=base | {
+        "action": "validate", "gates-3-name": "x", "gates-3-run": "", "gates-3-when": "src/**", "gates-3-mode": "block",
+        "gates-3-timeout_s": "900"})
+    assert 'id="f-gates-3"' in page.text and 'href="#f-gates-3"' in page.text
+    assert 'class="srow srow--gates has-error" id="f-gates-3"' in page.text
+    assert _versions(run_db, project) == 1
+
+
+def _draft_gate_names(page) -> list[str]:
+    return [n for n in re.findall(r'name="gates-\d+-name" value="([^"]*)"', page.text) if n]  # not the blank row
+
+
+def test_the_row_and_reset_buttons_work_without_js(client, project, saved, run_db):
+    saved(YAML)
+    url = f"/ui/p/{project}/settings"
+    assert _draft_gate_names(client.post(url, data=_fields())) == ["lint", "test"]
+    moved = client.post(url, data=_fields() | {"move": "gates-1-up"})
+    assert _draft_gate_names(moved) == ["test", "lint"]
+    assert 'name="gates-0-run" value="pytest"' in moved.text
+    down = client.post(url, data=_fields() | {"move": "gates-0-down"})
+    assert _draft_gate_names(down) == ["test", "lint"]
+    edge = client.post(url, data=_fields() | {"move": "gates-0-up"})
+    assert _draft_gate_names(edge) == ["lint", "test"]
+    removed = client.post(url, data=_fields() | {"remove": "gates-0"})
+    assert _draft_gate_names(removed) == ["test"]
+    reset = client.post(url, data=_fields() | {"reset": "models-reviewer"})
+    assert 'name="models-reviewer-model" value="opus"' in client.post(url, data=_fields()).text
+    assert 'name="models-reviewer-model" value="opus"' not in reset.text
+    reset = client.post(url, data=_fields() | {"reset": "retries-max"})
+    assert 'name="retries-max" value="3"' in reset.text
+    assert _versions(run_db, project) == 1
+
+
+def test_the_yaml_view_validate_saves_nothing(client, project, saved, run_db):
+    saved(YAML)
+    page = client.post(f"/ui/p/{project}/settings", data={"yaml": "retries: {max: 9}", "action": "validate"})
+    assert page.status_code == 200 and "Válido" in page.text and 'name="yaml"' in page.text
+    assert _versions(run_db, project) == 1
 
 
 def test_the_yaml_view_refuses_what_the_extra_checks_refuse_and_saves_nothing(client, project, saved, run_db):
