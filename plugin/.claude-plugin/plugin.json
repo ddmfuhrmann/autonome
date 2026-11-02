@@ -1,6 +1,6 @@
 {
   "name": "autonome",
-  "version": "0.25.1",
+  "version": "0.25.2",
   "description": "An autonomous agent team for software projects, with a shared project memory (autonome-context).",
   "author": { "name": "Daniel Fuhrmann" },
   "license": "MIT"

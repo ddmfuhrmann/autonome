@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+"""Fail when plugin.json and marketplace.json disagree on the plugin version."""
+
+import json
+import sys
+from pathlib import Path
+
+PLUGIN = Path("plugin/.claude-plugin/plugin.json")
+MARKETPLACE = Path(".claude-plugin/marketplace.json")
+NAME = "autonome"
+
+
+def load(root: Path, rel: Path):
+    path = root / rel
+    try:
+        return json.loads(path.read_text())
+    except FileNotFoundError:
+        raise SystemExit(f"{rel} not found")
+    except (OSError, ValueError) as e:
+        raise SystemExit(f"{rel} is not valid JSON: {' '.join(str(e).split())}")
+
+
+def version_of(data, rel: Path, where=None):
+    try:
+        return data["version"] if where is None else where(data)["version"]
+    except (KeyError, TypeError, IndexError, StopIteration, AttributeError):
+        raise SystemExit(f"{rel} has no version for plugin {NAME}")
+
+
+def main(argv):
+    root = Path(argv[1]) if len(argv) > 1 else Path(__file__).resolve().parent.parent
+    plugin = version_of(load(root, PLUGIN), PLUGIN)
+    market = version_of(
+        load(root, MARKETPLACE),
+        MARKETPLACE,
+        lambda d: next(p for p in d["plugins"] if p.get("name") == NAME),
+    )
+    if plugin != market:
+        print(f"plugin.json {plugin} != marketplace.json {market}: bump both")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv))
+    except SystemExit as e:
+        if isinstance(e.code, str):
+            print(e.code)
+            sys.exit(1)
+        raise
