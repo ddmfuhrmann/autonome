@@ -175,7 +175,8 @@ becomes `in_pr` with the PR link (queue and Approvals). The worktree is removed;
   task's PR with `gh pr view`. Merged: main is fetched and fast-forwarded when it is clean, and the
   task is `done` with the merge commit. Closed without merge: the task is `blocked`. Open: nothing.
 - **`gh` missing, not logged in or offline** is infrastructure: a failed push or `pr create` sends the
-  task back to `pending` (work kept on its branch), a failed `gh pr view` only warns. `doctor` checks
+  task back to `pending` (work kept on its branch), a failed `gh pr view` warns and is tried again on the next turn; the third failure in a row blocks the
+  task (only you move `in_pr` back to `pending`). `doctor` checks
   `gh auth status` when the mode is `pr`. Only the runner calls `gh`; sessions never get it.
 - Only GitHub (`gh`) is supported; the runner does not read or answer PR comments.
 

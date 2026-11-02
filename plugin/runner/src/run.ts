@@ -471,7 +471,8 @@ async function recordPrInfra(task: Task, run: Run, reason: string, opts: RunOpti
 
 /**
  * Looks at each task waiting on its pull request: merged is done (main follows when it is clean), closed
- * is blocked, open is left alone. gh or the network failing only logs; the task stays where it is.
+ * is blocked, open is left alone. gh or the network failing logs and tries again; the third failure in a
+ * row blocks the task (only the human moves in_pr back to pending), so a broken gh does not hide.
  */
 export async function followPrs(opts: RunOptions): Promise<void> {
   const run = opts.seams?.gh ?? realGh;
@@ -486,7 +487,10 @@ export async function followPrs(opts: RunOptions): Promise<void> {
   for (const t of waiting) {
     try {
       const pr = prState(run, opts.repo, t.pr_url);
-      if (pr.state === "OPEN") continue;
+      if (pr.state === "OPEN") {
+        prFailures.delete(t.id);
+        continue;
+      }
       const base: Run = { at: now(), branch: "", worktree: "", base: "", outcome: "", pr_url: t.pr_url };
       if (pr.state === "CLOSED") {
         opts.log(`#${t.id} ${t.pr_url} was closed without merging; blocked`);
@@ -501,12 +505,36 @@ export async function followPrs(opts: RunOptions): Promise<void> {
       opts.log(`#${t.id} ${t.pr_url} was merged (${pr.mergeSha.slice(0, 7)})`);
       stage(opts, { task_id: t.id }, `pull request merged (${pr.mergeSha.slice(0, 7)})`);
       if (t.feature) (opts.seams?.docs ?? updateDocs)(opts.repo, opts.project, ["--feature", t.feature], opts.log);
+      prFailures.delete(t.id);
     } catch (e) {
       if (!(e instanceof PrError || e instanceof ContextError)) throw e;
-      opts.log(`warning: #${t.id}: ${e.message}`); // looked at again on the next turn of the loop
+      if (e instanceof ContextError) {
+        opts.log(`warning: #${t.id}: ${e.message}`); // the context is down: looked at again on the next turn
+        continue;
+      }
+      const streak = (prFailures.get(t.id) ?? 0) + 1;
+      prFailures.set(t.id, streak);
+      if (streak < ERROR_STREAK) {
+        opts.log(`warning: #${t.id}: ${e.message}`); // looked at again on the next turn of the loop
+        continue;
+      }
+      // Not hidden any longer: in_pr only goes back to pending by the human, so it blocks, work kept on the PR.
+      prFailures.delete(t.id);
+      opts.log(`#${t.id} ${t.pr_url}: gh failed ${ERROR_STREAK} times in a row; blocked`);
+      await context.transition(t.id, "blocked", {
+        at: now(), branch: "", worktree: "", base: "", outcome: "blocked", pr_url: t.pr_url,
+        reason: `could not follow the pull request (${ERROR_STREAK} in a row): ${e.message}`.slice(0, 2000),
+      }).catch((te) => {
+        if (!(te instanceof ContextError)) throw te;
+        opts.log(`warning: #${t.id}: ${te.message}`);
+      });
     }
   }
 }
+
+/** Consecutive failures to look at each task's pull request (gh or the network), per process. */
+const prFailures = new Map<number, number>();
+export const resetPrFailures = (): void => prFailures.clear();
 
 /** The reviewer's verdict for the live view: the verdict, then one line per finding. */
 export function verdictLine(r: ReviewResult): string {

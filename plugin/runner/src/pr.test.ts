@@ -7,7 +7,7 @@ import { doctor } from "./doctor.js";
 import { git, tryGit } from "./git.js";
 import type { Run } from "./context.js";
 import { openPr, prState, type Gh } from "./pr.js";
-import { followPrs, run } from "./run.js";
+import { followPrs, resetPrFailures, run } from "./run.js";
 
 process.env.AUTONOME_CONTEXT_RETRY_MS = "1";
 const realFetch = globalThis.fetch;
@@ -255,11 +255,28 @@ test("an OPEN pull request changes nothing", async () => {
   assert.deepEqual(transitions, []);
 });
 
-test("gh failing while following a pull request only warns; the task stays in_pr", async () => {
+test("gh failing while following a pull request warns twice, then blocks the task on the third time in a row", async () => {
+  resetPrFailures();
   const { repo } = makeRepo();
-  const { transitions, log } = await follow(repo, fakeGh((a) => (a[1] === "view" ? { ok: false, out: "gh is not installed" } : undefined)).gh);
+  const broken = fakeGh((a) => (a[1] === "view" ? { ok: false, out: "gh is not installed" } : undefined)).gh;
+  const first = await follow(repo, broken);
+  assert.deepEqual(first.transitions, []);
+  assert.ok(first.log.some((l) => l.includes("warning: #9") && l.includes("gh is not installed")));
+  assert.deepEqual((await follow(repo, broken)).transitions, []);
+  const third = await follow(repo, broken);
+  assert.deepEqual(third.transitions.map((t) => [t.id, t.to]), [[9, "blocked"]]);
+  assert.match(third.transitions[0].run!.reason!, /could not follow the pull request.*gh is not installed/);
+});
+
+test("a pull request seen again resets the failures in a row", async () => {
+  resetPrFailures();
+  const { repo } = makeRepo();
+  const broken = fakeGh((a) => (a[1] === "view" ? { ok: false, out: "no network" } : undefined)).gh;
+  await follow(repo, broken);
+  await follow(repo, broken);
+  await follow(repo, fakeGh(view("OPEN")).gh);
+  const { transitions } = await follow(repo, broken);
   assert.deepEqual(transitions, []);
-  assert.ok(log.some((l) => l.includes("warning: #9") && l.includes("gh is not installed")));
 });
 
 test("in fast-forward mode the runner does not look at pull requests", async () => {
