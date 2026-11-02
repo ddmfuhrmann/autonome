@@ -86,6 +86,12 @@ still renders as it did. `PUT /api/projects/{p}/features/{f}/doc` also takes an 
 catalog. The features page lists every catalog feature with its description, documented or not; the
 summary under it is `product.what_it_does`, or `overview` in the old shape.
 
+The docs agent writes that shape. Product explains for the person who uses the feature (problem, what
+it does, how to use, limits); Technical covers flows, where the code lives, rules, diagrams and gates.
+It also answers with a `catalog` (`description`: one sentence of the capability; `paths`: the globs the
+feature really occupies, read in the code), which it sends in the `PUT` so the catalog stays true. The
+system overview reads each feature's `product.what_it_does` (or `overview` in the old shape).
+
 `create_document` with a slug outside the catalog fails; it never creates the feature. The limit and
 how it was measured: [benchmarks/feature-similarity.md](benchmarks/feature-similarity.md).
 
