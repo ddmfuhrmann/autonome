@@ -139,7 +139,7 @@ srow srow--{{ prefix if prefix != 'smoke_test-checks' else 'checks' }}{% if (pre
     </div>
   </div>
   <div class="row" style="padding-top: 10px">
-    <button class="btn btn--primary" type="submit">Save as v{{ (doc.version + 1) if doc else 1 }}</button>
+    <button class="btn btn--primary" type="submit" name="action" value="review">Review &amp; save</button>
     <button class="btn" type="submit" name="action" value="validate">Validate</button>
     <a class="btn btn--ghost" href="/ui/p/{{ project }}/settings?view=yaml">Revert</a>
     <span class="footnote">Validated against the schema before saving. Applies to tasks that start after saving.</span>

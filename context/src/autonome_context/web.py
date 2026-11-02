@@ -1,5 +1,6 @@
 """Server-rendered UI: the human side of the context (queue, approvals, memory, setup)."""
 
+import difflib
 import json
 import logging
 import re
@@ -917,18 +918,57 @@ def _version_origin(body: dict) -> str | None:
     return None
 
 
+NOTE_MAX = 500
+
+
+def _note_error(note: str) -> str | None:
+    if len(note) > NOTE_MAX:
+        return f"A nota tem {len(note)} caracteres; o máximo é {NOTE_MAX}."
+    if settings_form._bad_name(note):
+        return "A nota tem um caractere de controle."
+    return None
+
+
+def _canonical(cfg: GateConfig) -> str:
+    return yaml.safe_dump(settings_form._prune(cfg), sort_keys=False, allow_unicode=True)
+
+
+def _review_context(doc: dict | None, new_cfg: GateConfig, text: str, origin: str, note: str,
+                    note_error: str | None, stale: bool) -> dict:
+    """What the review page shows: the changes in words, the diff of the canonical YAML, and what will be saved."""
+    old_text, old_cfg = "", None
+    if doc:
+        old_text = doc["body"]["yaml"]
+        try:
+            old_cfg = GateConfig.from_yaml(old_text)
+            old_text = _canonical(old_cfg)
+        except Exception:  # a version saved before the schema changed: diff its text as it is
+            pass
+    new_text = _canonical(new_cfg)
+    changes = settings_form.field_changes(old_cfg, new_cfg) if old_cfg or not doc else []
+    diff = list(difflib.unified_diff(old_text.splitlines(), new_text.splitlines(),
+                                     f"v{doc['version']}" if doc else "defaults", "rascunho", lineterm=""))
+    return {"changes": changes, "diff": diff, "text": text, "origin": origin, "note": note,
+            "note_error": note_error, "stale": stale, "base_version": doc["version"] if doc else 0,
+            "nothing_changed": not changes and not diff, "doc": doc}
+
+
 async def settings_page(request: Request) -> Response:
-    """A POST never saves from the form: it turns the posted fields into a draft shown in the requested view
-    (`action`: view_form, view_yaml, validate). Only the YAML view saves, as before."""
+    """A POST never saves from the form directly: it turns the posted fields into a draft shown in the requested
+    view (`action`: view_form, view_yaml, validate) or in the review (`review`). `save` writes a new version
+    only from the review, when the config has not changed since it was shown."""
     project = request.path_params["project"]
     error, error_line, text = None, None, None
     view = "yaml" if request.query_params.get("view") == "yaml" else "form"
     posted, draft_cfg, draft_dict, errors, notice = None, None, None, {}, None
+    review: tuple[GateConfig, str, str] | None = None  # (draft, text to save, origin: form | yaml)
+    note, note_error, stale, base_version = "", None, False, None
     pool, indexer = await services.get()
     async with pool.connection() as conn:
         if not await store.project_exists(conn, project):
             return Response("not found", status_code=404)
         catalog = [f["slug"] for f in await store.catalog(conn, project)]
+        doc = await store.latest_of_type(conn, project, "gate_config")
         if request.method == "POST":
             data = await request.form()
             action = str(data.get("action", ""))
@@ -939,10 +979,9 @@ async def settings_page(request: Request) -> Response:
                     view, draft_cfg, errors = "form", parsed, checks
                 elif checks:
                     error = "\n".join(checks.values())
-                elif parsed is not None and action in ("", "save"):
-                    await store.save_singleton(conn, indexer, project, "gate_config",
-                                               {"yaml": text, "source": "human"})
-                    return RedirectResponse(f"/ui/p/{project}/settings?view=yaml", status_code=303)
+                elif parsed is not None and action in ("", "review", "save"):
+                    origin = "form" if data.get("origin") == "form" else "yaml"
+                    review = (parsed, text, origin)
                 elif parsed is not None:
                     notice = "Válido. Nada foi salvo."
             else:
@@ -950,9 +989,28 @@ async def settings_page(request: Request) -> Response:
                 draft_dict, errors = settings_form.form_to_config(posted, set(catalog))
                 if action == "view_yaml" and not errors:
                     text, view = yaml.safe_dump(draft_dict, sort_keys=False, allow_unicode=True), "yaml"
+                elif not errors and action in ("review", "save"):
+                    cfg = GateConfig.model_validate(draft_dict)
+                    review = (cfg, yaml.safe_dump(draft_dict, sort_keys=False, allow_unicode=True), "form")
                 elif not errors and action == "validate":
                     notice = "Válido. Nada foi salvo."
-        doc = await store.latest_of_type(conn, project, "gate_config")
+            if review is not None:
+                note = str(data.get("note", ""))
+                base_version = str(data.get("base_version", ""))
+                current = doc["version"] if doc else 0
+                if action == "save":
+                    note_error = _note_error(note)
+                    stale = base_version != str(current)
+                    if not note_error and not stale:
+                        body = {"yaml": review[1], "source": "human"}
+                        if note.strip():
+                            body["note"] = note.strip()
+                        await store.save_singleton(conn, indexer, project, "gate_config", body)
+                        return RedirectResponse(f"/ui/p/{project}/settings", status_code=303)
+                    review_ctx = _review_context(doc, review[0], review[1], review[2], note, note_error, stale)
+                    return await render(request, "settings_review.html", **review_ctx)
+                review_ctx = _review_context(doc, review[0], review[1], review[2], "", None, False)
+                return await render(request, "settings_review.html", **review_ctx)
         pending = await store.pending_gates(conn, project)
     saved_cfg = GateConfig()
     if doc:

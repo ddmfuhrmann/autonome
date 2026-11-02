@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Settings · revisão{% endblock %}
+{% block main %}
+<header class="page-head">
+  <div class="page-head__text"><h1>Revisar e salvar</h1>
+    <p class="subtitle">O que muda em relação à {% if doc %}v{{ doc.version }}{% else %}configuração padrão{% endif %}. Nada foi salvo ainda.</p></div>
+</header>
+
+{% if stale %}<div class="callout callout--block"><div class="wrap"><strong>A configuração mudou enquanto você revisava</strong> (um gate de plano pode ter entrado). Nada foi salvo; revise de novo contra a v{{ base_version }}.</div></div>{% endif %}
+{% if note_error %}<div class="callout callout--block"><div class="wrap"><strong>Nota recusada.</strong> {{ note_error }}</div></div>{% endif %}
+
+<section class="section">
+  <h2>Mudanças</h2>
+  {% if changes %}<ul class="schanges">{% for c in changes %}<li>{{ c }}</li>{% endfor %}</ul>
+  {% elif nothing_changed %}<p class="muted">nada mudou</p>{% endif %}
+  {% if diff %}<pre class="code sdiff">{% for line in diff %}<span class="sdiff__{{ 'add' if line.startswith('+') and not line.startswith('+++') else 'del' if line.startswith('-') and not line.startswith('---') else 'ctx' }}">{{ line }}</span>
+{% endfor %}</pre>{% endif %}
+</section>
+
+<form class="section" method="post" action="/ui/p/{{ project }}/settings">
+  <textarea name="yaml" hidden>{{ text }}</textarea>
+  <input type="hidden" name="origin" value="{{ origin }}">
+  <input type="hidden" name="base_version" value="{{ base_version }}">
+  <p>{% if origin == 'form' %}Vai gravar o YAML canônico (veio do formulário).{% else %}Vai gravar o texto como está, com os comentários (veio da visão YAML).{% endif %}</p>
+  <label for="note">Nota (opcional)</label>
+  <input type="text" id="note" name="note" value="{{ note }}" maxlength="500" autocomplete="off">
+  <div class="row" style="padding-top: 10px">
+    <button class="btn btn--primary" type="submit" name="action" value="save"{% if nothing_changed %} disabled{% endif %}>Save as v{{ base_version + 1 }}</button>
+    {% if nothing_changed %}<span class="footnote">nada mudou</span>{% endif %}
+    <a class="btn btn--ghost" href="/ui/p/{{ project }}/settings{{ '' if origin == 'form' else '?view=yaml' }}">Voltar</a>
+  </div>
+</form>
+{% endblock %}

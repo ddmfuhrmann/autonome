@@ -148,17 +148,14 @@ def test_an_unknown_project_is_a_404(client):
     assert client.get("/ui/p/no-such-project-xyz/settings").status_code == 404
 
 
-def test_the_yaml_view_still_saves_and_a_bad_text_is_refused(client, project, saved, run_db):
+def test_the_yaml_view_goes_through_the_review_and_a_bad_text_is_refused(client, project, saved, run_db):
     saved(YAML)
     bad = client.post(f"/ui/p/{project}/settings", data={"yaml": "retries: {nope: 1}"})
     assert bad.status_code == 200 and "Not valid" in bad.text
-    ok = client.post(f"/ui/p/{project}/settings", data={"yaml": "retries: {max: 9}"}, follow_redirects=False)
-    assert ok.status_code == 303
-
-    async def go(conn):
-        return (await store.latest_of_type(conn, project, "gate_config"))["version"]
-
-    assert run_db(go) == 2
+    review = client.post(f"/ui/p/{project}/settings", data={"yaml": "retries: {max: 9}", "action": "review"},
+                         follow_redirects=False)
+    assert review.status_code == 200 and "Revisar e salvar" in review.text
+    assert _versions(run_db, project) == 1
 
 
 def _fields(yaml_text: str = YAML) -> dict[str, str]:
@@ -305,3 +302,103 @@ def test_the_yaml_view_refuses_what_the_extra_checks_refuse_and_saves_nothing(cl
         return (await store.latest_of_type(conn, project, "gate_config"))["version"]
 
     assert run_db(go) == 1
+
+
+def _latest(run_db, project) -> dict:
+    async def go(conn):
+        return await store.latest_of_type(conn, project, "gate_config")
+
+    return run_db(go)
+
+
+def _hidden(page) -> dict[str, str]:
+    """The fields a review page posts back to save."""
+    out = {m.group(1): m.group(2) for m in re.finditer(r'<input type="hidden" name="(\w+)" value="([^"]*)"', page.text)}
+    out["yaml"] = html.unescape(re.search(r'<textarea name="yaml" hidden>(.*?)</textarea>', page.text, re.S).group(1))
+    return out
+
+
+def test_review_then_save_creates_the_next_version_with_source_and_note(client, project, saved, run_db):
+    saved(YAML)
+    url = f"/ui/p/{project}/settings"
+    review = client.post(url, data=_fields() | {"action": "review", "retries-max": "9"})
+    assert review.status_code == 200 and "Revisar e salvar" in review.text
+    assert "retries.max: 5 → 9" in review.text and "+  max: 9" in review.text
+    assert "YAML canônico" in review.text and _versions(run_db, project) == 1
+    saved_page = client.post(url, data=_hidden(review) | {"action": "save", "note": "mais retries"},
+                             follow_redirects=False)
+    assert saved_page.status_code == 303 and saved_page.headers["location"] == url
+    latest = _latest(run_db, project)
+    assert latest["version"] == 2
+    assert latest["body"]["source"] == "human" and latest["body"]["note"] == "mais retries"
+    assert GateConfig.from_yaml(latest["body"]["yaml"]).retries.max == 9
+
+
+def test_save_with_an_old_base_version_saves_nothing_and_reviews_against_the_new_one(
+        client, project, saved, run_db, indexer):
+    saved(YAML)
+    url = f"/ui/p/{project}/settings"
+    review = client.post(url, data=_fields() | {"action": "review", "retries-max": "9"})
+    fields = _hidden(review)
+    assert fields["base_version"] == "1"
+
+    async def go(conn):
+        await plans.apply_gates(conn, indexer, project, [{"name": "e2e", "run": "make e2e"}],
+                                {"plan_id": 5, "task_id": 2})
+        await conn.commit()
+
+    run_db(go)
+    page = client.post(url, data=fields | {"action": "save", "note": "x"}, follow_redirects=False)
+    assert page.status_code == 200 and "mudou enquanto você revisava" in page.text
+    assert _hidden(page)["base_version"] == "2" and "e2e" in page.text
+    assert _versions(run_db, project) == 2
+
+
+def test_saving_from_the_yaml_view_keeps_the_comments_and_from_the_form_the_canonical_yaml(
+        client, project, saved, run_db):
+    saved(YAML)
+    url = f"/ui/p/{project}/settings"
+    commented = "# why nine\nretries: {max: 9}  # up from 5\n"
+    review = client.post(url, data={"yaml": commented, "action": "review"})
+    assert "texto como está" in review.text
+    assert client.post(url, data=_hidden(review) | {"action": "save"}, follow_redirects=False).status_code == 303
+    assert _latest(run_db, project)["body"]["yaml"] == commented
+
+    review = client.post(url, data=_fields(commented) | {"action": "review", "retries-max": "7"})
+    assert "YAML canônico" in review.text
+    client.post(url, data=_hidden(review) | {"action": "save"}, follow_redirects=False)
+    body = _latest(run_db, project)["body"]
+    assert body["yaml"] == yaml.safe_dump({"retries": {"max": 7}}, sort_keys=False) and "note" not in body
+
+
+def test_an_invalid_draft_posted_straight_to_save_saves_nothing(client, project, saved, run_db):
+    saved(YAML)
+    url = f"/ui/p/{project}/settings"
+    bad_yaml = client.post(url, data={"yaml": "retries: {nope: 1}", "action": "save", "base_version": "1"})
+    assert bad_yaml.status_code == 200 and "Not valid" in bad_yaml.text
+    bad_form = client.post(url, data=_fields() | {"action": "save", "base_version": "1", "triage-model": "haiku",
+                                                  "triage-reject_at": "1.4"})
+    assert bad_form.status_code == 200 and "1 problema impede salvar" in bad_form.text
+    unknown = client.post(url, data={"yaml": "hold_before_merge: {features: [nope]}", "action": "save",
+                                     "base_version": "1"})
+    assert "Feature fora do catálogo" in unknown.text
+    assert _versions(run_db, project) == 1
+
+
+@pytest.mark.parametrize("note", ["a\x00b", "x" * 501, "a\nb"])
+def test_a_note_with_a_control_character_or_over_500_characters_is_refused(client, project, saved, run_db, note):
+    saved(YAML)
+    url = f"/ui/p/{project}/settings"
+    review = client.post(url, data=_fields() | {"action": "review", "retries-max": "9"})
+    page = client.post(url, data=_hidden(review) | {"action": "save", "note": note})
+    assert page.status_code == 200 and "Nota recusada" in page.text
+    assert _versions(run_db, project) == 1
+    ok = client.post(url, data=_hidden(review) | {"action": "save", "note": "x" * 500}, follow_redirects=False)
+    assert ok.status_code == 303 and _versions(run_db, project) == 2
+
+
+def test_a_review_without_changes_disables_save_and_says_nothing_changed(client, project, saved, run_db):
+    saved(YAML)
+    page = client.post(f"/ui/p/{project}/settings", data=_fields() | {"action": "review"})
+    assert "nada mudou" in page.text and 'value="save" disabled>' in page.text
+    assert _versions(run_db, project) == 1
