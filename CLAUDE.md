@@ -76,7 +76,10 @@ plugin/runner/  the runner (TypeScript, Claude Agent SDK): one session + worktre
   (`undo_of_human_reject`) is accepted as the human's choice, with no screening or judging. So is a
   decision that repeats a choice the human already made on the same feature (the
   `repeats_human_choice` question, asked before the judging); the undo task says who rejected, the
-  human or the triage (<backend>). The
+  human or the triage (<backend>). A choice the human makes in the conversation is marked by the
+  handoff writer as `human_choice` (with the human's quote, only when the transcript shows it): the
+  decision enters accepted and is never screened, judged or undone by the triage; the human undoes it
+  by rejecting it in the UI. The
   Jev key (`TYPESAFE_API_KEY`) lives in the runner's environment or `~/.autonome/secrets.env`, never in
   the gate config, and never reaches agent sessions.
 - **Models**: every agent role (implementer, reviewer, preflight, tester, retro, handoff, docs) has a

@@ -206,7 +206,10 @@ reopens it as a deviation (`accepted → proposed`, `screened_as_deviation`) whe
 `reject_at`, then the triage judges it as any other. The human's reject outranks the triage: a
 decision from the handoff of an undo task for a decision the human rejected is marked
 `undo_of_human_reject` and accepted as the human's choice, neither screened nor judged (an undo of a
-triage reject is still judged, with its round). Proposed conventions, after-merge reviews, holds before merge and blocked
+triage reject is still judged, with its round). So is a decision the handoff writer marks
+`human_choice` (`{"quote": ...}`, the human's own words, set only when the transcript shows the human
+choosing it): it is recorded `accepted` even if flagged as a deviation, and is never screened, judged
+or undone by the triage; only the human's reject in the UI undoes it. Proposed conventions, after-merge reviews, holds before merge and blocked
 tasks stay with the human. A task under *review after merge* is merged and
 waits for the human's review in the background; "needs a fix" becomes a new task.
 
