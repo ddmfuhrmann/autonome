@@ -38,7 +38,8 @@ async def add_feature(conn, project: str, slug: str, description: str | None = N
     embedder can make two one-word descriptions identical, so a pair of slugs may need a description."""
     from autonome_context import store
 
-    r = await store.resolve_feature(conn, FakeEmbedder(), project, slug, description or slug.replace("-", " "))
+    r = await store.resolve_feature(conn, FakeEmbedder(), project, slug, description or slug.replace("-", " "),
+                                   approved=True)
     assert r["similar_to"] is None, f"{slug!r} was refused as similar to {r['similar_to']!r}: give it a description"
 
 

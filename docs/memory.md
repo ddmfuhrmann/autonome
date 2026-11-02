@@ -75,6 +75,9 @@ Only `store.resolve_feature` adds a feature. It works like this:
   creates a feature when none fits, sending `feature_description` and `feature_paths` with the new
   slug; a real doubt between two gives `null`. If the context is down the prompt says there is no
   catalog. A task session takes the feature from the task, whatever the writer says.
+- A new feature is created `proposed`: it works at once (nothing waits), but it shows as "to review"
+  on the features page until the human approves it, with a button in the UI (`POST /ui/p/{p}/features/{f}/approve`). No agent tool approves a feature. The
+  system's own `maintenance` feature is created active.
 - Two equal calls at once leave one row.
 
 The living doc of a feature has two parts, **Product** (`problem`, `what_it_does`, `how_to_use`,

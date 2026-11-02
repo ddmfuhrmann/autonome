@@ -114,10 +114,10 @@ async def _ensure_feature(conn: AsyncConnection, project_id: int, slug: str) -> 
 
 
 async def catalog(conn: AsyncConnection, project: str) -> list[dict]:
-    """The project's features: slug, description and paths."""
+    """The project's features: slug, description, paths and status (`proposed` until the human approves)."""
     async with conn.cursor(row_factory=dict_row) as cur:
         await cur.execute(
-            "select f.slug, f.description, f.paths from feature f join project p on p.id = f.project_id"
+            "select f.slug, f.description, f.paths, f.status from feature f join project p on p.id = f.project_id"
             " where p.slug = %s order by f.slug",
             (project,),
         )
@@ -128,7 +128,7 @@ async def catalog_with_activity(conn: AsyncConnection, project: str) -> list[dic
     """The catalog with `last_activity`: when the latest document of each feature was last written."""
     async with conn.cursor(row_factory=dict_row) as cur:
         await cur.execute(
-            "select f.slug, f.description, f.paths, max(v.created_at) as last_activity"
+            "select f.slug, f.description, f.paths, f.status, max(v.created_at) as last_activity"
             " from feature f join project p on p.id = f.project_id"
             " left join document d on d.feature_id = f.id"
             " left join document_version v on v.document_id = d.id"
@@ -186,10 +186,12 @@ async def resolve_feature(
     slug: str,
     description: str | None = None,
     paths: list[str] | tuple = (),
+    approved: bool = False,
 ) -> dict:
     """The one way a feature enters the catalog. A known slug is returned as it is; a new one needs a
     description, and is not created when it is too similar to a feature of the project: the caller
-    gets that one in `similar_to` and decides. Call inside a transaction."""
+    gets that one in `similar_to` and decides. A new feature is `proposed` until the human approves
+    it (approve_feature); `approved` is only for the system's own features. Call inside a transaction."""
     from .rules import Forbidden  # rules imports this module
 
     project_id = await ensure_project(conn, project)
@@ -231,16 +233,30 @@ async def resolve_feature(
         return {"slug": norm, "created": False, "similar_to": best_slug}
     inserted = await (
         await conn.execute(
-            "insert into feature (project_id, slug, name, description, paths, embedding, embed_model)"
-            " values (%s, %s, %s, %s, %s, %s::vector, %s) on conflict (project_id, slug) do nothing returning id",
-            (project_id, norm, norm, description, list(paths), str(vector), embedder.model),
+            "insert into feature (project_id, slug, name, description, paths, embedding, embed_model, status)"
+            " values (%s, %s, %s, %s, %s, %s::vector, %s, %s)"
+            " on conflict (project_id, slug) do nothing returning id",
+            (project_id, norm, norm, description, list(paths), str(vector), embedder.model,
+             "active" if approved else "proposed"),
         )
     ).fetchone()
     return {"slug": norm, "created": inserted is not None, "similar_to": None}
 
 
+async def approve_feature(conn: AsyncConnection, project: str, slug: str) -> bool:
+    """Makes a proposed feature active. Human only: reached from the UI, never from an agent tool.
+    Returns whether the feature was proposed."""
+    cur = await conn.execute(
+        "update feature f set status = 'active' from project p"
+        " where p.id = f.project_id and p.slug = %s and f.slug = %s and f.status = 'proposed' returning f.id",
+        (project, slug),
+    )
+    return await cur.fetchone() is not None
+
+
 async def feature_for(
-    conn: AsyncConnection, indexer: Indexer | None, project: str, slug: str | None, description: str | None = None
+    conn: AsyncConnection, indexer: Indexer | None, project: str, slug: str | None, description: str | None = None,
+    approved: bool = False,
 ) -> str | None:
     """The catalog slug for a caller: a known slug as it is, a new one only with a description
     (else resolve_feature refuses it, listing the catalog). Too similar to an existing feature is
@@ -249,7 +265,7 @@ async def feature_for(
 
     if not slug or indexer is None:
         return slug
-    r = await resolve_feature(conn, indexer.embedder, project, slug, description)
+    r = await resolve_feature(conn, indexer.embedder, project, slug, description, approved=approved)
     if r["similar_to"]:
         raise Forbidden(f"feature {r['slug']!r} is too similar to {r['similar_to']!r}; use that one")
     return r["slug"]
@@ -964,7 +980,7 @@ async def features(conn: AsyncConnection, project: str) -> list[dict]:
     """Every feature with its activity: the map of the project."""
     async with conn.cursor(row_factory=dict_row) as cur:
         await cur.execute(
-            """select f.slug, f.description,
+            """select f.slug, f.description, f.status,
                       count(*) filter (where d.type = 'handoff') as handoffs,
                       count(*) filter (where d.type = 'task') as tasks,
                       count(*) filter (where d.type = 'decision' and d.status = 'accepted') as decisions,
@@ -977,7 +993,7 @@ async def features(conn: AsyncConnection, project: str) -> list[dict]:
                left join document d on d.feature_id = f.id
                left join lateral (select body, created_at from document_version v where v.document_id = d.id
                                   order by v.version desc limit 1) dv on true
-               group by f.slug, f.description order by max(d.created_at) desc nulls last""",
+               group by f.slug, f.description, f.status order by max(d.created_at) desc nulls last""",
             (project,),
         )
         return await cur.fetchall()
@@ -1008,7 +1024,7 @@ async def enqueue_task(
                      if p["body"].get("kind") == "maintenance" and p["status"] in ("draft", "approved")), None)
         feature = await feature_for(conn, indexer, project, feature)
         if plan is None:
-            maintenance = await feature_for(conn, indexer, project, "maintenance", MAINTENANCE_FEATURE)
+            maintenance = await feature_for(conn, indexer, project, "maintenance", MAINTENANCE_FEATURE, approved=True)
             plan_id = await create_document(conn, indexer, project=project, type="plan", status="draft",
                                             body=MAINTENANCE_PLAN, feature=maintenance)
             plan = await get_document(conn, plan_id)
