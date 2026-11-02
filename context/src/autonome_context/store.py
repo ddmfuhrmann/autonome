@@ -51,13 +51,120 @@ async def ensure_project(conn: AsyncConnection, slug: str) -> int:
     )
 
 
+# --- feature catalog -----------------------------------------------------------------------------
+
+# Cosine similarity of two feature descriptions from which they count as the same feature.
+# Measured with nomic-embed-text: docs/benchmarks/feature-similarity.md.
+FEATURE_SIMILAR_AT = 0.785
+
+
 async def _ensure_feature(conn: AsyncConnection, project_id: int, slug: str) -> int:
-    return await _id(
-        conn,
-        "insert into feature (project_id, slug, name) values (%s, %s, %s)"
-        " on conflict (project_id, slug) do update set slug = excluded.slug returning id",
-        (project_id, slug, slug),
-    )
+    """Looks a feature up; only resolve_feature creates one."""
+    row = await (
+        await conn.execute("select id from feature where project_id = %s and slug = %s", (project_id, slug))
+    ).fetchone()
+    if row is None:
+        from .rules import Forbidden  # rules imports this module
+
+        raise Forbidden(f"feature {slug!r} is not in the catalog; resolve_feature creates features")
+    return row[0]
+
+
+async def catalog(conn: AsyncConnection, project: str) -> list[dict]:
+    """The project's features: slug, description and paths."""
+    async with conn.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            "select f.slug, f.description, f.paths from feature f join project p on p.id = f.project_id"
+            " where p.slug = %s order by f.slug",
+            (project,),
+        )
+        return await cur.fetchall()
+
+
+def _kebab(slug: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", slug.lower()).strip("-")
+
+
+def _cosine(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    norm = (sum(x * x for x in a) * sum(y * y for y in b)) ** 0.5
+    return dot / norm if norm else 0.0
+
+
+async def resolve_feature(
+    conn: AsyncConnection,
+    embedder: Embedder,
+    project: str,
+    slug: str,
+    description: str | None = None,
+    paths: list[str] | tuple = (),
+) -> dict:
+    """The one way a feature enters the catalog. A known slug is returned as it is; a new one needs a
+    description, and is not created when it is too similar to a feature of the project: the caller
+    gets that one in `similar_to` and decides. Call inside a transaction."""
+    from .rules import Forbidden  # rules imports this module
+
+    project_id = await ensure_project(conn, project)
+    known = await (
+        await conn.execute("select 1 from feature where project_id = %s and slug = %s", (project_id, slug))
+    ).fetchone()
+    if known:
+        return {"slug": slug, "created": False, "similar_to": None}
+    norm = _kebab(slug)
+    if not norm:
+        raise Forbidden(f"feature slug {slug!r} has nothing left after normalizing to kebab-case")
+    description = (description or "").strip()
+    if norm != slug:
+        known = await (
+            await conn.execute("select 1 from feature where project_id = %s and slug = %s", (project_id, norm))
+        ).fetchone()
+        if known:
+            return {"slug": norm, "created": False, "similar_to": None}
+    if not description:
+        listing = "; ".join(f"{f['slug']}: {f['description'] or '-'}" for f in await catalog(conn, project))
+        raise Forbidden(
+            f"feature {norm!r} is not in the catalog; to create it, give a description. "
+            f"Catalog: {listing or '(empty)'}"
+        )
+    description = redact(description)
+    [vector] = await embedder.embed([description], "document")
+    best_slug, best = None, 0.0
+    async with conn.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            "select slug, embedding::text as embedding from feature"
+            " where project_id = %s and embed_model = %s and embedding is not null",
+            (project_id, embedder.model),
+        )
+        for row in await cur.fetchall():
+            sim = _cosine(vector, json.loads(row["embedding"]))
+            if sim > best:
+                best_slug, best = row["slug"], sim
+    if best_slug is not None and best >= FEATURE_SIMILAR_AT:
+        return {"slug": norm, "created": False, "similar_to": best_slug}
+    inserted = await (
+        await conn.execute(
+            "insert into feature (project_id, slug, name, description, paths, embedding, embed_model)"
+            " values (%s, %s, %s, %s, %s, %s::vector, %s) on conflict (project_id, slug) do nothing returning id",
+            (project_id, norm, norm, description, list(paths), str(vector), embedder.model),
+        )
+    ).fetchone()
+    return {"slug": norm, "created": inserted is not None, "similar_to": None}
+
+
+async def feature_for(
+    conn: AsyncConnection, indexer: Indexer | None, project: str, slug: str | None, description: str | None = None
+) -> str | None:
+    """The catalog slug for a caller: a known slug as it is, a new one only with a description
+    (else resolve_feature refuses it, listing the catalog). Too similar to an existing feature is
+    refused too: the caller names that one instead."""
+    from .rules import Forbidden  # rules imports this module
+
+    if not slug or indexer is None:
+        return slug
+    r = await resolve_feature(conn, indexer.embedder, project, slug, description)
+    if r["similar_to"]:
+        raise Forbidden(f"feature {r['slug']!r} is too similar to {r['similar_to']!r}; use that one")
+    return r["slug"]
 
 
 async def _ensure_layer(conn: AsyncConnection, project_id: int, slug: str) -> int:
@@ -341,6 +448,7 @@ async def list_projects(conn: AsyncConnection) -> list[str]:
 async def put_handoff(conn: AsyncConnection, indexer: Indexer, h: Handoff, raw_transcript: str | None) -> int:
     """Stores a redacted handoff with its decisions and raw transcript, and indexes it. One transaction."""
     async with conn.transaction():
+        h.feature = await feature_for(conn, indexer, h.project, h.feature)
         doc_id = await create_document(
             conn, indexer,
             project=h.project, type="handoff", body=h.model_dump(mode="json"),
@@ -764,6 +872,10 @@ async def features(conn: AsyncConnection, project: str) -> list[dict]:
         return await cur.fetchall()
 
 
+MAINTENANCE_FEATURE = (
+    "Standing maintenance of the project: dependency updates, a red main and drift found by scheduled checks."
+)
+
 MAINTENANCE_PLAN = {
     "kind": "maintenance",
     "title": "Maintenance (schedules)",
@@ -783,9 +895,11 @@ async def enqueue_task(
     async with conn.transaction():
         plan = next((p for p in await list_documents(conn, project, type="plan")
                      if p["body"].get("kind") == "maintenance" and p["status"] in ("draft", "approved")), None)
+        feature = await feature_for(conn, indexer, project, feature)
         if plan is None:
+            maintenance = await feature_for(conn, indexer, project, "maintenance", MAINTENANCE_FEATURE)
             plan_id = await create_document(conn, indexer, project=project, type="plan", status="draft",
-                                            body=MAINTENANCE_PLAN, feature="maintenance")
+                                            body=MAINTENANCE_PLAN, feature=maintenance)
             plan = await get_document(conn, plan_id)
         existing = [l["id"] for l in await links_of(conn, plan["id"]) if l["kind"] == "has_task"]
         for task_id in existing:

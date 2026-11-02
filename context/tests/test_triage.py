@@ -4,7 +4,7 @@ from pydantic import ValidationError
 from autonome_context import store
 from autonome_context.gates import GateConfig, Triage
 
-from conftest import make_handoff
+from conftest import add_feature, make_handoff
 from test_web import FETCH, client, status  # noqa: F401  (the client fixture)
 
 ON = "triage: {model: haiku, max_rounds: 2}\n"
@@ -199,6 +199,7 @@ def test_with_triage_on_a_decision_that_is_not_a_deviation_stays_in_the_queue(cl
     deviation()
 
     async def propose(conn):  # as the decision_propose MCP tool does: no deviation flag
+        await add_feature(conn, project, "links")
         await store.create_document(conn, indexer, project=project, type="decision", status="proposed",
                                     feature="links", layers=[], body={"title": "Use ULIDs", "decision": "ULIDs"})
         await conn.commit()
@@ -307,6 +308,7 @@ def seed(run_db, indexer, project, *, session="s-1", title="Dict", source=None, 
     async def go(conn):
         task_id = None
         if with_task:
+            await add_feature(conn, project, "links")
             plan_id = await store.create_document(conn, indexer, project=project, type="plan", status="approved",
                 feature="links", body={"title": "P", "goal": "Short links", "out_of_scope": ["analytics"], "tasks": []})
             body = {"title": "Task " + title, "spec": "do it", "acceptance": ["works"], "plan_id": plan_id,

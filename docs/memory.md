@@ -55,6 +55,28 @@ each one is a new **version**, and search only sees the latest.
 Plus two tables outside the documents: **gate runs** (every gate result, the facts behind the
 gate hook and the insights) and the **raw transcripts** of sessions, compressed and never indexed.
 
+## The feature catalog
+
+The `feature` table is the project's catalog: each feature has a slug, a **description** and the
+**paths** it lives in, plus the embedding of the description. A feature is a stable capability of the
+product, not a change.
+
+Only `store.resolve_feature` adds a feature. It works like this:
+
+- A slug already in the catalog comes back as it is; its description does not change.
+- A new slug needs a description. Without one it is refused, and the error lists the catalog.
+- The slug is normalized to lowercase kebab-case; one with nothing left is refused.
+- The description is embedded and compared by cosine with the project's other features (same
+  embedding model; features without an embedding are left out). At or above `FEATURE_SIMILAR_AT`
+  nothing is created and the answer carries `similar_to`, the closest feature. The caller decides:
+  refuse, or use that one. Plans, handoffs and decisions have no description of their own yet: they
+  only accept a slug already in the catalog, and a new one is refused with the catalog listed.
+  Scheduled maintenance creates `maintenance` with a fixed description.
+- Two equal calls at once leave one row.
+
+`create_document` with a slug outside the catalog fails; it never creates the feature. The limit and
+how it was measured: [benchmarks/feature-similarity.md](benchmarks/feature-similarity.md).
+
 ## From a session to something searchable
 
 ```mermaid

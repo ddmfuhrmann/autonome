@@ -8,6 +8,8 @@ from autonome_context import plans, rules, services, store, web
 from autonome_context.plans import PlanBody, TaskSpec
 from autonome_context.server import build_app
 
+from conftest import add_feature
+
 FETCH = {"X-Requested-With": "fetch"}
 
 
@@ -90,6 +92,7 @@ def test_the_wave_page_shows_how_each_task_played(client, project, run_db, index
 def test_one_line_markdown_renders_in_lists_and_escapes_html(client, project, run_db, indexer):
     async def go(conn):
         async with conn.transaction():
+            await add_feature(conn, project, "links")
             await store.save_feature_doc(conn, indexer, project, "links", {
                 "overview": "Short links.", "interfaces": [
                     "`uv run uvicorn shortlink.app:app --reload`: starts the API on http://127.0.0.1:8000",
@@ -104,6 +107,7 @@ def test_tooling_features_and_development_notes_stay_apart_from_the_product(clie
     async def go(conn):
         async with conn.transaction():
             for slug, kind in [("links", "product"), ("quality-gates", "tooling")]:
+                await add_feature(conn, project, slug)
                 await store.create_document(conn, indexer, project=project, type="task", status="done",
                                             feature=slug, body={"title": "t", "spec": "s"})
                 await store.save_feature_doc(conn, indexer, project, slug, {"kind": kind, "overview": f"{slug} doc"})

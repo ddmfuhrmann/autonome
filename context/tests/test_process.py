@@ -3,7 +3,7 @@ import pytest
 from autonome_context import briefing, plans, rules, store
 from autonome_context.plans import PlanBody, TaskSpec
 
-from conftest import make_handoff
+from conftest import add_feature, make_handoff
 
 
 def plan_body(**kw) -> PlanBody:
@@ -154,6 +154,7 @@ def test_insights_keep_the_reviewers_advisory_findings_for_the_retro_loop(run_db
 
     async def go(conn):
         async with conn.transaction():
+            await add_feature(conn, project, "links")
             await store.create_document(conn, indexer, project=project, type="task", status="done", feature="links",
                                         body={"title": "t", "spec": "s", "runs": [{"review": {"verdict": "pass", "findings": [
                                             {"kind": "missing", "severity": "medium", "issue": "control characters accepted"},

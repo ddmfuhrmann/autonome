@@ -135,6 +135,7 @@ async def draft(
         await backlog._locate(conn, project, key)  # an unknown id answers with close matches
     async with conn.transaction():
         if plan_id is None:
+            feature = await store.feature_for(conn, indexer, project, feature)
             return await store.create_document(conn, indexer, project=project, type="plan", body=data,
                                                feature=feature, layers=layers, status="draft")
         doc = await store.get_document(conn, plan_id)

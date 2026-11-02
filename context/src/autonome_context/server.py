@@ -402,6 +402,7 @@ async def decision_propose(project: str, title: str, decision: str, context: str
     pool, indexer = await services.get()
     async with pool.connection() as conn:
         async with conn.transaction():
+            feature = await store.feature_for(conn, indexer, project, feature)
             doc_id = await store.create_document(
                 conn, indexer, project=project, type="decision", status="proposed", feature=feature, layers=layers,
                 body={"title": title, "context": context, "decision": decision, "consequences": consequences})
