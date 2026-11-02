@@ -52,6 +52,8 @@ def test_gate_order_follows_index_not_key_order():
     {"permissions": "auto"},
     {"hold_before_merge": {"features": ["ui"]}, "review_after_merge": {"features": ["memory", "ui"]}},
     {"task_size": {"max_lines": 150}},
+    {"merge": {"mode": "pr"}},
+    {"merge": {"mode": "pr", "pr": "auto"}},
     {"review": {"enabled": False, "max_rounds": 4}},
     {"triage": {"model": "haiku", "fallback": "off", "reject_at": 0.5, "max_rounds": 3}},
     {"triage": {}},
@@ -98,6 +100,14 @@ def test_task_size_default_is_not_written_and_low_values_are_errors():
     assert (data, errors) == ({"task_size": {"max_lines": 200}}, {})
     _, errors = form_to_config(BASE | {"task_size-max_lines": "10"}, CATALOG)
     assert list(errors) == ["task_size-max_lines"]
+
+
+def test_merge_defaults_are_not_written_and_bad_values_are_errors():
+    assert form_to_config(BASE | {"merge-mode": "ff", "merge-pr": "manual"}, CATALOG) == ({}, {})
+    data, errors = form_to_config(BASE | {"merge-mode": "pr", "merge-pr": "auto"}, CATALOG)
+    assert (data, errors) == ({"merge": {"mode": "pr", "pr": "auto"}}, {})
+    _, errors = form_to_config(BASE | {"merge-mode": "squash"}, CATALOG)
+    assert list(errors) == ["merge-mode"]
 
 
 def test_triage_errors_and_off():

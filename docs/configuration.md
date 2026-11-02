@@ -96,6 +96,9 @@ task_size: {max_lines: 300}              # changed lines of code per task (min 2
                                          # `task_size` also reaches the plan skill (it splits tasks that
                                          # would pass the limit) and the preflight (a task that clearly
                                          # passes it is a reason to revise); the run never blocks on it
+merge: {mode: ff, pr: manual}            # ff: the runner fast-forwards main. pr: it pushes the task's
+                                         # branch and opens a pull request; pr manual: you merge it on
+                                         # GitHub, pr auto: GitHub merges it when the checks pass
 
 review: {enabled: true, max_rounds: 2}   # an independent agent reviews each diff against the plan,
                                          # its edges and the conventions. High findings block and send the

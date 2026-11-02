@@ -76,6 +76,13 @@ class TaskSize(_Strict):
     max_lines: int = Field(default=300, ge=20, description="changed lines of code per task, tests and docs not counted")
 
 
+class Merge(_Strict):
+    """How a finished task reaches main: the runner fast-forwards it, or opens a pull request."""
+
+    mode: Literal["ff", "pr"] = "ff"
+    pr: Literal["manual", "auto"] = "manual"
+
+
 class Review(_Strict):
     """An independent agent reviews each task's diff against its plan and the conventions before merge."""
 
@@ -146,6 +153,9 @@ FIELD_HELP: dict[str, tuple[str, str]] = {
     "task_size": ("Task size", "How big one task may be; plans split bigger tasks and the runner records the ones that go over."),
     "task_size.max_lines": ("Max lines", "Changed lines of code per task, tests and docs not counted. "
                                          "Plans split bigger tasks; the runner records the ones that go over."),
+    "merge": ("Merge", "How a finished task reaches main."),
+    "merge.mode": ("Mode", "ff: the runner fast-forwards main. pr: it pushes the task's branch and opens a pull request."),
+    "merge.pr": ("Pull request", "manual: you merge it on GitHub. auto: GitHub merges it when the checks pass."),
     "review": ("Review", "A reviewer reads each task's diff before merge."),
     "review.enabled": ("Review diffs", "When off, tasks go to merge without the reviewer."),
     "smoke_test": ("Smoke test", "Tries the finished feature in a running environment, with fakes and never real services."),
@@ -183,6 +193,7 @@ class GateConfig(_Strict):
     retries: Retries = Retries()
     budget: Budget = Budget()
     task_size: TaskSize = TaskSize()
+    merge: Merge = Merge()
     hold_before_merge: HoldBeforeMerge = HoldBeforeMerge()
     review_after_merge: ReviewAfterMerge = ReviewAfterMerge()
     schedules: list[Schedule] = []

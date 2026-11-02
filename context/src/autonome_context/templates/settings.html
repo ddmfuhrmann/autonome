@@ -180,6 +180,8 @@ srow srow--{{ prefix if prefix != 'smoke_test-checks' else 'checks' }}{% if (pre
     {{ field('budget-task_minutes', 'budget.task_minutes', 'number') }}
     {{ field('budget-plan_tokens', 'budget.plan_tokens') }}
     {{ field('task_size-max_lines', 'task_size.max_lines', 'number') }}
+    {{ field('merge-mode', 'merge.mode', 'seg', ('ff', 'pr')) }}
+    {{ field('merge-pr', 'merge.pr', 'seg', ('manual', 'auto')) }}
     {{ field('allowed_commands', 'allowed_commands', 'lines') }}
     {{ field('interactive', 'interactive', 'check') }}
   </section>

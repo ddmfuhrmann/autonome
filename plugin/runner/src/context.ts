@@ -77,6 +77,8 @@ export interface GateConfig {
     retries: { max: number; stop_on_repeat: boolean };
     budget: { task_tokens: number; task_minutes: number; plan_tokens: number };
     task_size?: { max_lines: number };
+    /** How a finished task reaches main: fast-forward, or a pull request merged by hand or by GitHub. */
+    merge?: { mode: "ff" | "pr"; pr: "manual" | "auto" };
     hold_before_merge?: { features: string[] };
     review_after_merge?: { features: string[] };
     schedules?: Schedule[];

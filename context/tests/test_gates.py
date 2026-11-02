@@ -66,6 +66,17 @@ def test_task_size_defaults_to_300_lines_and_refuses_less_than_20():
         GateConfig.model_validate({"task_size": {"max_lines": 10}})
 
 
+def test_merge_defaults_to_fast_forward_and_refuses_other_modes():
+    cfg = GateConfig()
+    assert (cfg.merge.mode, cfg.merge.pr) == ("ff", "manual")
+    cfg = GateConfig.from_yaml("merge:\n  mode: pr\n  pr: auto\n")
+    assert (cfg.merge.mode, cfg.merge.pr) == ("pr", "auto")
+    with pytest.raises(ValidationError):
+        GateConfig.from_yaml("merge:\n  mode: squash\n")
+    with pytest.raises(ValidationError):
+        GateConfig.from_yaml("merge:\n  pr: sometimes\n")
+
+
 def test_the_default_models_are_the_product_roles():
     assert set(DEFAULT_MODELS) == {"implementer", "reviewer", "preflight", "tester", "retro", "handoff", "docs"}
     assert set(GateConfig().models) == set(DEFAULT_MODELS)

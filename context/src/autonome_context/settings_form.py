@@ -40,6 +40,7 @@ def config_to_form(cfg: GateConfig) -> dict[str, str]:
     form |= {"retries-max": str(cfg.retries.max), "retries-stop_on_repeat": _on(cfg.retries.stop_on_repeat)}
     form |= {f"budget-{f}": str(getattr(cfg.budget, f)) for f in _BUDGET_FIELDS}
     form["task_size-max_lines"] = str(cfg.task_size.max_lines)
+    form |= {"merge-mode": cfg.merge.mode, "merge-pr": cfg.merge.pr}
     form["allowed_commands"] = _lines(cfg.allowed_commands)
     form["interactive"] = _on(cfg.interactive)
     form["permissions"] = cfg.permissions
@@ -151,6 +152,7 @@ def _build(form: Mapping[str, str | list[str]], errors: dict[str, str]) -> tuple
     data["retries"] = retries
     data["budget"] = _int_fields(form, "budget", _BUDGET_FIELDS, errors, units=True)
     data["task_size"] = _int_fields(form, "task_size", ("max_lines",), errors)
+    data["merge"] = {f: v for f in ("mode", "pr") if (v := _scalar(form, f"merge-{f}"))}
     data["allowed_commands"] = _items(form, "allowed_commands")
     data["interactive"] = _checked(form, "interactive")
     if perm := _scalar(form, "permissions"):
