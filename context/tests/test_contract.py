@@ -19,6 +19,13 @@ def test_the_screening_body_passes_the_endpoint_model():
     Screening.model_validate(CONTRACT["screening"]["body"])
 
 
+def test_the_human_choice_bodies_pass_the_endpoint_models():
+    v = TriageVerdict.model_validate(CONTRACT["triage_verdict_human_choice"]["body"])
+    assert (v.repeats_human_choice, v.human_choice_of) == (0.92, 634)
+    s = Screening.model_validate(CONTRACT["screening_human_choice"]["body"])
+    assert (s.repeats_human_choice, s.human_choice_of) == (0.9, 634)
+
+
 def test_the_revision_verdict_body_passes_the_endpoint_model():
     v = RevisionVerdict.model_validate(CONTRACT["revision_verdict"]["body"])
     assert json.loads(v.state) == CONTRACT["revision_verdict"]["item"]["state"]

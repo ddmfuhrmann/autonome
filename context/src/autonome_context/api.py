@@ -252,6 +252,9 @@ class TriageVerdict(BaseModel):
                   Annotated[str, StringConstraints(min_length=1, max_length=32, pattern=r"^[A-Za-z0-9_.-]+$")]]
     verdict: Literal["accept", "reject", "escalate"]
     round: int = Field(ge=1)
+    # How much the deviation repeats a choice the human made on the feature (`human_choice_of` is that decision)
+    repeats_human_choice: float | None = Field(default=None, ge=0, le=1)
+    human_choice_of: int | None = None
 
 
 async def post_triage(request: Request) -> JSONResponse:
@@ -275,9 +278,16 @@ async def post_triage(request: Request) -> JSONResponse:
                 return _json({"error": "triage is off for this project"}, 403)
             if d["status"] != "proposed" or not d["body"].get("deviation"):
                 return _json({"error": "only a proposed deviation is triaged"}, 403)
+            # A repeated human choice is accepted as such, whatever the other questions said: no undo.
+            human = (v.repeats_human_choice is not None and v.repeats_human_choice >= cfg["triage"]["reject_at"]
+                     and await _is_human_choice_of(conn, d, v.human_choice_of))
+            if human:
+                v = v.model_copy(update={"verdict": "accept"})
             exhausted = v.verdict == "reject" and v.round >= cfg["triage"]["max_rounds"]
-            entry = {**v.model_dump(), "at": plans._now()}
+            entry = {**v.model_dump(exclude_none=True), "at": plans._now()}
             body = {**d["body"], "triage": entry, "triage_history": d["body"].get("triage_history", []) + [entry]}
+            if human:
+                body["accepted_as_human_choice"] = v.human_choice_of or True
             if exhausted:
                 body["triage_exhausted"] = True
             if v.verdict == "escalate":
@@ -445,7 +455,40 @@ async def _triage_state(conn, d: dict, task: dict | None) -> dict:
     convs = await store.conventions_for(conn, d["project"], d["layers"])
     if convs:
         state["conventions"] = [{"title": c["body"].get("title"), "rule": c["body"].get("rule")} for c in convs]
+    if choices := await _human_choices(conn, d):
+        state["human_choices"] = choices
     return state
+
+
+def _judged_by_human(d: dict) -> bool:
+    """A decision the human accepted or rejected (no runner verdict stands last on it), or born from the undo
+    of a decision the human rejected."""
+    if d["body"].get("undo_of_human_reject"):
+        return True
+    if not d["body"].get("deviation") or d["status"] not in ("accepted", "rejected"):
+        return False
+    last = (d["body"].get("triage_history") or [{}])[-1].get("verdict")
+    return last != {"accepted": "accept", "rejected": "reject"}[d["status"]]
+
+
+async def _human_choices(conn, d: dict, limit: int = 10) -> list[dict]:
+    """The latest decisions of the same feature and project that the human judged: what a repeated choice is compared to."""
+    if not d["feature"]:
+        return []
+    out = []
+    for c in await store.list_documents(conn, d["project"], type="decision", feature=d["feature"], limit=None):
+        if c["id"] != d["id"] and c["status"] in ("accepted", "rejected") and _judged_by_human(c):
+            out.append({"id": c["id"], "title": c["body"].get("title"), "decision": c["body"].get("decision"),
+                        "status": c["status"]})
+            if len(out) == limit:
+                break
+    return out
+
+
+async def _is_human_choice_of(conn, d: dict, choice_id: int | None) -> bool:
+    """Whether `choice_id` is one of the human choices the state shows for this decision; any other claim of a
+    repeated choice is ignored, so a feature without human choices behaves as it always did."""
+    return choice_id is not None and any(c["id"] == choice_id for c in await _human_choices(conn, d))
 
 
 async def get_triage(request: Request) -> JSONResponse:
@@ -512,6 +555,8 @@ class Screening(BaseModel):
     model: str
     is_deviation: float = Field(ge=0, le=1)
     reject_at: float = Field(gt=0, le=1)
+    repeats_human_choice: float | None = Field(default=None, ge=0, le=1)
+    human_choice_of: int | None = None
 
 
 async def post_screen(request: Request) -> JSONResponse:
@@ -537,9 +582,13 @@ async def post_screen(request: Request) -> JSONResponse:
                 return _json({"error": "already screened"}, 409)
             if d["status"] != "accepted" or d["body"].get("deviation"):
                 return _json({"error": "only an accepted non-deviation is screened"}, 403)
-            reopen = s.is_deviation >= s.reject_at
+            human = (s.repeats_human_choice is not None and s.repeats_human_choice >= s.reject_at
+                     and await _is_human_choice_of(conn, d, s.human_choice_of))
+            reopen = s.is_deviation >= s.reject_at and not human
             body = {**d["body"], "screening": {"backend": s.backend, "model": s.model,
                                                "is_deviation": s.is_deviation, "at": plans._now()}}
+            if human:
+                body["accepted_as_human_choice"] = s.human_choice_of or True
             if reopen:
                 body |= {"deviation": True, "screened_as_deviation": True}
             await store.add_version(conn, indexer, doc_id, body)

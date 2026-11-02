@@ -547,6 +547,106 @@ def test_the_queue_has_no_reopened_deviations_with_triage_on(client, project, ru
     assert client.get(f"/api/projects/{project}/state").json()["waiting"] == []
 
 
+def human_judged(run_db, indexer, project, title, feature, *, status="rejected"):
+    """A deviation of `feature` that the human judged (no triage verdict on it)."""
+    async def go(conn):
+        await add_feature(conn, project, feature, f"what the {feature} feature does, in its own words")
+        doc_id = await store.create_document(conn, indexer, project=project, type="decision", status="proposed",
+            feature=feature, body={"title": title, "decision": "chosen by the human", "deviation": True})
+        await store.set_status(conn, doc_id, status)
+        await conn.commit()
+        return doc_id
+    return run_db(go)
+
+
+def test_the_state_carries_the_human_choices_of_the_same_feature_only(client, project, run_db, indexer):
+    seed(run_db, indexer, project, title="Mine")  # feature "links"
+    mine = human_judged(run_db, indexer, project, "Reviewer on Sonnet", "links")
+    human_judged(run_db, indexer, project, "Other feature", "other")
+    [item] = pending(client, project)
+    assert item["state"]["human_choices"] == [
+        {"id": mine, "title": "Reviewer on Sonnet", "decision": "chosen by the human", "status": "rejected"}]
+
+
+def test_a_runner_judged_decision_is_not_a_human_choice(client, project, run_db, indexer):
+    judged, _ = seed(run_db, indexer, project, title="Judged")
+    enable(run_db, indexer, project)
+    assert client.post(f"/api/decisions/{judged}/triage", json=verdict("accept")).status_code == 200
+    seed(run_db, indexer, project, session="s-2", title="Next")
+    [item] = pending(client, project)
+    assert "human_choices" not in item["state"]
+
+
+def test_the_human_choices_are_the_ten_latest(client, project, run_db, indexer):
+    seed(run_db, indexer, project, title="Mine")
+    ids = [human_judged(run_db, indexer, project, f"Choice {i}", "links") for i in range(12)]
+    [item] = pending(client, project)
+    assert [c["id"] for c in item["state"]["human_choices"]] == ids[:1:-1]
+
+
+def repeat_body(score=0.9, **kw):
+    return {**screen_body(0.89), "repeats_human_choice": score, **kw}
+
+
+def test_a_screening_that_repeats_a_human_choice_is_not_reopened(client, project, run_db, indexer, deviation):
+    enable(run_db, indexer, project)
+    doc_id = deviation(deviation=False)
+    choice = human_judged(run_db, indexer, project, "Reviewer on Sonnet", "links")
+    r = client.post(f"/api/decisions/{doc_id}/screen", json=repeat_body(human_choice_of=choice))
+    assert r.status_code == 200 and r.json() == {"status": "accepted", "deviation": False}
+    d = run_db(lambda c: store.get_document(c, doc_id))
+    assert d["status"] == "accepted" and not d["body"].get("deviation")
+    assert d["body"]["accepted_as_human_choice"] == choice and d["body"]["screening"]["is_deviation"] == 0.89
+
+
+def test_a_repeat_without_a_human_choice_of_the_feature_is_ignored(client, project, run_db, indexer, deviation):
+    enable(run_db, indexer, project)
+    screened = deviation(deviation=False)
+    other = human_judged(run_db, indexer, project, "Other feature's choice", "other")
+    # an id of another feature, then no id at all: the claim is ignored and the verdict stands
+    r = client.post(f"/api/decisions/{screened}/screen", json=repeat_body(human_choice_of=other))
+    assert r.status_code == 200 and r.json() == {"status": "proposed", "deviation": True}
+    assert "accepted_as_human_choice" not in run_db(lambda c: store.get_document(c, screened))["body"]
+    r = client.post(f"/api/decisions/{screened}/triage", json={**verdict("reject"), "repeats_human_choice": 0.9})
+    assert r.status_code == 200 and r.json() == {"status": "rejected"}
+    assert run_db(lambda c: store.list_documents(c, project, type="task"))
+    dev = deviation_two(run_db, indexer, project)
+    r = client.post(f"/api/decisions/{dev}/triage", json={**verdict("reject"), "repeats_human_choice": 0.9,
+                                                           "human_choice_of": other})
+    assert r.status_code == 200 and r.json() == {"status": "rejected"}
+
+
+def test_a_screening_below_the_repeat_limit_reopens_as_before(client, project, run_db, indexer, deviation):
+    enable(run_db, indexer, project)
+    doc_id = deviation(deviation=False)
+    assert client.post(f"/api/decisions/{doc_id}/screen", json=repeat_body(0.3)).status_code == 200
+    d = run_db(lambda c: store.get_document(c, doc_id))
+    assert d["status"] == "proposed" and "accepted_as_human_choice" not in d["body"]
+
+
+def test_a_reject_that_repeats_a_human_choice_is_accepted_and_queues_no_undo(client, project, run_db, indexer, deviation):
+    enable(run_db, indexer, project)
+    doc_id = deviation()
+    choice = human_judged(run_db, indexer, project, "Reviewer on Sonnet", "links")
+    r = client.post(f"/api/decisions/{doc_id}/triage", json={**verdict("reject"), "repeats_human_choice": 0.9,
+                                                              "human_choice_of": choice})
+    assert r.status_code == 200 and r.json() == {"status": "accepted"}
+    d = run_db(lambda c: store.get_document(c, doc_id))
+    assert d["status"] == "accepted" and d["body"]["accepted_as_human_choice"] == choice
+    assert d["body"]["triage_history"][-1]["verdict"] == "accept"
+    assert run_db(lambda c: store.list_documents(c, project, type="task")) == []
+
+
+def test_repeats_human_choice_outside_zero_to_one_is_a_422(client, project, run_db, indexer, deviation):
+    enable(run_db, indexer, project)
+    doc_id = deviation()
+    for score in (1.1, -0.1):
+        assert client.post(f"/api/decisions/{doc_id}/triage",
+                           json={**verdict("reject"), "repeats_human_choice": score}).status_code == 422
+        assert client.post(f"/api/decisions/{doc_id}/screen", json=repeat_body(score)).status_code == 422
+    assert status(run_db, doc_id) == "proposed"
+
+
 def undo_chain(client, run_db, indexer, project, *, by="human"):
     """Y (a deviation) rejected by the human or the runner, its undo task, and the handoff the undo posts
     with a deviation and a plain decision. Returns (Y, undo task, the posted handoff, post())."""

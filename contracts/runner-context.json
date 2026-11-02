@@ -18,6 +18,20 @@
     "reject_at": 0.7,
     "body": {"backend": "jev", "model": "jev-latest", "is_deviation": 0.19, "reject_at": 0.7}
   },
+  "triage_verdict_human_choice": {
+    "endpoint": "POST /api/decisions/{id}/triage",
+    "about": "A deviation that repeats a choice the human made on the feature: the context records accept and queues no undo. The runner builds this body once it asks the question.",
+    "body": {
+      "backend": "jev", "model": "jev-latest",
+      "state": "{\"deviation\":{\"title\":\"Keep Sonnet\",\"decision\":\"As D634.\"},\"human_choices\":[{\"id\":634,\"title\":\"Sonnet for the reviewer\",\"decision\":\"Reviewer on Sonnet.\",\"status\":\"accepted\"}]}",
+      "answers": {"drops_coverage": "0.17", "repeats_human_choice": "0.92"},
+      "verdict": "reject", "round": 1, "repeats_human_choice": 0.92, "human_choice_of": 634
+    }
+  },
+  "screening_human_choice": {
+    "endpoint": "POST /api/decisions/{id}/screen",
+    "body": {"backend": "jev", "model": "jev-latest", "is_deviation": 0.89, "reject_at": 0.7, "repeats_human_choice": 0.9, "human_choice_of": 634}
+  },
   "revision_verdict": {
     "endpoint": "POST /api/plans/{id}/preflight-triage",
     "item": {"plan_id": 678, "shape_changed": false, "state": {"plan": {"goal": "Count clicks"}, "original": [{"position": 3, "title": "API"}], "revised": [{"position": 3, "title": "API"}]}},
