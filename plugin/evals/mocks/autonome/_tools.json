@@ -346,8 +346,26 @@
       }
     },
     {
+      "name": "features_get",
+      "description": "The project's feature catalog: slug, description, code paths and last_activity of each feature.\nA feature is a stable capability of the product, not the change being made. Read it before\nplanning and pick the feature whose paths fit the work (the most specific wins).",
+      "inputSchema": {
+        "properties": {
+          "project": {
+            "description": "Project slug",
+            "title": "Project",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project"
+        ],
+        "type": "object",
+        "title": "features_getArguments"
+      }
+    },
+    {
       "name": "plan_draft",
-      "description": "Save a draft plan for the human to approve in the UI. Agents cannot approve plans. Put the gates\nthe plan needs and the gate config lacks in `plan.gates`: approving the plan adds them.",
+      "description": "Save a draft plan for the human to approve in the UI. Agents cannot approve plans. Put the gates\nthe plan needs and the gate config lacks in `plan.gates`: approving the plan adds them. The feature\nis a stable capability of the product, not the change: use one from features_get; a new one needs\n`feature_description` and is refused when it is similar to an existing one.",
       "inputSchema": {
         "$defs": {
           "DesignChoice": {
@@ -693,7 +711,7 @@
               }
             ],
             "default": null,
-            "description": "kebab-case feature slug",
+            "description": "kebab-case slug of a feature from features_get, or a new one",
             "title": "Feature"
           },
           "layers": {
@@ -716,6 +734,28 @@
             "default": null,
             "description": "revise this draft instead of creating a new one",
             "title": "Plan Id"
+          },
+          "feature_description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "what the new feature is, as a stable capability of the product; required when `feature` is not in the catalog",
+            "title": "Feature Description"
+          },
+          "feature_paths": {
+            "default": [],
+            "description": "code paths of the new feature",
+            "items": {
+              "type": "string"
+            },
+            "title": "Feature Paths",
+            "type": "array"
           }
         },
         "required": [

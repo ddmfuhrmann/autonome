@@ -127,15 +127,23 @@ def _now() -> str:
 
 async def draft(
     conn: AsyncConnection, indexer: store.Indexer, project: str, feature: str | None, layers: list[str],
-    body: PlanBody, plan_id: int | None = None,
+    body: PlanBody, plan_id: int | None = None, feature_description: str | None = None,
+    feature_paths: list[str] = [],
 ) -> int:
-    """Creates a draft plan, or revises one that is still a draft."""
+    """Creates a draft plan, or revises one that is still a draft (the feature is not checked again).
+    A feature outside the catalog needs a description, and must not be similar to a catalog one."""
     data = body.model_dump(mode="json")
     for key in body.backlog_items:
         await backlog._locate(conn, project, key)  # an unknown id answers with close matches
     async with conn.transaction():
         if plan_id is None:
-            feature = await store.feature_for(conn, indexer, project, feature)
+            if feature:
+                r = await store.resolve_feature(conn, indexer.embedder, project, feature, feature_description, feature_paths)
+                if r["similar_to"]:
+                    raise rules.Forbidden(
+                        f"feature {r['slug']!r} is similar to {r['similar_to']!r}: use {r['similar_to']!r} "
+                        "or describe how it differs")
+                feature = r["slug"]
             return await store.create_document(conn, indexer, project=project, type="plan", body=data,
                                                feature=feature, layers=layers, status="draft")
         doc = await store.get_document(conn, plan_id)

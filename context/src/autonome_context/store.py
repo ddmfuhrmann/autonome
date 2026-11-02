@@ -81,6 +81,21 @@ async def catalog(conn: AsyncConnection, project: str) -> list[dict]:
         return await cur.fetchall()
 
 
+async def catalog_with_activity(conn: AsyncConnection, project: str) -> list[dict]:
+    """The catalog with `last_activity`: when the latest document of each feature was last written."""
+    async with conn.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            "select f.slug, f.description, f.paths, max(v.created_at) as last_activity"
+            " from feature f join project p on p.id = f.project_id"
+            " left join document d on d.feature_id = f.id"
+            " left join document_version v on v.document_id = d.id"
+            " where p.slug = %s group by f.id order by f.slug",
+            (project,),
+        )
+        rows = await cur.fetchall()
+    return [{**r, "last_activity": r["last_activity"].isoformat() if r["last_activity"] else None} for r in rows]
+
+
 def _kebab(slug: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", slug.lower()).strip("-")
 

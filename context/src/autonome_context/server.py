@@ -74,19 +74,35 @@ async def gate_config_get(project: Annotated[str, Field(description="Project slu
 
 
 @mcp.tool()
+async def features_get(project: Annotated[str, Field(description="Project slug")]) -> list[dict]:
+    """The project's feature catalog: slug, description, code paths and last_activity of each feature.
+    A feature is a stable capability of the product, not the change being made. Read it before
+    planning and pick the feature whose paths fit the work (the most specific wins)."""
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        return await store.catalog_with_activity(conn, project)
+
+
+@mcp.tool()
 async def plan_draft(
     project: str,
     plan: plans.PlanBody,
-    feature: Annotated[str | None, Field(description="kebab-case feature slug")] = None,
+    feature: Annotated[str | None, Field(description="kebab-case slug of a feature from features_get, or a new one")] = None,
     layers: list[str] = [],
     plan_id: Annotated[int | None, Field(description="revise this draft instead of creating a new one")] = None,
+    feature_description: Annotated[str | None, Field(
+        description="what the new feature is, as a stable capability of the product; required when `feature` is not in the catalog")] = None,
+    feature_paths: Annotated[list[str], Field(description="code paths of the new feature")] = [],
 ) -> dict:
     """Save a draft plan for the human to approve in the UI. Agents cannot approve plans. Put the gates
-    the plan needs and the gate config lacks in `plan.gates`: approving the plan adds them."""
+    the plan needs and the gate config lacks in `plan.gates`: approving the plan adds them. The feature
+    is a stable capability of the product, not the change: use one from features_get; a new one needs
+    `feature_description` and is refused when it is similar to an existing one."""
     pool, indexer = await services.get()
     async with pool.connection() as conn:
         try:
-            doc_id = await plans.draft(conn, indexer, project, feature, layers, plan, plan_id)
+            doc_id = await plans.draft(conn, indexer, project, feature, layers, plan, plan_id,
+                                       feature_description, feature_paths)
         except rules.Forbidden as e:
             return {"error": str(e)}
     return {"plan_id": doc_id, "status": "draft",

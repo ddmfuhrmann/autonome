@@ -29,7 +29,8 @@ All take `project` (the project slug) unless noted. Ids are document ids.
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `plan_draft` | `project`, `plan` (title, goal, context, scope, out_of_scope, acceptance, risks, tasks, gates, conventions, design, discussion, backlog_items), `feature?`, `layers?`, `plan_id?` to revise a draft | `{plan_id, status: draft, approve_at}` |
+| `features_get` | `project` | the feature catalog: `[{slug, description, paths, last_activity}]`; a feature is a stable capability of the product, not a change |
+| `plan_draft` | `project`, `plan` (title, goal, context, scope, out_of_scope, acceptance, risks, tasks, gates, conventions, design, discussion, backlog_items), `feature?`, `layers?`, `plan_id?` to revise a draft, `feature_description?` and `feature_paths?` to create a feature | `{plan_id, status: draft, approve_at}`; a feature outside the catalog without a description, or similar to one in it, is an `{error}` naming the catalog or the similar feature, and no plan is created. Revising a draft does not check the feature again |
 | `wave_draft` | `project`, `wave` (title, goal, out_of_scope, features: [{plan_id, depends_on}], discussion), `wave_id?` | `{wave_id, status: draft, approve_at}` |
 | `plan_approve` / `wave_approve` | `project`, `plan_id` / `wave_id` | asks the human in a dialog the agent cannot answer; `{status: approved}` or `{status: draft, human: declined\|unavailable, approve_at}` |
 | `plan_get` | `plan_id` | the plan with its status and its tasks' statuses |

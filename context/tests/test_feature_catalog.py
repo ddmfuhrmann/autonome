@@ -144,6 +144,58 @@ def test_a_feature_too_similar_to_a_catalog_one_is_refused_naming_it(run_db, pro
     assert run_db(go) == ["models"]
 
 
+async def _plan_count(conn, project):
+    return len(await store.list_documents(conn, project, type="plan", limit=50))
+
+
+def test_plan_draft_with_a_new_slug_and_no_description_fails_and_creates_no_plan(run_db, project, indexer):
+    async def go(conn):
+        await store.resolve_feature(conn, EMBEDDER, project, "wallet", "balance of the wallet ledger")
+        with pytest.raises(rules.Forbidden, match="wallet: balance of the wallet ledger"):
+            await plans.draft(conn, indexer, project, "signup", [], _plan())
+        return await _plan_count(conn, project), [f["slug"] for f in await store.catalog(conn, project)]
+
+    assert run_db(go) == (0, ["wallet"])
+
+
+def test_plan_draft_with_a_similar_feature_names_the_existing_one(run_db, project, indexer):
+    async def go(conn):
+        await store.resolve_feature(conn, EMBEDDER, project, "models", "model and effort per agent role in config")
+        with pytest.raises(rules.Forbidden, match="similar to 'models': use 'models' or describe"):
+            await plans.draft(conn, indexer, project, "models-config", [], _plan(),
+                              feature_description="model and effort per agent role")
+        return await _plan_count(conn, project)
+
+    assert run_db(go) == 0
+
+
+def test_plan_draft_with_a_catalog_slug_works_as_before_and_a_revision_skips_the_check(run_db, project, indexer):
+    async def go(conn):
+        await store.resolve_feature(conn, EMBEDDER, project, "wallet", "balance of the wallet ledger")
+        plan_id = await plans.draft(conn, indexer, project, "wallet", [], _plan())
+        again = await plans.draft(conn, indexer, project, "nonexistent", [], _plan(), plan_id)
+        new = await plans.draft(conn, indexer, project, "signup", [], _plan(),
+                                feature_description="registration with e-mail and password", feature_paths=["src/signup/"])
+        return plan_id, again, new, await store.catalog(conn, project)
+
+    plan_id, again, new, catalog = run_db(go)
+    assert again == plan_id and new != plan_id
+    assert [f["slug"] for f in catalog] == ["signup", "wallet"]
+    assert catalog[0]["paths"] == ["src/signup/"]
+
+
+def test_features_get_lists_only_the_features_of_the_project(run_db, project, indexer):
+    async def go(conn):
+        await store.resolve_feature(conn, EMBEDDER, project, "wallet", "balance of the wallet ledger", ["src/wallet/"])
+        await store.resolve_feature(conn, EMBEDDER, project + "-other", "signup", "registration with e-mail and password")
+        await plans.draft(conn, indexer, project, "wallet", [], _plan())
+        return await store.catalog_with_activity(conn, project)
+
+    [feature] = run_db(go)
+    assert feature["slug"] == "wallet" and feature["paths"] == ["src/wallet/"]
+    assert feature["last_activity"]
+
+
 def test_enqueue_task_creates_the_maintenance_feature_with_its_fixed_description(run_db, project, indexer):
     async def go(conn):
         await store.enqueue_task(conn, indexer, project, title="Fix main", spec="red", source="schedule:main-red")
