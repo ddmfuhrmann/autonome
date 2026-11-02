@@ -105,6 +105,7 @@ run without asking.
 | `context API unreachable … waiting` | the context is restarting | nothing: it waits (`AUTONOME_CONTEXT_WAIT_S`, 5 min) and resumes |
 | `context API 500 on …; stopping the runner` | the context failed for real | check `docker compose logs context`; the task went back to pending; run again |
 | `usage limit: … run again after the reset` | the account's usage limit or monthly spend limit | run again after the reset (or raise the limit), or use `--watch`, which waits for it; the task went back to pending |
+| `queue paused by <by>: <reason>` | the project's queue is paused; the runner takes no task (with `--watch` it waits) | a human resumes the queue. A session running when the pause came is interrupted and the task is `paused`, with its worktree and branch kept; after the resume it goes on in the same session (a new session on the same branch if the worktree is gone) |
 | `#N failed unexpectedly: …` | the runner itself threw (a bug, not the task) | nothing: the task went back to pending with an `error` run; the third error in a row blocks it as `runner error (3 in a row)` |
 | `… is merged into main; it will be recorded as done on the next run` | main moved but the context could not hear it | run `run` again: it records the merge first |
 | `autonome doctor found problems; not starting` | see "Before a run" | |

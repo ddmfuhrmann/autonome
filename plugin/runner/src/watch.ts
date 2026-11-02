@@ -11,6 +11,8 @@ export interface State {
     triage_hold?: string | null }[];
   /** The triage is on: it judges deviations, so only the ones it gave up on wait for the human. */
   triage?: boolean;
+  /** The queue is paused: the runner takes no task. */
+  paused?: { at: string; by: string; reason: string | null } | null;
 }
 
 type Waiting = State["waiting"][number];
@@ -25,6 +27,8 @@ function waitingLine(i: Waiting, s: State): string | null {
   }
   return `${tag} #${i.id} ${WAITING[i.kind] ?? i.kind}: ${i.title}`;
 }
+
+const pausedLine = (p: NonNullable<State["paused"]>) => `needs-you queue paused by ${p.by}${p.reason ? `: ${p.reason}` : ""}`;
 
 const WAITING: Record<string, string> = {
   plans: "to approve", held: "held by preflight", smoke_test: "blocked at the smoke test", hold_before_merge: "held before merge",
@@ -41,7 +45,9 @@ export function changes(prev: State, next: State): string[] {
     if (t.status === "running") out.push(`info T-${t.id} started: ${t.title}`);
     else if (t.status === "done" && was) out.push(`info T-${t.id} merged: ${t.title}`);
     else if (t.status === "pending" && was === "running") out.push(`info T-${t.id} back to pending: ${t.title}`);
+    else if (t.status === "paused") out.push(`info #${t.id} paused`);
   }
+  if (next.paused && !prev.paused) out.push(pausedLine(next.paused));
   const plansBefore = new Map(prev.plans.map((p) => [p.id, p.status]));
   for (const p of next.plans) {
     if (p.status === "done" && plansBefore.get(p.id) && plansBefore.get(p.id) !== "done") {
@@ -78,6 +84,7 @@ export async function watch(opts: { project: string; every: number; once?: boole
   const get = () => call<State>(`/api/projects/${opts.project}/state`);
   let prev = await get();
   opts.log(summary(prev));
+  if (prev.paused) opts.log(pausedLine(prev.paused));
   for (const i of prev.waiting) {
     const line = waitingLine(i, prev);
     if (line) opts.log(line);

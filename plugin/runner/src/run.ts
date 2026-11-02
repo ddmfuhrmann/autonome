@@ -44,8 +44,15 @@ export interface RunOptions {
   /** Where the live view's events go; the run makes one when none is given. */
   events?: EventStream;
   /** Tests replace the agent sessions and Jev's API with fakes. */
-  seams?: { query?: typeof query; preflight?: typeof preflight; ask?: typeof askJev; runTask?: (task: Task, opts: RunOptions) => Promise<Run | undefined> };
+  seams?: { query?: typeof query; preflight?: typeof preflight; ask?: typeof askJev; runTask?: (task: Task, opts: RunOptions) => Promise<Run | undefined>;
+    gates?: JudgeSeams["gates"]; review?: typeof review };
 }
+
+/** How often a running session looks at the project's pause (at most), in ms. */
+const PAUSE_CHECK_MS = 15_000;
+
+export const RESUME_PROMPT = "This session was paused and is resuming. A command that was running when it stopped was killed: " +
+  "check the state of the worktree and run it again before going on.";
 
 const IMPLEMENTER_PROMPT = `You are the implementer of one task in the autonome process. The briefing injected at
 the start of this session has the task, its plan, the conventions for its layers and the gates.
@@ -256,8 +263,9 @@ export async function implement(task: Task, worktree: string, base: string, opts
   let tokens = 0;
   let cost = 0;
   let stop = "";
+  let lastPauseCheck = 0;
   try {
-    for await (const msg of (opts.seams?.query ?? query)({
+    const q = (opts.seams?.query ?? query)({
       prompt: retry?.prompt ?? `Run task #${task.id}: ${task.body.title}. Read the briefing, then implement it.`,
       options: {
         resume: retry?.sessionId,
@@ -276,13 +284,22 @@ export async function implement(task: Task, worktree: string, base: string, opts
           PATH: `${join(PLUGIN_ROOT, "bin")}:${process.env.PATH}`,
         }),
       },
-    })) {
+    });
+    for await (const msg of q) {
       if (msg.type === "system" && msg.subtype === "init") sessionId = msg.session_id;
       live(opts, "implementer", { task_id: task.id })(msg);
+      // A paused queue stops the session where it is; the worktree and the session are kept.
+      if (!stop && Date.now() - lastPauseCheck >= PAUSE_CHECK_MS) {
+        lastPauseCheck = Date.now();
+        if (await context.projectPause(opts.project)) {
+          stop = "paused";
+          await q.interrupt();
+        }
+      }
       if (msg.type === "assistant") {
         const u = msg.message.usage;
         tokens += (u?.input_tokens ?? 0) + (u?.output_tokens ?? 0) + (u?.cache_creation_input_tokens ?? 0);
-        if (tokens > cfg.budget.task_tokens) {
+        if (!stop && tokens > cfg.budget.task_tokens) {
           stop = `token budget exceeded (${tokens} > ${cfg.budget.task_tokens})`;
           abort.abort();
         }
@@ -293,6 +310,7 @@ export async function implement(task: Task, worktree: string, base: string, opts
       }
     }
   } catch (e) {
+    if (e instanceof ContextError) throw e; // not the session's fault, and never a pause
     stop ||= abort.signal.aborted ? `time budget exceeded (${cfg.budget.task_minutes} min)` : String(e);
   } finally {
     clearTimeout(timer);
@@ -309,14 +327,17 @@ export function updateDocs(repo: string, project: string, args: string[], log: R
 }
 
 /** Rebase the task's branch on main, re-check the gates, and fast-forward main. */
-function integrate(repo: string, worktree: string, branch: string, push: boolean): { ok: boolean; reason?: string } {
+async function integrate(repo: string, worktree: string, branch: string, push: boolean,
+  hooks: { gates?: JudgeSeams["gates"]; paused?: () => Promise<boolean> } = {}): Promise<{ ok: boolean; reason?: string; paused?: boolean }> {
   const rebase = tryGit(worktree, "rebase", "main");
   if (!rebase.ok) {
     tryGit(worktree, "rebase", "--abort");
     return { ok: false, reason: `conflicts with main: ${rebase.out.slice(-800)}` };
   }
-  const check = gates(worktree, "main");
+  const check = (hooks.gates ?? gates)(worktree, "main");
   if (!check.passed) return { ok: false, reason: `gates failed on top of main: ${check.summary}` };
+  // The gates took a while: last look before main moves.
+  if (await hooks.paused?.()) return { ok: false, paused: true };
   const ff = fastForwardMain(repo, branch);
   if (!ff.ok) return ff;
   if (push) {
@@ -387,17 +408,20 @@ export interface JudgeInput {
   /** The implementer's latest session; changes after each retry. */
   current: () => { sessionId: string; stop: string };
   retry: (prompt: string) => Promise<void>;
+  /** Whether the queue is paused; asked before the gates and before each reviewer round. */
+  paused?: () => Promise<boolean>;
 }
 
 /** Gates, then the reviewer; blocking findings send the implementer back to the same session.
  * Returns why the task cannot merge (null when it can) and whether the reviewer's findings are the reason. */
-export async function judgeTask(input: JudgeInput, seams: JudgeSeams): Promise<{ failure: string | null; blockedOnReview: boolean }> {
+export async function judgeTask(input: JudgeInput, seams: JudgeSeams): Promise<{ failure: string | null; blockedOnReview: boolean; paused?: boolean }> {
   const { task, cfg, opts, run, worktree, base, retry } = input;
   const log = opts.log;
   let cleanups = 0;
   let mediumSent = false;
   for (let round = 0; ; ) {
     const result = input.current();
+    if (result.stop === "paused") return { failure: null, blockedOnReview: false, paused: true };
     const state = result.sessionId ? gateHookState(result.sessionId) : {};
     if (result.stop && isUsageLimit(result.stop)) throw new UsageLimitError(result.stop);
     if (result.stop) return { failure: result.stop, blockedOnReview: false };
@@ -416,11 +440,13 @@ export async function judgeTask(input: JudgeInput, seams: JudgeSeams): Promise<{
         `pattern) to .gitignore; the runner restages from scratch, so ignoring them is enough:\n${list}`);
       continue;
     }
+    if (await input.paused?.()) return { failure: null, blockedOnReview: false, paused: true };
     stage(opts, { task_id: task.id }, "gates");
     const check = seams.gates(worktree, base);
     stage(opts, { task_id: task.id }, check.passed ? "gates passed" : `gates: ${check.summary.split(":")[0]}`);
     if (!check.passed) return { failure: check.summary, blockedOnReview: false };
     if (!cfg.review.enabled) return { failure: null, blockedOnReview: false };
+    if (await input.paused?.()) return { failure: null, blockedOnReview: false, paused: true };
     const briefing = [await seams.briefing(), gatesSection(check.outcomes)].filter(Boolean).join("\n\n");
     stage(opts, { task_id: task.id }, `review, round ${round + 1}`);
     const key = cfg.triage?.model === "jev-latest" ? jevKey((l) => opts.log(`triage: ${l}`)) : undefined;
@@ -457,7 +483,7 @@ async function runTask(task: Task, opts: RunOptions): Promise<Run | undefined> {
     const last = task.body.runs?.at(-1);
     if (!last) return void (await context.transition(task.id, "pending"));
     log(`#${task.id} released from the hold before merge; merging ${last.branch}`);
-    const r = integrate(repo, last.worktree, last.branch, opts.push);
+    const r = await integrate(repo, last.worktree, last.branch, opts.push, { gates: opts.seams?.gates });
     const final: Run = { ...last, at: now(), outcome: r.ok ? "merged" : "merge-failed", reason: r.reason };
     if (r.ok) await recordMerged(task, final, opts);
     else await context.transition(task.id, "pending", final);
@@ -466,17 +492,37 @@ async function runTask(task: Task, opts: RunOptions): Promise<Run | undefined> {
     return final;
   }
 
-  const base = git(repo, "rev-parse", "main");
-  const branch = `autonome/task-${task.id}-${Date.now().toString(36)}`;
-  const worktree = join(dirname(repo), ".autonome-worktrees", branch.replaceAll("/", "-"));
-  git(repo, "worktree", "add", "-q", "-b", branch, worktree, base);
+  let base = git(repo, "rev-parse", "main");
+  let branch = `autonome/task-${task.id}-${Date.now().toString(36)}`;
+  let worktree = join(dirname(repo), ".autonome-worktrees", branch.replaceAll("/", "-"));
+  let resume: { sessionId: string; prompt: string } | undefined;
+  const paused = task.body.runs?.at(-1);
+  if (paused?.outcome === "paused") {
+    // A paused task goes on where it stopped: same worktree and, when it has one, the same session.
+    if (existsSync(paused.worktree)) {
+      ({ base, branch, worktree } = paused);
+      if (paused.session_id) resume = { sessionId: paused.session_id, prompt: RESUME_PROMPT };
+      log(`#${task.id} was paused; resuming in ${worktree}`);
+    } else {
+      tryGit(repo, "worktree", "prune");
+      if (tryGit(repo, "rev-parse", "--verify", `refs/heads/${paused.branch}`).ok) {
+        ({ base, branch } = paused);
+        worktree = join(dirname(repo), ".autonome-worktrees", `${branch.replaceAll("/", "-")}-${Date.now().toString(36)}`);
+        git(repo, "worktree", "add", "-q", worktree, branch);
+        log(`#${task.id} was paused but its worktree ${paused.worktree} is gone; new session in a new worktree from ${branch}`);
+      } else {
+        log(`#${task.id} was paused but its worktree and branch are gone; starting over`);
+      }
+    }
+  }
+  if (!existsSync(worktree)) git(repo, "worktree", "add", "-q", "-b", branch, worktree, base);
   log(`#${task.id} ${task.body.title} — running in ${worktree}`);
   stage(opts, { task_id: task.id }, `running on ${branch}`);
   const started = Date.now();
 
   const cfg = (await context.gateConfig(opts.project)).config;
-  let result = await implement(task, worktree, base, opts);
-  const run: Run = { at: now(), session_id: result.sessionId, branch, worktree, base, outcome: "",
+  let result = await implement(task, worktree, base, opts, resume);
+  const run: Run = { at: now(), session_id: result.sessionId || resume?.sessionId, branch, worktree, base, outcome: "",
     tokens: result.tokens, cost_usd: result.cost };
   let blockedOnReview = false; // the reviewer's findings are why the task blocks, not a gate or the merge
   const block = async (reason: string) => {
@@ -491,17 +537,29 @@ async function runTask(task: Task, opts: RunOptions): Promise<Run | undefined> {
 
   // Gates, then the reviewer; blocking findings send the implementer back to the same session.
   const retry = async (prompt: string) => {
-    result = await implement(task, worktree, base, opts, { sessionId: result.sessionId, prompt });
+    result = await implement(task, worktree, base, opts, { sessionId: result.sessionId || run.session_id || "", prompt });
     run.tokens = (run.tokens ?? 0) + result.tokens;
     run.cost_usd = (run.cost_usd ?? 0) + result.cost;
   };
+  // The queue was paused: the session and the worktree are kept as they are, and nothing merges.
+  const pauseTask = async () => {
+    const by = await context.projectPause(opts.project);
+    log(`  queue paused${by ? ` by ${by.by}` : ""}; #${task.id} stopped, worktree and session kept`);
+    stage(opts, { task_id: task.id }, "paused");
+    Object.assign(run, { outcome: "paused", session_id: result.sessionId || run.session_id,
+      duration_s: Math.round((Date.now() - started) / 1000) });
+    await context.transition(task.id, "paused", run);
+    return run;
+  };
+  const isPaused = async () => !!(await context.projectPause(opts.project));
   let failure: string | null;
   try {
-    const judged = await judgeTask({ task, cfg, opts, run, worktree, base, current: () => result, retry }, {
-      gates,
-      review,
+    const judged = await judgeTask({ task, cfg, opts, run, worktree, base, current: () => result, retry, paused: isPaused }, {
+      gates: opts.seams?.gates ?? gates,
+      review: opts.seams?.review ?? review,
       briefing: async () => (await context.briefing(opts.project, task.id)).text,
     });
+    if (judged.paused) return pauseTask();
     failure = judged.failure;
     blockedOnReview = judged.blockedOnReview;
   } catch (e) {
@@ -513,11 +571,13 @@ async function runTask(task: Task, opts: RunOptions): Promise<Run | undefined> {
     }
     throw e;
   }
+  if (!failure && (await isPaused())) return pauseTask(); // before the handoff: a paused session is not finished
   if (result.sessionId) {
     writeHandoff(result.sessionId, worktree, task.id, opts.project, log);
     await triagePending(opts.project, cfg, opts);
   }
   if (failure) return block(failure);
+  if (await isPaused()) return pauseTask(); // last look before the commit and the merge
   execFileSync("git", ["commit", "-q", "-F", "-"], { cwd: worktree, input: commitMessage(task), env: sessionEnv() });
 
   run.duration_s = Math.round((Date.now() - started) / 1000);
@@ -535,7 +595,13 @@ async function runTask(task: Task, opts: RunOptions): Promise<Run | undefined> {
     Object.assign(run, { diff_stat: git(worktree, "diff", "--stat", `${base}..HEAD`),
       diff: git(worktree, "diff", `${base}..HEAD`).slice(0, 60_000) });
   }
-  const r = integrate(repo, worktree, branch, opts.push);
+  const r = await integrate(repo, worktree, branch, opts.push, { gates: opts.seams?.gates, paused: isPaused });
+  if (r.paused) {
+    // Back to uncommitted work on top of the current main, so the resumed session sees its changes.
+    tryGit(worktree, "reset", "--soft", "HEAD~1");
+    run.base = git(worktree, "rev-parse", "HEAD");
+    return pauseTask();
+  }
   if (!r.ok) return block(r.reason ?? "could not merge");
   run.outcome = "merged";
   settleRun(run, "merged"); // only now: a merge that fails blocks for its own reason
@@ -673,8 +739,17 @@ export async function run(opts: RunOptions): Promise<number> {
   }
 
   async function runAll(): Promise<number> {
+    let pausedLogged = false;
     while (ran < opts.maxTasks) {
-      const { task, preflight: plan, smoke_test: finished } = await context.claim(opts.project);
+      const { task, preflight: plan, smoke_test: finished, paused } = await context.claim(opts.project);
+      if (paused) {
+        if (!pausedLogged) opts.log(`queue paused by ${paused.by}${paused.reason ? `: ${paused.reason}` : ""}`);
+        pausedLogged = true;
+        if (!opts.watch) break;
+        await new Promise((r) => setTimeout(r, opts.watch! * 1000));
+        continue;
+      }
+      pausedLogged = false;
       if (finished) {
         await smokeTestPlan(finished, opts);
         continue;

@@ -289,11 +289,21 @@ export async function call<T>(path: string, init?: RequestInit, attempts = 3): P
   throw new ContextError(failure);
 }
 
+/** Who paused a project's queue, when and why. */
+export interface Pause {
+  at: string;
+  by: string;
+  reason: string | null;
+}
+
 export const context = {
   health: () => call<{ status: string }>("/health"),
   claim: (project: string) =>
-    call<{ task: Task | null; preflight: Plan | null; smoke_test: Plan | null }>(
+    call<{ task: Task | null; preflight: Plan | null; smoke_test: Plan | null; paused?: Pause }>(
       `/api/projects/${project}/tasks/claim`, { method: "POST", body: "{}" }),
+  /** The project's pause, or null while the queue runs. A failure is thrown, never read as a pause. */
+  projectPause: async (project: string): Promise<Pause | null> =>
+    (await call<{ paused?: Pause | null }>(`/api/projects/${project}/state`)).paused ?? null,
   smokeTest: (planId: number, r: SmokeTestResult) =>
     call<{ outcome: "done" | "fixing" | "blocked" }>(`/api/plans/${planId}/smoke-test`, {
       method: "POST", body: JSON.stringify(r) }),
