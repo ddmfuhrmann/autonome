@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { CONTEXT_URL, call, roleModel, type GateConfig } from "./context.js";
 import { git, mainCheckout } from "./git.js";
+import { gh, ghAuth, type Gh } from "./pr.js";
 import { findJevKey, secretsFile, sessionEnv } from "./secrets.js";
 import { pingJev } from "./triage.js";
 
@@ -62,7 +63,7 @@ async function autoModeCheck(cfg: GateConfig["config"], seam: ModelsQueryFactory
   }
 }
 
-export async function doctor(project: string, repo: string, seams: { query?: ModelsQueryFactory } = {}): Promise<Check[]> {
+export async function doctor(project: string, repo: string, seams: { query?: ModelsQueryFactory; gh?: Gh } = {}): Promise<Check[]> {
   const checks: Check[] = [];
   const add = (name: string, ok: boolean, detail: string) => checks.push({ name, ok, detail });
 
@@ -126,6 +127,11 @@ export async function doctor(project: string, repo: string, seams: { query?: Mod
   if (got?.config.permissions === "auto") {
     const auto = await autoModeCheck(got.config, seams.query ?? sdkModelsQuery);
     add("permissions", auto.ok, `permissions auto: ${auto.detail}`);
+  }
+
+  if (got?.config.merge?.mode === "pr") {
+    const auth = ghAuth(seams.gh ?? gh, repo);
+    add("gh", auth.ok, `merge.mode pr: ${auth.detail}`);
   }
 
   const main = mainCheckout(repo);

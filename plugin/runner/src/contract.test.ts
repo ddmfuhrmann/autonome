@@ -4,7 +4,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { runnerStatusBody } from "./context.js";
+import { runnerStatusBody, type Run } from "./context.js";
+import { prOpenedRun } from "./pr.js";
 import { revisionBody, screeningBody, verdictBody } from "./triage-run.js";
 
 const CONTRACT = JSON.parse(readFileSync(new URL("../../../contracts/runner-context.json", import.meta.url), "utf8"));
@@ -34,6 +35,12 @@ test("the human-choice screening body matches the contract", () => {
 test("the runner status body matches the contract", () => {
   const c = CONTRACT.runner_status;
   assert.deepEqual(runnerStatusBody(c.item.key_found), c.body);
+});
+
+test("the in_pr transition body matches the contract", () => {
+  const c = CONTRACT.task_in_pr;
+  const run = prOpenedRun({ branch: c.item.branch } as Run, { url: c.item.pr_url, mode: c.item.pr_mode });
+  assert.deepEqual({ to: "in_pr", run }, c.body);
 });
 
 test("the revision verdict body matches the contract, state included", () => {

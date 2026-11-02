@@ -7,7 +7,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { consult } from "./agents.js";
-import { ContextError, context, languageRule, roleModel, sdkModel, waitForContext, type Effort, type GateConfig, type Plan, type Preflight, type ReviewResult, type Run, type Task } from "./context.js";
+import { CONTEXT_URL, ContextError, context, languageRule, roleModel, sdkModel, waitForContext, type Effort, type GateConfig, type Plan, type Preflight, type ReviewResult, type Run, type Task } from "./context.js";
 import { doctor, report } from "./doctor.js";
 import { bashPrefixes, scopedFileCommands } from "./fsguard.js";
 import { retryMessage, findingsForRetry, gatesSection, recordRound, review, settleRun, type GateOutcome } from "./review.js";
@@ -19,6 +19,7 @@ import { advisoryLine } from "./triage.js";
 import { isUsageLimit, UsageLimitError, untilReset } from "./limits.js";
 import { retroFinishedWaves } from "./retro.js";
 import { EventStream, fromMessage } from "./events.js";
+import { gh as realGh, openPr, prOpenedRun, prState, PrError, type Gh } from "./pr.js";
 
 /** Forwards a session's SDK messages to the live view under a role. */
 const live = (opts: RunOptions, role: string, owner: { task_id?: number; plan_id?: number }) =>
@@ -45,7 +46,8 @@ export interface RunOptions {
   events?: EventStream;
   /** Tests replace the agent sessions and Jev's API with fakes. */
   seams?: { query?: typeof query; preflight?: typeof preflight; ask?: typeof askJev; runTask?: (task: Task, opts: RunOptions) => Promise<Run | undefined>;
-    gates?: JudgeSeams["gates"]; review?: typeof review; commitWip?: typeof commitWip; codeLines?: typeof codeLines };
+    gates?: JudgeSeams["gates"]; review?: typeof review; commitWip?: typeof commitWip; codeLines?: typeof codeLines;
+    gh?: Gh; docs?: typeof updateDocs };
 }
 
 /** How often a running session looks at the project's pause (at most), in ms. */
@@ -351,9 +353,27 @@ function measureSize(run: Run, worktree: string, base: string, max: number | und
   stage(opts, { task_id: taskId }, text);
 }
 
-/** Rebase the task's branch on main, re-check the gates, and fast-forward main. */
+/** What integrate needs to open a pull request instead of moving main (merge.mode: pr). */
+interface PrDelivery {
+  mode: "manual" | "auto";
+  title: string;
+  body: string;
+  gh: Gh;
+  log: RunOptions["log"];
+}
+
+interface Integrated {
+  ok: boolean;
+  reason?: string;
+  paused?: boolean;
+  /** gh or the push failed: infrastructure, the task goes back to pending. */
+  infra?: boolean;
+  pr?: { url: string; mode: "manual" | "auto" };
+}
+
+/** Rebase the task's branch on main, re-check the gates, and fast-forward main (or push it and open a pull request). */
 async function integrate(repo: string, worktree: string, branch: string, push: boolean,
-  hooks: { gates?: JudgeSeams["gates"]; paused?: () => Promise<boolean> } = {}): Promise<{ ok: boolean; reason?: string; paused?: boolean }> {
+  hooks: { gates?: JudgeSeams["gates"]; paused?: () => Promise<boolean>; pr?: PrDelivery } = {}): Promise<Integrated> {
   const rebase = tryGit(worktree, "rebase", "main");
   if (!rebase.ok) {
     tryGit(worktree, "rebase", "--abort");
@@ -363,6 +383,19 @@ async function integrate(repo: string, worktree: string, branch: string, push: b
   if (!check.passed) return { ok: false, reason: `gates failed on top of main: ${check.summary}` };
   // The gates took a while: last look before main moves.
   if (await hooks.paused?.()) return { ok: false, paused: true };
+  if (hooks.pr) {
+    const pushed = tryGit(worktree, "push", "-u", "origin", branch);
+    if (!pushed.ok) return { ok: false, infra: true, reason: `could not push ${branch}: ${pushed.out.slice(-400)}` };
+    try {
+      const pr = openPr(hooks.pr.gh, worktree, { branch, title: hooks.pr.title, body: hooks.pr.body, mode: hooks.pr.mode });
+      if (pr.warning) hooks.pr.log(`  warning: ${pr.warning}; ${pr.url} waits for you to merge`);
+      tryGit(repo, "worktree", "remove", "--force", worktree); // the branch stays: the pull request is made from it
+      return { ok: true, pr: { url: pr.url, mode: pr.mode } };
+    } catch (e) {
+      if (!(e instanceof PrError)) throw e;
+      return { ok: false, infra: true, reason: e.message };
+    }
+  }
   const ff = fastForwardMain(repo, branch);
   if (!ff.ok) return ff;
   if (push) {
@@ -405,6 +438,73 @@ async function replayJournal(opts: RunOptions): Promise<void> {
     });
     rmSync(join(dir, f));
     opts.log(`#${task_id} merged earlier; recorded as done now`);
+  }
+}
+
+/** How the task is delivered as a pull request, or undefined while the project merges by fast-forward. */
+function prDelivery(task: Task, cfg: GateConfig["config"], opts: RunOptions): PrDelivery | undefined {
+  if (cfg.merge?.mode !== "pr") return undefined;
+  return {
+    mode: cfg.merge.pr, gh: opts.seams?.gh ?? realGh, log: opts.log,
+    title: commitMessage(task).split("\n")[0],
+    body: `Task #${task.id}: ${CONTEXT_URL}/ui/p/${opts.project}/documents/${task.id}\n\nPlan: #${task.body.plan_id}`,
+  };
+}
+
+/** The pull request is open: the task waits in `in_pr` until it is merged. */
+async function recordPrOpened(task: Task, run: Run, pr: { url: string; mode: "manual" | "auto" }, opts: RunOptions): Promise<Run> {
+  const opened = prOpenedRun(run, pr);
+  await context.transition(task.id, "in_pr", opened);
+  opts.log(`  pull request opened: ${pr.url} (${pr.mode === "auto" ? "GitHub merges when CI passes" : "waiting on you to merge"})`);
+  stage(opts, { task_id: task.id }, `pull request opened: ${pr.url}`);
+  return opened;
+}
+
+/** The push or gh failed: not the task's fault, so it goes back to pending with its work kept on the branch. */
+async function recordPrInfra(task: Task, run: Run, reason: string, opts: RunOptions): Promise<Run> {
+  opts.log(`  warning: ${reason}; #${task.id} goes back to pending`);
+  stage(opts, { task_id: task.id }, `back to pending: ${reason}`);
+  const errored: Run = { ...run, outcome: "error", reason: reason.slice(0, 2000) };
+  await context.transition(task.id, "pending", errored);
+  return errored;
+}
+
+/**
+ * Looks at each task waiting on its pull request: merged is done (main follows when it is clean), closed
+ * is blocked, open is left alone. gh or the network failing only logs; the task stays where it is.
+ */
+export async function followPrs(opts: RunOptions): Promise<void> {
+  const run = opts.seams?.gh ?? realGh;
+  let waiting: Awaited<ReturnType<typeof context.tasksInPr>>;
+  try {
+    if ((await context.gateConfig(opts.project)).config.merge?.mode !== "pr") return;
+    waiting = await context.tasksInPr(opts.project);
+  } catch (e) {
+    if (e instanceof ContextError) return void opts.log(`warning: could not list the pull requests: ${e.message}`);
+    throw e;
+  }
+  for (const t of waiting) {
+    try {
+      const pr = prState(run, opts.repo, t.pr_url);
+      if (pr.state === "OPEN") continue;
+      const base: Run = { at: now(), branch: "", worktree: "", base: "", outcome: "", pr_url: t.pr_url };
+      if (pr.state === "CLOSED") {
+        opts.log(`#${t.id} ${t.pr_url} was closed without merging; blocked`);
+        await context.transition(t.id, "blocked", { ...base, outcome: "blocked", reason: "PR closed without merge" });
+        continue;
+      }
+      if (!pr.mergeSha) throw new PrError(`${t.pr_url} is merged but gh gave no merge commit`);
+      const fetched = tryGit(opts.repo, "fetch", "origin", "main");
+      const ff = fetched.ok ? fastForwardMain(opts.repo, "origin/main") : { ok: false, reason: fetched.out };
+      if (!ff.ok) opts.log(`  warning: main was not brought up to date: ${(ff.reason ?? "").split("\n")[0]}`);
+      await context.transition(t.id, "done", { ...base, outcome: "merged", merged_sha: pr.mergeSha });
+      opts.log(`#${t.id} ${t.pr_url} was merged (${pr.mergeSha.slice(0, 7)})`);
+      stage(opts, { task_id: t.id }, `pull request merged (${pr.mergeSha.slice(0, 7)})`);
+      if (t.feature) (opts.seams?.docs ?? updateDocs)(opts.repo, opts.project, ["--feature", t.feature], opts.log);
+    } catch (e) {
+      if (!(e instanceof PrError || e instanceof ContextError)) throw e;
+      opts.log(`warning: #${t.id}: ${e.message}`); // looked at again on the next turn of the loop
+    }
   }
 }
 
@@ -508,7 +608,16 @@ export async function runTask(task: Task, opts: RunOptions): Promise<Run | undef
     const last = task.body.runs?.at(-1);
     if (!last) return void (await context.transition(task.id, "pending"));
     log(`#${task.id} released from the hold before merge; merging ${last.branch}`);
-    const r = await integrate(repo, last.worktree, last.branch, opts.push, { gates: opts.seams?.gates });
+    const pr = prDelivery(task, (await context.gateConfig(opts.project)).config, opts);
+    const r = await integrate(repo, last.worktree, last.branch, opts.push, {
+      gates: opts.seams?.gates, pr, paused: async () => !!(await context.projectPause(opts.project)) });
+    if (r.paused) {
+      // Nothing was pushed or merged; the task stays released and the next run takes it up.
+      log(`  queue paused; #${task.id} stays released, nothing merged or pushed`);
+      return undefined;
+    }
+    if (r.pr) return recordPrOpened(task, { ...last, at: now() }, r.pr, opts);
+    if (r.infra) return recordPrInfra(task, { ...last, at: now() }, r.reason ?? "gh failed", opts);
     const final: Run = { ...last, at: now(), outcome: r.ok ? "merged" : "merge-failed", reason: r.reason };
     if (r.ok) await recordMerged(task, final, opts);
     else await context.transition(task.id, "pending", final);
@@ -670,12 +779,26 @@ export async function runTask(task: Task, opts: RunOptions): Promise<Run | undef
     Object.assign(run, { diff_stat: git(worktree, "diff", "--stat", `${base}..HEAD`),
       diff: git(worktree, "diff", `${base}..HEAD`).slice(0, 60_000) });
   }
-  const r = await integrate(repo, worktree, branch, opts.push, { gates: opts.seams?.gates, paused: isPaused });
+  const r = await integrate(repo, worktree, branch, opts.push, { gates: opts.seams?.gates, paused: isPaused, pr: prDelivery(task, cfg, opts) });
   if (r.paused) {
     // Back to uncommitted work on top of the current main, so the resumed session sees its changes.
     tryGit(worktree, "reset", "--soft", "HEAD~1");
     run.base = git(worktree, "rev-parse", "HEAD");
     return pauseTask();
+  }
+  if (r.pr) {
+    settleRun(run, "merged");
+    run.duration_s = Math.round((Date.now() - started) / 1000);
+    return recordPrOpened(task, run, r.pr, opts);
+  }
+  if (r.infra) {
+    // Pushed or not, the work is committed on the branch: Try again starts from it.
+    Object.assign(run, { outcome: "error", reason: r.reason, duration_s: Math.round((Date.now() - started) / 1000) });
+    const wip = keepWork(r.reason ?? "gh failed");
+    if (wip.sha) run.wip_sha = wip.sha;
+    const done = await recordPrInfra(task, run, r.reason ?? "gh failed", opts);
+    if (wip.ok) tryGit(repo, "worktree", "remove", "--force", worktree);
+    return done;
   }
   if (!r.ok) return block(r.reason ?? "could not merge");
   run.outcome = "merged";
@@ -788,7 +911,7 @@ export async function run(opts: RunOptions): Promise<number> {
   if (git(opts.repo, "rev-parse", "--show-toplevel") !== resolve(opts.repo)) {
     throw new Error(`${opts.repo} is not the root of a git repository`);
   }
-  const checks = await doctor(opts.project, opts.repo);
+  const checks = await doctor(opts.project, opts.repo, { gh: opts.seams?.gh });
   const failing = checks.filter((c) => !c.ok);
   if (failing.length) throw new Error(`autonome doctor found problems; not starting:\n${report(failing)}`);
   const warned = checks.filter((c) => c.warn);
@@ -799,6 +922,7 @@ export async function run(opts: RunOptions): Promise<number> {
     opts.log(`warning: could not report the Jev key status to the context: ${String(e)}`); // never the task's fault
   }
   await replayJournal(opts);
+  await followPrs(opts);
   let ran = 0;
   let sinceOverview = 0;
   const tally: Played[] = [];
@@ -820,7 +944,10 @@ export async function run(opts: RunOptions): Promise<number> {
 
   async function runAll(): Promise<number> {
     let pausedLogged = false;
+    let firstTurn = true;
     while (ran < opts.maxTasks) {
+      if (!firstTurn) await followPrs(opts); // the start of the run did it for the first turn
+      firstTurn = false;
       const { task, preflight: plan, smoke_test: finished, paused } = await context.claim(opts.project);
       if (paused) {
         if (!pausedLogged) opts.log(`queue paused by ${paused.by}${paused.reason ? `: ${paused.reason}` : ""}`);

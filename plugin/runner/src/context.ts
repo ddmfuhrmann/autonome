@@ -63,6 +63,9 @@ export interface Run {
   /** The diff went over `task_size.max_lines`; `max_lines` is the limit it was measured against. */
   oversize?: boolean;
   max_lines?: number;
+  /** merge.mode: pr — where the task's pull request is and who merges it. */
+  pr_url?: string;
+  pr_mode?: "manual" | "auto";
 }
 
 export interface GateConfig {
@@ -324,6 +327,11 @@ export const context = {
   /** The project's pause, or null while the queue runs. A failure is thrown, never read as a pause. */
   projectPause: async (project: string): Promise<Pause | null> =>
     (await call<{ paused?: Pause | null }>(`/api/projects/${project}/state`)).paused ?? null,
+  /** The tasks waiting on their pull request, with its URL. */
+  tasksInPr: async (project: string): Promise<{ id: number; title: string; feature: string | null; pr_url: string }[]> =>
+    (await call<{ tasks: { id: number; title: string; status: string; feature: string | null; pr_url?: string }[] }>(
+      `/api/projects/${project}/state`)).tasks
+      .flatMap((t) => (t.status === "in_pr" && t.pr_url ? [{ id: t.id, title: t.title, feature: t.feature, pr_url: t.pr_url }] : [])),
   runnerStatus: (project: string, triageKey: boolean) =>
     call<{ ok: boolean }>(`/api/projects/${project}/runner-status`, {
       method: "POST", body: JSON.stringify(runnerStatusBody(triageKey)) }),

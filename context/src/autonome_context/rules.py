@@ -41,6 +41,7 @@ TRANSITIONS: dict[tuple[str, str, str], set[str]] = {
     ("task", "on_hold", "released"): {"human"},
     ("task", "on_hold", "pending"): {"human"},  # rejected at the hold before merge: run it again
     ("task", "released", "done"): {"runner"},
+    ("task", "released", "in_pr"): {"runner"},  # released from the hold before merge, and merge.mode is pr
     ("task", "released", "pending"): {"runner"},  # could not merge (conflict, gates on top of main)
     ("task", "blocked", "pending"): {"human"},
     ("task", "blocked", "abandoned"): {"human"},

@@ -161,6 +161,24 @@ with `queue_pause`. Only a human resumes.
 
 A paused task shows in Approvals as "waiting on you" (`paused`), with Resume and Abandon.
 
+## Pull request mode
+
+With `merge: {mode: pr, pr: manual|auto}` in the gate config (default `ff`: fast-forward main), the
+runner does not move main. After the gates pass on top of main, and if the queue is not paused, it
+runs `git push -u origin <branch>` and `gh pr create --base main --head <branch>`, then the task
+becomes `in_pr` with the PR link (queue and Approvals). The worktree is removed; the branch stays.
+
+- **`manual`**: you merge the PR on GitHub; the task shows as "waiting on you".
+- **`auto`**: the runner runs `gh pr merge --auto --rebase`, so GitHub merges when the checks pass.
+  If GitHub refuses auto-merge, the PR stays open for you and the log says so.
+- **Following**: on each turn of the loop (and at the start of a run) the runner reads each `in_pr`
+  task's PR with `gh pr view`. Merged: main is fetched and fast-forwarded when it is clean, and the
+  task is `done` with the merge commit. Closed without merge: the task is `blocked`. Open: nothing.
+- **`gh` missing, not logged in or offline** is infrastructure: a failed push or `pr create` sends the
+  task back to `pending` (work kept on its branch), a failed `gh pr view` only warns. `doctor` checks
+  `gh auth status` when the mode is `pr`. Only the runner calls `gh`; sessions never get it.
+- Only GitHub (`gh`) is supported; the runner does not read or answer PR comments.
+
 ## Cleaning up
 
 Blocked and abandoned tasks leave their branch, and an interrupted run can leave a worktree:
