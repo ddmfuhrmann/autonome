@@ -18,32 +18,67 @@ export const SCREEN_QUESTION =
   "The `deviation` goes against the task, the plan or a convention in the state, or weakens a test, check or gate.";
 const SCREEN_NAME = "is_deviation";
 
+/** Asked only when the state has `human_choices`: a decision that repeats one is the human's choice. */
+export const REPEATS_QUESTION =
+  "Does this decision repeat a choice the human already made (one of `human_choices`), so that undoing it would undo the human?";
+const REPEATS_NAME = "repeats_human_choice";
+
 export type QuestionName = keyof typeof QUESTIONS;
-export type Answers = Record<QuestionName, number>;
+export type Answers = Record<QuestionName, number> & { repeats_human_choice?: number };
 export type Verdict = "accept" | "reject" | "escalate";
 
 const NAMES = Object.keys(QUESTIONS) as QuestionName[];
 
-/** A weakened test rejects first, coverage is never traded for a rule conflict; then a rule conflict
- * escalates to the human; then the other flags. Workaround counts only when the plan did not ask for
- * it; `narrower` is recorded, not used. */
+type HumanChoice = { id?: unknown };
+
+function humanChoices(state: Record<string, unknown>): HumanChoice[] {
+  return Array.isArray(state.human_choices) ? state.human_choices as HumanChoice[] : [];
+}
+
+/** Whether the state carries choices the human made on the feature, so the repeat question applies. */
+export function hasHumanChoices(state: Record<string, unknown>): boolean {
+  return humanChoices(state).length > 0;
+}
+
+/** The human choice a repeat is reported against: the first the state lists (the latest). */
+export function humanChoiceOf(state: Record<string, unknown>): number | undefined {
+  const id = humanChoices(state)[0]?.id;
+  return typeof id === "number" ? id : undefined;
+}
+
+/** A decision that repeats a human choice (at or above `rejectAt`) is the human's choice: accepted,
+ * whatever the other flags say. Then a weakened test rejects first, coverage is never traded for a rule
+ * conflict; then a rule conflict escalates to the human; then the other flags. Workaround counts only
+ * when the plan did not ask for it; `narrower` is recorded, not used. */
 export function verdict(answers: Answers, rejectAt: number): Verdict {
+  if (repeatsHumanChoice(answers, rejectAt)) return "accept";
   if (answers.drops_coverage >= rejectAt) return "reject";
   if (answers.rule_conflict >= rejectAt) return "escalate";
   const workaround = answers.required_by_plan < rejectAt && answers.workaround >= rejectAt;
   return answers.contradicts >= rejectAt || workaround ? "reject" : "accept";
 }
 
-/** Throws unless every question has a number in 0..1. */
-function validated(raw: unknown, from: string): Answers {
+export function repeatsHumanChoice(answers: Answers, rejectAt: number): boolean {
+  return answers.repeats_human_choice !== undefined && answers.repeats_human_choice >= rejectAt;
+}
+
+/** The questions asked of a state: the repeat question only when it has human choices. */
+function questionNames(state: Record<string, unknown>): (QuestionName | typeof REPEATS_NAME)[] {
+  return hasHumanChoices(state) ? [...NAMES, REPEATS_NAME] : NAMES;
+}
+
+const questionText = (n: QuestionName | typeof REPEATS_NAME): string => n === REPEATS_NAME ? REPEATS_QUESTION : QUESTIONS[n];
+
+/** Throws unless every question asked has a number in 0..1. */
+function validated(raw: unknown, from: string, names: readonly string[] = NAMES): Answers {
   const a = (raw ?? {}) as Record<string, unknown>;
-  for (const n of NAMES) {
+  for (const n of names) {
     const v = a[n];
     if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 1) {
       throw new Error(`${from}: answer "${n}" is missing or outside 0..1`);
     }
   }
-  return Object.fromEntries(NAMES.map((n) => [n, a[n] as number])) as Answers;
+  return Object.fromEntries(names.map((n) => [n, a[n] as number])) as Answers;
 }
 
 export type Backend = (state: Record<string, unknown>) => Promise<Answers>;
@@ -83,7 +118,8 @@ export async function pingJev(key: string): Promise<string> {
 
 /** Jev answers every question in one request. The key is the caller's to find; this never reads it. */
 export async function jev(state: Record<string, unknown>, key: string): Promise<Answers> {
-  return validated(await askJev(state, NAMES.map((name) => ({ name, question: QUESTIONS[name] })), key), "jev");
+  const names = questionNames(state);
+  return validated(await askJev(state, names.map((name) => ({ name, question: questionText(name) })), key), "jev", names);
 }
 
 export const ADVISORY_QUESTION =
@@ -150,35 +186,36 @@ const HAIKU_ROLE = `You classify one deviation of an autonome task: a choice the
 You get the state as JSON (deviation, task, plan, gates, review, conventions). For each statement, answer the
 probability, from 0 to 1, that it is true. Judge only from the state. Do not explain.`;
 
-const HAIKU_SCHEMA = {
+const haikuSchema = (names: readonly string[]) => ({
   type: "object",
   properties: {
     answers: {
       type: "object",
-      properties: Object.fromEntries(NAMES.map((n) => [n, { type: "number", minimum: 0, maximum: 1 }])),
-      required: NAMES,
+      properties: Object.fromEntries(names.map((n) => [n, { type: "number", minimum: 0, maximum: 1 }])),
+      required: names,
     },
   },
   required: ["answers"],
-} as const;
+});
 
 /** `ask` is the Agent SDK session; tests inject a fake. */
 export async function haiku(state: Record<string, unknown>, ask: typeof consult = consult,
   effort: Effort = "low", onCost?: (cost: number) => void): Promise<Answers> {
+  const names = questionNames(state);
   const { answer, cost } = await ask<{ answers?: unknown }>({
     cwd: process.cwd(),
     model: "haiku",
     effort,
     role: HAIKU_ROLE,
-    schema: HAIKU_SCHEMA,
+    schema: haikuSchema(names),
     maxTurns: 3,
     prompt: [
       "State:", "```json", JSON.stringify(state, null, 2), "```", "",
-      "Statements:", ...NAMES.map((n) => `- ${n}: ${QUESTIONS[n]}`),
+      "Statements:", ...names.map((n) => `- ${n}: ${questionText(n)}`),
     ].join("\n"),
   });
   onCost?.(cost);
-  return validated(answer?.answers, "haiku");
+  return validated(answer?.answers, "haiku", names);
 }
 
 export interface Judgment {
@@ -186,9 +223,14 @@ export interface Judgment {
   model: string;
   answers: Answers;
   verdict: Verdict;
+  /** The decision repeats a choice the human made: accepted as theirs, the other flags not judged. */
+  humanChoice?: boolean;
 }
 
-export type ScreenBackend = (state: Record<string, unknown>) => Promise<number>;
+/** What the screening asks: `is_deviation`, and `repeats_human_choice` when the state has human choices. */
+export interface ScreenAnswers { is_deviation: number; repeats_human_choice?: number }
+
+export type ScreenBackend = (state: Record<string, unknown>) => Promise<ScreenAnswers>;
 
 export interface Backends {
   jev?: Backend;
@@ -198,47 +240,67 @@ export interface Backends {
   screenHaiku?: ScreenBackend;
 }
 
-function probability(raw: unknown, from: string): number {
-  if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0 || raw > 1) {
-    throw new Error(`${from}: answer "${SCREEN_NAME}" is missing or outside 0..1`);
+/** The screening's questions: the repeat question rides in the same call, only with human choices. */
+function screenNames(state: Record<string, unknown>): string[] {
+  return hasHumanChoices(state) ? [SCREEN_NAME, REPEATS_NAME] : [SCREEN_NAME];
+}
+
+const screenText = (n: string): string => n === REPEATS_NAME ? REPEATS_QUESTION : SCREEN_QUESTION;
+
+function screenAnswers(raw: unknown, from: string, names: string[]): ScreenAnswers {
+  const a = (raw ?? {}) as Record<string, unknown>;
+  for (const n of names) {
+    const v = a[n];
+    if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 1) {
+      throw new Error(`${from}: answer "${n}" is missing or outside 0..1`);
+    }
   }
-  return raw;
+  return names.includes(REPEATS_NAME)
+    ? { is_deviation: a[SCREEN_NAME] as number, repeats_human_choice: a[REPEATS_NAME] as number }
+    : { is_deviation: a[SCREEN_NAME] as number };
 }
 
-/** Jev's probability that the decision is a deviation. Throws on a failed or malformed call. */
-export async function screenJev(state: Record<string, unknown>, key: string, ask: typeof askJev = askJev): Promise<number> {
-  const raw = await ask(state, [{ name: SCREEN_NAME, question: SCREEN_QUESTION }], key);
-  return probability((raw as Record<string, unknown> | null | undefined)?.[SCREEN_NAME], "jev");
+/** Jev's probability that the decision is a deviation (and that it repeats a human choice, when the
+ * state has some). Throws on a failed or malformed call. */
+export async function screenJev(state: Record<string, unknown>, key: string, ask: typeof askJev = askJev): Promise<ScreenAnswers> {
+  const names = screenNames(state);
+  const raw = await ask(state, names.map((name) => ({ name, question: screenText(name) })), key);
+  return screenAnswers(raw, "jev", names);
 }
 
-const SCREEN_SCHEMA = {
+const screenSchema = (names: string[]) => ({
   type: "object",
-  properties: { [SCREEN_NAME]: { type: "number", minimum: 0, maximum: 1 } },
-  required: [SCREEN_NAME],
-} as const;
+  properties: Object.fromEntries(names.map((n) => [n, { type: "number", minimum: 0, maximum: 1 }])),
+  required: names,
+});
 
-/** Haiku's probability that the decision is a deviation. `ask` is the Agent SDK session. */
+/** Haiku's answers to the screening questions. `ask` is the Agent SDK session. */
 export async function screenHaiku(state: Record<string, unknown>, ask: typeof consult = consult,
-  effort: Effort = "low"): Promise<number> {
+  effort: Effort = "low"): Promise<ScreenAnswers> {
+  const names = screenNames(state);
   const { answer } = await ask<Record<string, unknown>>({
     cwd: process.cwd(),
     model: "haiku",
     effort,
     role: HAIKU_ROLE,
-    schema: SCREEN_SCHEMA,
+    schema: screenSchema(names),
     maxTurns: 3,
     prompt: [
       "State:", "```json", JSON.stringify(state, null, 2), "```", "",
-      "Statements:", `- ${SCREEN_NAME}: ${SCREEN_QUESTION}`,
+      "Statements:", ...names.map((n) => `- ${n}: ${screenText(n)}`),
     ].join("\n"),
   });
-  return probability(answer?.[SCREEN_NAME], "haiku");
+  return screenAnswers(answer, "haiku", names);
 }
 
 export interface Screening {
   backend: "jev" | "haiku";
   model: string;
   isDeviation: number;
+  /** Set only when the state had human choices. */
+  repeatsHumanChoice?: number;
+  /** The human choice the repeat is reported against. */
+  humanChoiceOf?: number;
 }
 
 /** Same order as `judge`: the configured model, then the fallback. Throws when both fail or are off. */
@@ -251,7 +313,9 @@ export async function screen(state: Record<string, unknown>, cfg: Triage, backen
     const call = backend === "haiku" ? backends.screenHaiku : backends.screenJev;
     try {
       if (!call) throw new Error(`no ${backend} backend`);
-      return { backend, model, isDeviation: await call(state) };
+      const a = await call(state);
+      return { backend, model, isDeviation: a.is_deviation,
+        ...(a.repeats_human_choice === undefined ? {} : { repeatsHumanChoice: a.repeats_human_choice, humanChoiceOf: humanChoiceOf(state) }) };
     } catch (e) {
       console.error(`triage: screening with ${model} failed:`, e);
       errors.push(`${model}: ${e instanceof Error ? e.message : String(e)}`);
@@ -306,7 +370,8 @@ export async function judge(state: Record<string, unknown>, cfg: Triage, backend
     try {
       if (!call) throw new Error(`no ${backend} backend`);
       const answers = await call(state);
-      return { backend, model, answers, verdict: verdict(answers, cfg.reject_at) };
+      const humanChoice = repeatsHumanChoice(answers, cfg.reject_at);
+      return { backend, model, answers, verdict: verdict(answers, cfg.reject_at), ...(humanChoice ? { humanChoice } : {}) };
     } catch (e) {
       console.error(`triage: ${model} failed:`, e);
       errors.push(`${model}: ${e instanceof Error ? e.message : String(e)}`);

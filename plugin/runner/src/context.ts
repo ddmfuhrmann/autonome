@@ -124,6 +124,9 @@ export interface ScreeningBody {
   model: string;
   is_deviation: number;
   reject_at: number;
+  /** Only when the state had human choices; `human_choice_of` is the one the repeat is reported against. */
+  repeats_human_choice?: number;
+  human_choice_of?: number;
 }
 
 /** What the context stores of a verdict: answers are short noul strings, the state a JSON string. */
@@ -134,6 +137,8 @@ export interface TriageVerdictBody {
   answers: Record<string, string>;
   verdict: "accept" | "reject" | "escalate";
   round: number;
+  repeats_human_choice?: number;
+  human_choice_of?: number;
 }
 
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";

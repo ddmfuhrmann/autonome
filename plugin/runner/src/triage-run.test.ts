@@ -152,7 +152,7 @@ test("screening reopens a #594-shaped decision and judges it in the same run", a
     log: (l) => log.push(l),
     events: { push: (e: { text: string }) => events.push(e) } as never,
     backends: {
-      screenJev: async (s) => (JSON.stringify(s).includes("hash") ? 0.9 : 0.1),
+      screenJev: async (s) => ({ is_deviation: JSON.stringify(s).includes("hash") ? 0.9 : 0.1 }),
       jev: async () => answers({ drops_coverage: 0.95 }),
     },
   });
@@ -167,6 +167,78 @@ test("screening reopens a #594-shaped decision and judges it in the same run", a
   assert.equal(events.length, 3);
   const verdictPost = calls.find((c) => c.url.endsWith("/594/triage"))!;
   assert.equal(verdictPost.body.verdict, "reject");
+});
+
+const d634 = { id: 634, title: "Sonnet for the reviewer", decision: "Reviewer on Sonnet.", status: "accepted" };
+
+test("a repeated human choice is posted as accept with the repeat, not as a reject", async () => {
+  const state = { deviation: { title: "Keep Sonnet" }, human_choices: [d634] };
+  const calls = fakeContext([{ decision_id: 918, round: 1, state }]);
+  const log: string[] = [];
+  await triagePending("p", config(triage), {
+    log: (l) => log.push(l),
+    backends: { jev: async () => ({ ...answers({ drops_coverage: 0.9 }), repeats_human_choice: 0.9 }) },
+  });
+  const post = calls.find((c) => c.body)!;
+  assert.equal(post.body.verdict, "accept");
+  assert.equal(post.body.repeats_human_choice, 0.9);
+  assert.equal(post.body.human_choice_of, 634);
+  assert.equal(post.body.answers.repeats_human_choice, "0.9");
+  assert.deepEqual(log, ["triage D918: accept (jev, repeats_human_choice 0.9): the human's choice"]);
+});
+
+test("the screening sends the repeat and the choice when the state has human choices", async () => {
+  const state = { decision: { title: "Keep Sonnet" }, human_choices: [d634] };
+  const calls = screeningContext([{ decision_id: 918, state }], []);
+  await triagePending("p", config(triage), {
+    log: () => undefined,
+    backends: { screenJev: async () => ({ is_deviation: 0.89, repeats_human_choice: 0.9 }) },
+  });
+  const screen = calls.find((c) => c.url.endsWith("/screen"))!;
+  assert.deepEqual(screen.body, { backend: "jev", model: "jev-latest", is_deviation: 0.89, reject_at: 0.7,
+    repeats_human_choice: 0.9, human_choice_of: 634 });
+});
+
+/** Context plus a fake Jev API (through fetch): Jev answers `jevAnswers`, whatever it is asked. */
+function contextWithJev(waiting: unknown, jevAnswers: Record<string, number>) {
+  const calls: { url: string; body?: any }[] = [];
+  globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+    if (url.includes("typesafe")) {
+      const shaped = Object.fromEntries(Object.entries(jevAnswers).map(([k, v]) => [k, { type: "noul", noul: v }]));
+      return json({ model: "jev-1.14.0", answers: shaped });
+    }
+    return url.endsWith("/triage") && !init?.method ? json(waiting) : json({ status: "accepted" });
+  };
+  return calls;
+}
+
+test("a Jev answer without repeats_human_choice, or outside 0..1, posts nothing", async () => {
+  process.env.TYPESAFE_API_KEY = "k";
+  const flags = answers();
+  const realError = console.error;
+  console.error = () => undefined;
+  try {
+    for (const jevAnswers of [flags, { ...flags, repeats_human_choice: 1.5 }]) {
+      const verdicts = contextWithJev({ deviations: [{ decision_id: 918, round: 1,
+        state: { deviation: { title: "t" }, human_choices: [d634] } }], screen: [] }, jevAnswers);
+      const log: string[] = [];
+      await triagePending("p", config({ ...triage, fallback: "off" }), { log: (l) => log.push(l) });
+      assert.ok(!verdicts.some((c) => c.url.endsWith("/triage") && c.body), "no verdict posted");
+      assert.ok(log.some((l) => /D918: left proposed.*repeats_human_choice/.test(l)), log.join("\n"));
+
+      const screens = contextWithJev({ deviations: [], screen: [{ decision_id: 918,
+        state: { decision: { title: "t" }, human_choices: [d634] } }] }, { is_deviation: 0.9, ...jevAnswers.repeats_human_choice === undefined ? {} : { repeats_human_choice: 1.5 } });
+      const screenLog: string[] = [];
+      await triagePending("p", config({ ...triage, fallback: "off" }), { log: (l) => screenLog.push(l) });
+      assert.ok(!screens.some((c) => c.url.endsWith("/screen") && c.body), "no screening posted");
+      assert.ok(screenLog.some((l) => /D918: left unscreened.*repeats_human_choice/.test(l)), screenLog.join("\n"));
+    }
+  } finally {
+    console.error = realError;
+    delete process.env.TYPESAFE_API_KEY;
+  }
 });
 
 test("a screening error leaves the decision unscreened and still judges the deviations", async () => {

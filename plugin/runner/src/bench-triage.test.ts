@@ -11,11 +11,12 @@ const cases = JSON.parse(readFileSync(FIXTURE, "utf8")) as { id: string; expecte
 const answers = (flag: number, rule_conflict = 0): Answers =>
   ({ drops_coverage: flag, contradicts: 0, workaround: 0, required_by_plan: 0, narrower: 0, rule_conflict });
 
-test("the fixture has the 7 real shortlink deviations: 1 rejected, 2 escalated, 4 accepted", () => {
-  assert.equal(cases.length, 7);
+test("the fixture has 8 real deviations: 1 rejected, 2 escalated, 5 accepted, autonome-918 among them", () => {
+  assert.equal(cases.length, 8);
   assert.deepEqual(cases.filter((c) => c.expected === "reject").map((c) => c.id), ["shortlink-v5-594"]);
   assert.deepEqual(cases.filter((c) => c.expected === "escalate").map((c) => c.id), ["shortlink-180", "shortlink-4-217"]);
-  assert.equal(cases.filter((c) => c.expected === "accept").length, 4);
+  assert.equal(cases.filter((c) => c.expected === "accept").length, 5);
+  assert.equal(cases.find((c) => c.id === "autonome-918")?.expected, "accept");
 });
 
 test("the fixture carries no confere-v2 names", () => {
@@ -26,17 +27,19 @@ test("a fake backend that answers the expected verdicts scores 1.0", async () =>
   const byTitle = new Map(cases.map((c) => [c.state.deviation.title, c.expected]));
   const r = await triageDeviationsCase(async (s) => {
     const want = byTitle.get((s as typeof cases[0]["state"]).deviation.title);
+    // the human-choice case repeats D634: it wins over a weakened-test flag
+    if ("human_choices" in s) return { ...answers(0.9), repeats_human_choice: 0.9 };
     return answers(want === "reject" ? 0.9 : 0.1, want === "escalate" ? 0.9 : 0);
   });
   assert.equal(r.score, 1);
-  assert.equal(r.note, "7/7");
+  assert.equal(r.note, "8/8");
 });
 
-test("triageCase sums Haiku's cost over the 7 cases into the score; Jev's stays 0", async () => {
-  const ask = (async () => ({ answer: { answers: answers(0.1) }, cost: 0.01 })) as unknown as typeof consult;
+test("triageCase sums Haiku's cost over the 8 cases into the score; Jev's stays 0", async () => {
+  const ask = (async () => ({ answer: { answers: { ...answers(0.1), repeats_human_choice: 0 } }, cost: 0.01 })) as unknown as typeof consult;
   const r = await triageCase({ model: "haiku", effort: "low" }, ask);
-  assert.ok(Math.abs(r.cost - 0.07) < 1e-9);
-  assert.match(r.note, /^4\/7/);
+  assert.ok(Math.abs(r.cost - 0.08) < 1e-9);
+  assert.match(r.note, /^5\/8/);
 });
 
 const REVISIONS = new URL("../bench/triage-revisions.json", import.meta.url);
@@ -74,7 +77,7 @@ test("revision misses are listed, a failing judgment is raised, Haiku is skipped
 
 test("misses are listed and a failing backend is raised, not scored", async () => {
   const r = await triageDeviationsCase(async () => answers(0.1));
-  assert.equal(r.score, 4 / 7);
+  assert.equal(r.score, 5 / 8);
   assert.match(r.note, /shortlink-v5-594 \(accept, expected reject\)/);
   assert.match(r.note, /shortlink-180 \(accept, expected escalate\)/);
   await assert.rejects(triageDeviationsCase(async () => { throw new Error("boom"); }), /boom/);

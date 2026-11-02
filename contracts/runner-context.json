@@ -20,16 +20,22 @@
   },
   "triage_verdict_human_choice": {
     "endpoint": "POST /api/decisions/{id}/triage",
-    "about": "A deviation that repeats a choice the human made on the feature: the context records accept and queues no undo. The runner builds this body once it asks the question.",
+    "about": "A deviation that repeats a choice the human made on the feature: the runner sends accept (the other flags are not judged) and the context records it as the human's choice, queuing no undo.",
+    "item": {"decision_id": 918, "round": 1, "state": {"deviation": {"title": "Keep Sonnet", "decision": "As D634."}, "human_choices": [{"id": 634, "title": "Sonnet for the reviewer", "decision": "Reviewer on Sonnet.", "status": "accepted"}]}},
+    "judgment": {"backend": "jev", "model": "jev-latest", "verdict": "accept", "humanChoice": true,
+      "answers": {"drops_coverage": 0.17, "repeats_human_choice": 0.92}},
     "body": {
       "backend": "jev", "model": "jev-latest",
       "state": "{\"deviation\":{\"title\":\"Keep Sonnet\",\"decision\":\"As D634.\"},\"human_choices\":[{\"id\":634,\"title\":\"Sonnet for the reviewer\",\"decision\":\"Reviewer on Sonnet.\",\"status\":\"accepted\"}]}",
       "answers": {"drops_coverage": "0.17", "repeats_human_choice": "0.92"},
-      "verdict": "reject", "round": 1, "repeats_human_choice": 0.92, "human_choice_of": 634
+      "verdict": "accept", "round": 1, "repeats_human_choice": 0.92, "human_choice_of": 634
     }
   },
   "screening_human_choice": {
     "endpoint": "POST /api/decisions/{id}/screen",
+    "state": {"decision": {"title": "Keep Sonnet", "decision": "As D634."}, "human_choices": [{"id": 634, "title": "Sonnet for the reviewer", "decision": "Reviewer on Sonnet.", "status": "accepted"}]},
+    "screening": {"backend": "jev", "model": "jev-latest", "isDeviation": 0.89, "repeatsHumanChoice": 0.9, "humanChoiceOf": 634},
+    "reject_at": 0.7,
     "body": {"backend": "jev", "model": "jev-latest", "is_deviation": 0.89, "reject_at": 0.7, "repeats_human_choice": 0.9, "human_choice_of": 634}
   },
   "revision_verdict": {

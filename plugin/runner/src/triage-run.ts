@@ -7,7 +7,7 @@ import {
 } from "./context.js";
 import { jevKey } from "./secrets.js";
 import {
-  askJev, haiku, jev, judge, judgeRevision, screen, screenHaiku, screenJev,
+  askJev, haiku, humanChoiceOf, jev, judge, judgeRevision, screen, screenHaiku, screenJev,
   type Answers, type Backends, type Judgment, type RevisionAnswers, type RevisionJudgment, type RevisionQuestionName,
   type Screening,
 } from "./triage.js";
@@ -24,6 +24,9 @@ const FLAGS = ["drops_coverage", "contradicts", "workaround", "rule_conflict"] a
 /** `triage D12: reject (jev, contradicts 0.91)`: the strongest flag is what decided, or came closest.
  * An escalate says so: `triage D12: escalate (jev, rule_conflict 0.91): a rule conflict for you`. */
 export function verdictLine(decisionId: number, j: Judgment): string {
+  if (j.humanChoice) {
+    return `triage D${decisionId}: accept (${j.backend}, repeats_human_choice ${j.answers.repeats_human_choice}): the human's choice`;
+  }
   const top = j.verdict === "escalate"
     ? "rule_conflict"
     : FLAGS.reduce((a, b) => (j.answers[b] > j.answers[a] ? b : a));
@@ -38,12 +41,18 @@ const nouls = (a: Answers | RevisionAnswers): Record<string, string> =>
 // both test suites, so the two sides cannot drift apart while each tests against its own fake.
 
 export function verdictBody(item: TriageItem, j: Judgment): TriageVerdictBody {
+  const repeats = j.answers.repeats_human_choice;
+  const chosen = humanChoiceOf(item.state);
   return { backend: j.backend, model: j.model, state: JSON.stringify(item.state),
-    answers: nouls(j.answers), verdict: j.verdict, round: item.round };
+    answers: nouls(j.answers), verdict: j.verdict, round: item.round,
+    ...(repeats === undefined ? {} : { repeats_human_choice: repeats }),
+    ...(repeats === undefined || chosen === undefined ? {} : { human_choice_of: chosen }) };
 }
 
 export function screeningBody(s: Screening, rejectAt: number): ScreeningBody {
-  return { backend: s.backend, model: s.model, is_deviation: s.isDeviation, reject_at: rejectAt };
+  return { backend: s.backend, model: s.model, is_deviation: s.isDeviation, reject_at: rejectAt,
+    ...(s.repeatsHumanChoice === undefined ? {} : { repeats_human_choice: s.repeatsHumanChoice }),
+    ...(s.humanChoiceOf === undefined ? {} : { human_choice_of: s.humanChoiceOf }) };
 }
 
 export function revisionBody(item: RevisionItem, j: RevisionJudgment): RevisionVerdictBody {

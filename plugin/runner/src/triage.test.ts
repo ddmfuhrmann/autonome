@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import type { consult } from "./agents.js";
 import type { Triage } from "./context.js";
-import { type Answers, haiku, jev, judge, judgeRevision, pingJev, QUESTIONS, REVISION_QUESTIONS,SCREEN_QUESTION, screen, screenJev, verdict } from "./triage.js";
+import { type Answers, haiku, jev, judge, judgeRevision, pingJev, QUESTIONS, REPEATS_QUESTION, REVISION_QUESTIONS, SCREEN_QUESTION, screen, screenHaiku, screenJev, verdict } from "./triage.js";
 
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; });
@@ -74,7 +74,7 @@ test("both failing throws, never accepts", async () => {
 });
 
 test("screen: jev, then haiku, never a default", async () => {
-  const s = await screen(state, cfg, { screenJev: async () => { throw new Error("down"); }, screenHaiku: async () => 0.8 });
+  const s = await screen(state, cfg, { screenJev: async () => { throw new Error("down"); }, screenHaiku: async () => ({ is_deviation: 0.8 }) });
   assert.deepEqual([s.backend, s.model, s.isDeviation], ["haiku", "haiku", 0.8]);
   await assert.rejects(screen(state, cfg, { screenJev: async () => { throw new Error("down"); } }), /screening failed/);
 });
@@ -82,9 +82,65 @@ test("screen: jev, then haiku, never a default", async () => {
 test("screenJev sends the existing request shape with one noul and rejects a malformed answer", async () => {
   const asked: { nouls: { name: string; question: string }[] }[] = [];
   const p = await screenJev(state, "k", async (_s, nouls) => { asked.push({ nouls }); return { is_deviation: 0.9 }; });
-  assert.equal(p, 0.9);
+  assert.deepEqual(p, { is_deviation: 0.9 });
   assert.deepEqual(asked[0].nouls, [{ name: "is_deviation", question: SCREEN_QUESTION }]);
   await assert.rejects(screenJev(state, "k", async () => ({})), /is_deviation/);
+});
+
+const withChoices = { ...state, human_choices: [{ id: 634, title: "Sonnet", decision: "Reviewer on Sonnet.", status: "accepted" }] };
+
+test("with human_choices the repeat question rides in the screening call and in the judgment call; without, it does not", async () => {
+  const asked: string[][] = [];
+  const ask = async (_s: Record<string, unknown>, nouls: { name: string }[]) => {
+    asked.push(nouls.map((n) => n.name));
+    return { is_deviation: 0.9, repeats_human_choice: 0.8 };
+  };
+  assert.deepEqual(await screenJev(withChoices, "k", ask), { is_deviation: 0.9, repeats_human_choice: 0.8 });
+  await screenJev(state, "k", ask);
+  assert.deepEqual(asked, [["is_deviation", "repeats_human_choice"], ["is_deviation"]]);
+
+  const calls = fakeJev({ ...ans({}), repeats_human_choice: 0.9 });
+  assert.equal((await jev(withChoices, "k")).repeats_human_choice, 0.9);
+  assert.deepEqual(calls[0].body.questions.repeats_human_choice, { type: "noul", instructions: REPEATS_QUESTION });
+  const plain = fakeJev(ans({}));
+  assert.equal((await jev(state, "k")).repeats_human_choice, undefined);
+  assert.ok(!("repeats_human_choice" in plain[0].body.questions));
+});
+
+test("a repeat of a human choice wins: accepted as theirs, even with drops_coverage at the same level", async () => {
+  assert.equal(verdict({ ...ans({ drops_coverage: 0.9 }), repeats_human_choice: 0.9 }, 0.7), "accept");
+  assert.equal(verdict({ ...ans({ drops_coverage: 0.9 }), repeats_human_choice: 0.69 }, 0.7), "reject");
+  const j = await judge(withChoices, cfg, { jev: async () => ({ ...ans({ drops_coverage: 0.9, rule_conflict: 0.9 }), repeats_human_choice: 0.9 }) });
+  assert.deepEqual([j.verdict, j.humanChoice], ["accept", true]);
+  const low = await judge(withChoices, cfg, { jev: async () => ({ ...ans({ drops_coverage: 0.9 }), repeats_human_choice: 0.1 }) });
+  assert.deepEqual([low.verdict, low.humanChoice], ["reject", undefined]);
+});
+
+test("a missing or out-of-range repeats_human_choice throws, from jev, haiku and the screening", async () => {
+  fakeJev(ans({}));
+  await assert.rejects(jev(withChoices, "k"), /repeats_human_choice/);
+  fakeJev({ ...ans({}), repeats_human_choice: 1.5 });
+  await assert.rejects(jev(withChoices, "k"), /repeats_human_choice/);
+  await assert.rejects(haiku(withChoices, askHaiku({ answers: ans({}) })), /repeats_human_choice/);
+  await assert.rejects(haiku(withChoices, askHaiku({ answers: { ...ans({}), repeats_human_choice: -1 } })), /repeats_human_choice/);
+  await assert.rejects(screenJev(withChoices, "k", async () => ({ is_deviation: 0.9 })), /repeats_human_choice/);
+  await assert.rejects(screenHaiku(withChoices, askHaiku({ is_deviation: 0.9, repeats_human_choice: 2 })), /repeats_human_choice/);
+});
+
+test("haiku asks the repeat question by the same schema, only with human_choices", async () => {
+  const seen: any[] = [];
+  const got = await haiku(withChoices, askHaiku({ answers: { ...ans({}), repeats_human_choice: 0.8 } }, seen));
+  assert.equal(got.repeats_human_choice, 0.8);
+  assert.ok(seen[0].schema.properties.answers.required.includes("repeats_human_choice"));
+  assert.ok(seen[0].prompt.includes(REPEATS_QUESTION));
+  await haiku(state, askHaiku({ answers: ans({}) }, seen));
+  assert.ok(!seen[1].schema.properties.answers.required.includes("repeats_human_choice"));
+  assert.ok(!seen[1].prompt.includes(REPEATS_QUESTION));
+});
+
+test("screen reports the repeat and the human choice it is against", async () => {
+  const s = await screen(withChoices, cfg, { screenJev: async () => ({ is_deviation: 0.89, repeats_human_choice: 0.9 }) });
+  assert.deepEqual([s.isDeviation, s.repeatsHumanChoice, s.humanChoiceOf], [0.89, 0.9, 634]);
 });
 
 test("both off throws", async () => {

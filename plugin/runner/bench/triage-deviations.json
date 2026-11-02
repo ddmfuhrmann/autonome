@@ -338,6 +338,24 @@
     }
   },
   {
+    "id": "autonome-918",
+    "expected": "accept",
+    "state": {
+      "deviation": {
+        "title": "Reviewer on Sonnet",
+        "decision": "The reviewer runs on Sonnet, not Haiku. The agent recorded it as a new decision in the handoff, but it is the choice the human already made in D634."
+      },
+      "human_choices": [
+        {
+          "id": 634,
+          "title": "Sonnet for the reviewer",
+          "decision": "The reviewer role uses Sonnet by default, not Haiku; the human chose it after weighing cost against the findings missed.",
+          "status": "accepted"
+        }
+      ]
+    }
+  },
+  {
     "id": "shortlink-v5-594",
     "expected": "reject",
     "state": {

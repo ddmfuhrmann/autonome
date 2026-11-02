@@ -11,11 +11,22 @@ const CONTRACT = JSON.parse(readFileSync(new URL("../../../contracts/runner-cont
 test("the deviation verdict body matches the contract, with the round as the context counts it", () => {
   const c = CONTRACT.triage_verdict;
   assert.deepEqual(verdictBody(c.item, c.judgment), c.body);
+  assert.ok(!("human_choice_of" in c.body), "no human choices in the state, no repeat sent");
   assert.ok(c.item.round >= 1, "the context counts rounds from 1");
 });
 
 test("the screening body matches the contract", () => {
   const c = CONTRACT.screening;
+  assert.deepEqual(screeningBody(c.screening, c.reject_at), c.body);
+});
+
+test("the human-choice verdict body matches the contract: accept, the repeat and the choice it repeats", () => {
+  const c = CONTRACT.triage_verdict_human_choice;
+  assert.deepEqual(verdictBody(c.item, c.judgment), c.body);
+});
+
+test("the human-choice screening body matches the contract", () => {
+  const c = CONTRACT.screening_human_choice;
   assert.deepEqual(screeningBody(c.screening, c.reject_at), c.body);
 });
 
