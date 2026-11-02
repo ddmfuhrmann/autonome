@@ -33,6 +33,10 @@ class Handoff(BaseModel):
     project: str
     session_id: str
     feature: str | None = Field(default=None, description="kebab-case slug, e.g. credit-inquiry")
+    feature_description: str | None = Field(
+        default=None, description="what the feature is, in a sentence; needed only for a feature not yet in the "
+                                  "catalog, and ignored in a task's session (it has the task's feature)")
+    feature_paths: list[str] = Field(default=[], description="code paths of a new feature")
     layers: list[str] = []
     summary: str
     plan_adherence: list[PlanItem] = []

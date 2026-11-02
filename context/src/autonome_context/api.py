@@ -162,9 +162,12 @@ async def get_features(request: Request) -> JSONResponse:
     pool, _ = await services.get()
     async with pool.connection() as conn:
         out = []
+        described = {c["slug"]: c for c in await store.catalog(conn, project)}
         for f in await store.features(conn, project):
             doc = await store.feature_doc(conn, project, f["slug"])
-            out.append({**f, "overview": doc["body"].get("overview") if doc else None,
+            entry = described.get(f["slug"], {})
+            out.append({**f, "description": entry.get("description"), "paths": entry.get("paths") or [],
+                        "overview": doc["body"].get("overview") if doc else None,
                         "kind": doc["body"].get("kind", "product") if doc else "product"})
     return _json(out)
 

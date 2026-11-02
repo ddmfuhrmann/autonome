@@ -113,15 +113,12 @@ def _plan():
 
 
 def test_callers_without_a_description_cannot_create_a_feature(run_db, project, indexer):
+    # A handoff is the exception: it is stored without a feature (test_handoff_feature.py).
     async def go(conn):
         async with conn.transaction():
-            for call in (
-                lambda: plans.draft(conn, indexer, project, "wallet", [], _plan()),
-                lambda: store.put_handoff(conn, indexer, make_handoff(project, feature="wallet"), None),
-            ):
-                with pytest.raises(rules.Forbidden, match="not in the catalog"):
-                    async with conn.transaction():  # a savepoint: the failed call leaves nothing behind
-                        await call()
+            with pytest.raises(rules.Forbidden, match="not in the catalog"):
+                async with conn.transaction():  # a savepoint: the failed call leaves nothing behind
+                    await plans.draft(conn, indexer, project, "wallet", [], _plan())
         return await store.catalog(conn, project)
 
     assert run_db(go) == []

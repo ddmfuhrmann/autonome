@@ -71,7 +71,7 @@ old, new}` in the wave's `changes`, and search finds the item itself (one chunk 
 |---|---|---|
 | `decision_propose` | `project`, `title`, `decision`, `context?`, `consequences?`, `feature?`, `layers?` | `{decision_id, status: proposed}` |
 | `convention_propose` | `project`, `title`, `rule`, `why`, `layers?`, `replaces?`, `evidence?` (ids, linked) | `{convention_id, status: proposed}` |
-| `handoff_put` | `handoff` (project, session_id, feature, layers, summary, plan_adherence, gates, deviations, decisions, friction, adherence_score) | `{document_id}` |
+| `handoff_put` | `handoff` (project, session_id, feature, feature_description?, feature_paths?, layers, summary, plan_adherence, gates, deviations, decisions, friction, adherence_score) | `{document_id}`. In a task's session (HTTP `task_id`) the handoff gets the task's feature, whatever `feature` says. Otherwise a known slug is kept; a new one is resolved against the catalog with `feature_description` and `feature_paths` (a feature too similar to an existing one becomes that one); with no description, or if the embedder is down, the handoff is stored without a feature |
 
 ## HTTP API
 
@@ -117,7 +117,7 @@ connection errors.
 | Method and path | What |
 |---|---|
 | `POST /api/handoffs` | `{handoff, raw_transcript_gz_b64?, task_id?}` → `{document_id}`; redacted, chunked and indexed |
-| `GET /api/projects/{project}/features` | features with activity and the overview of their doc |
+| `GET /api/projects/{project}/features` | features with activity, `description`, `paths` and the overview of their doc |
 | `GET /api/projects/{project}/features/{feature}/dossier` | what the docs writer needs: current doc, handoffs, plans, decisions |
 | `PUT /api/projects/{project}/features/{feature}/doc` | `{doc, layers?, commit_sha?}` |
 | `GET` / `PUT /api/projects/{project}/overview` | the system overview doc |

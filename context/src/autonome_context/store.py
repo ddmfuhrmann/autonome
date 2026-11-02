@@ -445,10 +445,33 @@ async def list_projects(conn: AsyncConnection) -> list[str]:
 # --- handoffs ------------------------------------------------------------------------------------
 
 
-async def put_handoff(conn: AsyncConnection, indexer: Indexer, h: Handoff, raw_transcript: str | None) -> int:
+async def _handoff_feature(
+    conn: AsyncConnection, indexer: Indexer, h: Handoff, task_id: int | None
+) -> str | None:
+    """The feature a handoff is stored under. A task's handoff has the task's feature, whatever the
+    writer said. Without a task, a catalog slug stays; a new one goes through resolve_feature. The
+    handoff is never lost over its feature: when the feature cannot be resolved it is stored without one."""
+    if task_id is not None:
+        task = await get_document(conn, task_id)
+        if task is None:
+            raise ValueError(f"task {task_id} does not exist")
+        return task["feature"]
+    if not h.feature:
+        return None
+    try:
+        r = await resolve_feature(conn, indexer.embedder, h.project, h.feature, h.feature_description, h.feature_paths)
+    except Exception as e:
+        log.warning("handoff %s: feature %r not resolved (%s); stored without a feature", h.session_id, h.feature, e)
+        return None
+    return r["similar_to"] or r["slug"]
+
+
+async def put_handoff(
+    conn: AsyncConnection, indexer: Indexer, h: Handoff, raw_transcript: str | None, task_id: int | None = None
+) -> int:
     """Stores a redacted handoff with its decisions and raw transcript, and indexes it. One transaction."""
     async with conn.transaction():
-        h.feature = await feature_for(conn, indexer, h.project, h.feature)
+        h.feature = await _handoff_feature(conn, indexer, h, task_id)
         doc_id = await create_document(
             conn, indexer,
             project=h.project, type="handoff", body=h.model_dump(mode="json"),

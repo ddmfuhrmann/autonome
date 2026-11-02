@@ -32,10 +32,10 @@ mcp = MCPServer(
 )
 
 
-async def _put_handoff(h: Handoff, raw_transcript: str | None) -> int:
+async def _put_handoff(h: Handoff, raw_transcript: str | None, task_id: int | None = None) -> int:
     pool, indexer = await services.get()
     async with pool.connection() as conn:
-        return await store.put_handoff(conn, indexer, h, raw_transcript)
+        return await store.put_handoff(conn, indexer, h, raw_transcript, task_id)
 
 
 @mcp.tool()
@@ -452,7 +452,7 @@ async def post_handoff(request: Request) -> JSONResponse:
         return JSONResponse({"error": "invalid_handoff", "detail": e.errors()}, status_code=422)
     raw = body.get("raw_transcript_gz_b64")
     transcript = gzip.decompress(base64.b64decode(raw)).decode() if raw else None
-    doc_id = await _put_handoff(h, transcript)
+    doc_id = await _put_handoff(h, transcript, int(body["task_id"]) if body.get("task_id") else None)
     if body.get("task_id"):
         pool, indexer = await services.get()
         async with pool.connection() as conn:

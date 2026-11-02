@@ -91,6 +91,28 @@
                 "description": "kebab-case slug, e.g. credit-inquiry",
                 "title": "Feature"
               },
+              "feature_description": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "what the feature is, in a sentence; needed only for a feature not yet in the catalog, and ignored in a task's session (it has the task's feature)",
+                "title": "Feature Description"
+              },
+              "feature_paths": {
+                "default": [],
+                "description": "code paths of a new feature",
+                "items": {
+                  "type": "string"
+                },
+                "title": "Feature Paths",
+                "type": "array"
+              },
               "layers": {
                 "default": [],
                 "items": {
