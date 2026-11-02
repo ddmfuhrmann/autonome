@@ -115,6 +115,55 @@ DEFAULT_MODELS: dict[str, RoleModel] = {
 }
 
 
+# Label and one line for each config field that has no `description` in the schema, by config path
+# (list and dict levels leave no segment: `gates.name`, `models.effort`). The settings page shows them.
+FIELD_HELP: dict[str, tuple[str, str]] = {
+    "gates": ("Gates", "Rodam do mais barato ao mais caro; o primeiro que bloqueia e falha para os outros."),
+    "gates.name": ("Nome", "Identifica o gate nos resultados e nas mensagens de falha."),
+    "gates.mode": ("Modo", "fix roda e segue em frente; block precisa passar para a task continuar."),
+    "gates.timeout_s": ("Timeout (s)", "Segundos até o gate ser interrompido e contado como falha."),
+    "retries": ("Retries", "Quantas vezes o implementer volta a uma task cujos gates falharam."),
+    "retries.max": ("Máximo", "Tentativas depois da primeira falha; passando disso a task é bloqueada."),
+    "retries.stop_on_repeat": ("Parar se repetir", "Bloqueia a task quando a mesma falha aparece duas vezes seguidas."),
+    "budget": ("Orçamento", "Limites de tokens e de tempo por task e por plano."),
+    "budget.task_tokens": ("Tokens por task", "Teto de tokens de uma task. Aceita 400k ou 3M."),
+    "budget.task_minutes": ("Minutos por task", "Teto de minutos de uma task."),
+    "budget.plan_tokens": ("Tokens por plano", "Teto de tokens de todas as tasks de um plano. Aceita 400k ou 3M."),
+    "hold_before_merge": ("Hold before merge", "Features cujas tasks esperam o humano antes do merge; isso trava a fila."),
+    "hold_before_merge.features": ("Features", "Só slugs do catálogo de features do projeto."),
+    "review_after_merge": ("Review after merge", "Features que fazem merge normal e esperam a revisão do humano depois; nunca trava."),
+    "review_after_merge.features": ("Features", "Só slugs do catálogo de features do projeto."),
+    "schedules": ("Schedules", "Checagens agendadas que só enfileiram tasks num plano de manutenção."),
+    "schedules.name": ("Nome", "Identifica a checagem agendada."),
+    "schedules.kind": ("Tipo", "command roda um comando; doc-drift compara docs e código; main-red vigia a main."),
+    "schedules.every_hours": ("A cada (horas)", "Intervalo entre duas execuções."),
+    "review": ("Review", "Um reviewer lê o diff de cada task antes do merge."),
+    "review.enabled": ("Ligado", "Desligado, as tasks vão ao merge sem passar pelo reviewer."),
+    "smoke_test": ("Smoke test", "Tenta a feature pronta num ambiente rodando, com fakes e nunca serviços reais."),
+    "smoke_test.checks": ("Checks", "Scripts que rodam antes do tester contra o ambiente no ar."),
+    "smoke_test.checks.name": ("Nome", "Identifica o check nos resultados."),
+    "smoke_test.checks.timeout_s": ("Timeout (s)", "Segundos até o check ser interrompido e contado como falha."),
+    "triage": ("Triage", "Um classificador julga as deviations no lugar do humano; a key do Jev fica no ambiente do runner."),
+    "triage.model": ("Modelo", "jev-latest, haiku ou off; off não grava o bloco."),
+    "triage.fallback": ("Fallback", "Modelo usado quando o principal falha: haiku ou off."),
+    "permissions": ("Permissões", "auto usa o classificador do Agent SDK; os limites duros continuam."),
+    "models": ("Modelos", "Modelo e esforço de cada papel; os papéis que você não muda ficam no padrão."),
+    "models.model": ("Modelo", "Nome do modelo do papel, por exemplo sonnet ou haiku."),
+    "models.effort": ("Esforço", "Quanto o modelo pensa: low, medium, high, xhigh ou max."),
+}
+
+# One line per agent role, for the models section.
+ROLE_GLOSS: dict[str, str] = {
+    "implementer": "Escreve o código de cada task.",
+    "reviewer": "Lê o diff da task antes do merge e manda de volta o que bloqueia.",
+    "preflight": "Confere o plano contra a main antes da primeira task.",
+    "tester": "Exercita os critérios do plano no app rodando, no smoke test.",
+    "retro": "Lê as evidências de uma wave e propõe convenções.",
+    "handoff": "Escreve o handoff de uma sessão a partir dos fatos.",
+    "docs": "Reescreve a documentação viva das features.",
+}
+
+
 class GateConfig(_Strict):
     """Gates run cheapest first; the first blocking failure stops the rest."""
 
