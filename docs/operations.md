@@ -57,6 +57,12 @@ branch (`autonome/task-<id>-…`, kept for inspection). Typical reasons:
 | `runner error (3 in a row)` | the runner itself threw three times on the task (a bug, not the task) | read the error in the runs; fix the runner or the context (is it up to date?), then **Try again** |
 | `the session changed nothing` | the implementer did nothing | the spec was probably unclear: abandon and re-plan |
 
+Before the runner removes the worktree of a blocked task (or one that stopped on the usage limit), it
+commits the changes as `wip(task-N): <reason>` on the task's branch; the WIP never reaches `main`.
+**Try again** starts a new session in a fresh worktree from `main` with that work applied, and the
+prompt says why the last attempt stopped. If the work no longer applies on `main`, the session starts
+clean and is told which branch holds it. If the WIP commit fails, the worktree is kept.
+
 **Try again** sends it back to pending; **Abandon** drops it (tasks that depend on it then never
 run: abandon or re-plan them too).
 

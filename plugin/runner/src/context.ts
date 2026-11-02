@@ -56,6 +56,8 @@ export interface Run {
   review_rounds?: number;
   duration_s?: number;
   merged_sha?: string;
+  /** The work the task stopped with, committed as WIP on `branch`; Try again starts from it. */
+  wip_sha?: string;
 }
 
 export interface GateConfig {

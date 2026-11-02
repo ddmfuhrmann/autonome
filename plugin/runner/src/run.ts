@@ -25,7 +25,7 @@ const live = (opts: RunOptions, role: string, owner: { task_id?: number; plan_id
   (msg: unknown) => fromMessage(msg).forEach((e) => opts.events?.push({ ...e, role, ...owner }));
 const stage = (opts: RunOptions, owner: { task_id?: number; plan_id?: number }, text: string) =>
   opts.events?.push({ role: "runner", kind: "stage", text, ...owner });
-import { commitMessage, fastForwardMain, git, mainCheckout, stageWork, strayFiles, tryGit } from "./git.js";
+import { applyWip, commitMessage, commitWip, fastForwardMain, git, mainCheckout, stageWork, strayFiles, tryGit, wipMessage } from "./git.js";
 
 export const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 export const AUTONOME_HOME = process.env.AUTONOME_HOME ?? join(homedir(), ".autonome");
@@ -45,7 +45,7 @@ export interface RunOptions {
   events?: EventStream;
   /** Tests replace the agent sessions and Jev's API with fakes. */
   seams?: { query?: typeof query; preflight?: typeof preflight; ask?: typeof askJev; runTask?: (task: Task, opts: RunOptions) => Promise<Run | undefined>;
-    gates?: JudgeSeams["gates"]; review?: typeof review };
+    gates?: JudgeSeams["gates"]; review?: typeof review; commitWip?: typeof commitWip };
 }
 
 /** How often a running session looks at the project's pause (at most), in ms. */
@@ -252,9 +252,9 @@ function writeHandoff(sessionId: string, cwd: string, taskId: number, project: s
   log(r.status === 0 ? `  handoff written` : `  handoff failed: ${r.stderr.slice(-500)}`);
 }
 
-/** One session of the implementer; `retry` resumes it with what to fix. */
+/** One session of the implementer; `retry` resumes it with what to fix, `note` is added to a first prompt. */
 export async function implement(task: Task, worktree: string, base: string, opts: RunOptions,
-  retry?: { sessionId: string; prompt: string }) {
+  retry?: { sessionId: string; prompt: string }, note?: string) {
   const gateConfig = await context.gateConfig(opts.project);
   const cfg = gateConfig.config;
   const abort = new AbortController();
@@ -266,7 +266,7 @@ export async function implement(task: Task, worktree: string, base: string, opts
   let lastPauseCheck = 0;
   try {
     const q = (opts.seams?.query ?? query)({
-      prompt: retry?.prompt ?? `Run task #${task.id}: ${task.body.title}. Read the briefing, then implement it.`,
+      prompt: retry?.prompt ?? `Run task #${task.id}: ${task.body.title}. Read the briefing, then implement it.${note ? `\n\n${note}` : ""}`,
       options: {
         resume: retry?.sessionId,
         cwd: worktree,
@@ -477,7 +477,7 @@ export async function judgeTask(input: JudgeInput, seams: JudgeSeams): Promise<{
 }
 
 /** Runs one task; returns its last run, for the summary. */
-async function runTask(task: Task, opts: RunOptions): Promise<Run | undefined> {
+export async function runTask(task: Task, opts: RunOptions): Promise<Run | undefined> {
   const { repo, log } = opts;
   if (task.status === "released") {
     const last = task.body.runs?.at(-1);
@@ -515,23 +515,72 @@ async function runTask(task: Task, opts: RunOptions): Promise<Run | undefined> {
       }
     }
   }
-  if (!existsSync(worktree)) git(repo, "worktree", "add", "-q", "-b", branch, worktree, base);
+  const fresh = !existsSync(worktree);
+  if (fresh) git(repo, "worktree", "add", "-q", "-b", branch, worktree, base);
+  // Try again: the work an earlier attempt kept as WIP is applied on top of main (the session starts new).
+  let wipNote: string | undefined;
+  if (fresh && !resume && paused?.wip_sha && paused.outcome !== "paused"
+    && tryGit(repo, "rev-parse", "--verify", `refs/heads/${paused.branch}`).ok) {
+    const why = (paused.reason ?? paused.outcome).split("\n")[0];
+    const applied = applyWip(worktree, paused.base, paused.wip_sha);
+    wipNote = applied.ok
+      ? `A previous attempt stopped: ${why}. Its work (${applied.stat}) is applied in this worktree; check it before going on.`
+      : `A previous attempt stopped: ${why}. Its work is on branch ${paused.branch} and did not apply on main; start from main.`;
+    log(`#${task.id} starts from the WIP of an earlier attempt (${paused.branch}): ${applied.ok ? "applied" : "did not apply; starting clean"}`);
+  }
   log(`#${task.id} ${task.body.title} — running in ${worktree}`);
   stage(opts, { task_id: task.id }, `running on ${branch}`);
   const started = Date.now();
 
   const cfg = (await context.gateConfig(opts.project)).config;
-  let result = await implement(task, worktree, base, opts, resume);
-  const run: Run = { at: now(), session_id: result.sessionId || resume?.sessionId, branch, worktree, base, outcome: "",
-    tokens: result.tokens, cost_usd: result.cost };
+  const run: Run = { at: now(), session_id: resume?.sessionId, branch, worktree, base, outcome: "", tokens: 0, cost_usd: 0 };
+  let result: Awaited<ReturnType<typeof implement>> = { sessionId: "", tokens: 0, cost: 0, stop: "" };
+  // Commits what the worktree holds before it goes. Without a commit the worktree stays.
+  const keepWork = (reason: string): { ok: boolean; sha: string | null } => {
+    try {
+      const sha = (opts.seams?.commitWip ?? commitWip)(worktree, wipMessage(task.id, reason))
+        // Committed already (the merge failed after the task's commit): that commit is the work.
+        ?? (git(worktree, "rev-parse", "HEAD") !== base ? git(worktree, "rev-parse", "HEAD") : null);
+      // The diff for Try again starts where the branch leaves main (it moves when the merge rebased the branch).
+      const forkPoint = sha ? tryGit(worktree, "merge-base", "main", "HEAD") : undefined;
+      if (forkPoint?.ok && forkPoint.out) run.base = forkPoint.out;
+      return { ok: true, sha };
+    } catch (e) {
+      log(`  could not commit the WIP; keeping ${worktree}: ${String(e).split("\n")[0]}`);
+      return { ok: false, sha: null };
+    }
+  };
+  // Out of usage: the task runs again later, from its WIP when it has one.
+  const onUsageLimit = (e: unknown): UsageLimitError => {
+    const err = e instanceof UsageLimitError ? e : new UsageLimitError(String(e));
+    const wip = keepWork(err.message);
+    if (!wip.ok) return err;
+    if (wip.sha) {
+      Object.assign(run, { outcome: "usage_limit", reason: err.message, wip_sha: wip.sha,
+        session_id: result.sessionId || run.session_id, duration_s: Math.round((Date.now() - started) / 1000) });
+      err.run = run;
+    }
+    tryGit(repo, "worktree", "remove", "--force", worktree);
+    if (!wip.sha) tryGit(repo, "branch", "-D", branch);
+    return err;
+  };
+  try {
+    result = await implement(task, worktree, base, opts, resume, wipNote);
+  } catch (e) {
+    if (e instanceof UsageLimitError || isUsageLimit(String(e))) throw onUsageLimit(e);
+    throw e;
+  }
+  Object.assign(run, { session_id: result.sessionId || resume?.sessionId, tokens: result.tokens, cost_usd: result.cost });
   let blockedOnReview = false; // the reviewer's findings are why the task blocks, not a gate or the merge
   const block = async (reason: string) => {
     log(`  blocked: ${reason}`);
     settleRun(run, blockedOnReview ? "blocked" : undefined);
     stage(opts, { task_id: task.id }, `blocked: ${reason}`);
     Object.assign(run, { outcome: "blocked", reason, duration_s: Math.round((Date.now() - started) / 1000) });
+    const wip = keepWork(reason);
+    if (wip.sha) run.wip_sha = wip.sha;
     await context.transition(task.id, "blocked", run);
-    tryGit(repo, "worktree", "remove", "--force", worktree); // the branch stays for inspection
+    if (wip.ok) tryGit(repo, "worktree", "remove", "--force", worktree); // the branch stays, with the WIP
     return run;
   };
 
@@ -563,12 +612,8 @@ async function runTask(task: Task, opts: RunOptions): Promise<Run | undefined> {
     failure = judged.failure;
     blockedOnReview = judged.blockedOnReview;
   } catch (e) {
-    // Out of usage (in the implementer or a reviewer): the work so far is dropped, the task runs again later.
-    if (e instanceof UsageLimitError || isUsageLimit(String(e))) {
-      tryGit(repo, "worktree", "remove", "--force", worktree);
-      tryGit(repo, "branch", "-D", branch);
-      throw e instanceof UsageLimitError ? e : new UsageLimitError(String(e));
-    }
+    // Out of usage (in the implementer or a reviewer): the work so far is kept as WIP, the task runs again later.
+    if (e instanceof UsageLimitError || isUsageLimit(String(e))) throw onUsageLimit(e);
     throw e;
   }
   if (!failure && (await isPaused())) return pauseTask(); // before the handoff: a paused session is not finished
@@ -771,7 +816,7 @@ export async function run(opts: RunOptions): Promise<number> {
       } catch (e) {
         if (e instanceof MergedUnrecorded) throw e;
         if (e instanceof UsageLimitError || isUsageLimit(String(e))) {
-          await context.transition(task.id, "pending").catch(() => undefined);
+          await context.transition(task.id, "pending", e instanceof UsageLimitError ? e.run : undefined).catch(() => undefined);
           const message = e instanceof Error ? e.message : String(e);
           if (!opts.watch) {
             opts.log(`usage limit: ${message}\n  #${task.id} goes back to pending; run again after the reset`);

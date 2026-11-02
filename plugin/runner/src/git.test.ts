@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { allowedTools, preflightPrompt, summary } from "./run.js";
 import { parseConfigs, table } from "./bench.js";
 import { roleModel, sdkModel } from "./context.js";
-import { commitMessage, fastForwardMain, git, stageWork, strayFiles } from "./git.js";
+import { applyWip, commitMessage, commitWip, fastForwardMain, git, stageWork, strayFiles, wipMessage } from "./git.js";
 
 function repo(): string {
   const dir = mkdtempSync(join(tmpdir(), "autonome-runner-"));
@@ -26,6 +26,47 @@ function branchWithCommit(dir: string, name: string): void {
   git(wt, "add", ".");
   git(wt, "commit", "-qm", "b");
 }
+
+test("commitWip keeps the changes on the branch, nothing ignored, and nothing when there are none", () => {
+  const dir = repo();
+  writeFileSync(join(dir, ".gitignore"), "cov.dat\n");
+  git(dir, "add", ".");
+  git(dir, "commit", "-qm", "ignore");
+  assert.equal(commitWip(dir, wipMessage(7, "x")), null); // clean: no commit
+  const before = git(dir, "rev-parse", "HEAD");
+  assert.equal(git(dir, "rev-parse", "HEAD"), before);
+  writeFileSync(join(dir, "a.txt"), "changed\n");
+  writeFileSync(join(dir, "cov.dat"), "ignored\n");
+  const sha = commitWip(dir, wipMessage(7, `gate failed\n${"x".repeat(100)}`));
+  assert.equal(sha, git(dir, "rev-parse", "HEAD"));
+  assert.equal(git(dir, "log", "-1", "--format=%s"), "wip(task-7): gate failed");
+  assert.deepEqual(git(dir, "show", "--name-only", "--format=", "HEAD").split("\n"), ["a.txt"]);
+  assert.equal(wipMessage(1, "y".repeat(100)).length, "wip(task-1): ".length + 72);
+});
+
+test("applyWip applies the diff on a fresh worktree, and reports a diff that does not apply", () => {
+  const dir = repo();
+  const base = git(dir, "rev-parse", "HEAD");
+  git(dir, "checkout", "-q", "-b", "old");
+  writeFileSync(join(dir, "a.txt"), "mine\n");
+  writeFileSync(join(dir, "new.txt"), "new\n");
+  const wip = commitWip(dir, "wip")!;
+  git(dir, "checkout", "-q", "main");
+  const wt = join(dir, "..", `wip-wt-${Date.now()}`);
+  git(dir, "worktree", "add", "-q", "-b", "again", wt, "main");
+  const ok = applyWip(wt, base, wip);
+  assert.equal(ok.ok, true);
+  assert.match(ok.stat, /2 files changed/);
+  assert.equal(git(wt, "show", ":a.txt"), "mine");
+
+  writeFileSync(join(dir, "a.txt"), "other\n");
+  git(dir, "commit", "-qam", "main moved");
+  const wt2 = join(dir, "..", `wip-wt2-${Date.now()}`);
+  git(dir, "worktree", "add", "-q", "-b", "again2", wt2, "main");
+  const bad = applyWip(wt2, base, wip);
+  assert.equal(bad.ok, false);
+  assert.equal(git(wt2, "status", "--porcelain"), ""); // left clean
+});
 
 test("commit subjects lowercase a plain first word and keep acronyms and names as they are", () => {
   const subject = (title: string) => commitMessage({ id: 1, feature: "links", body: { title, plan_id: 1 } }).split("\n")[0];

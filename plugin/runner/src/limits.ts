@@ -1,9 +1,14 @@
 // The account's usage limit: an outage of the orchestra, not a wrong note. A task that hits it goes
 // back to pending; the runner waits for the reset (with --watch) or stops and says when to resume.
 
+import type { Run } from "./context.js";
+
 const LIMIT = /hit your (session|usage|weekly|daily|monthly spend) limit|spend limit|usage limit (reached|exceeded)|rate.?limit(ed)? exceeded/i;
 
-export class UsageLimitError extends Error {}
+export class UsageLimitError extends Error {
+  /** The run to record when the task goes back to pending, set when its work was kept as WIP. */
+  run?: Run;
+}
 
 export function isUsageLimit(text: string): boolean {
   return LIMIT.test(text);

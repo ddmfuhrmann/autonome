@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { consult } from "./agents.js";
-import { implement, implementerPermissions, implementerTools, judgeTask,preflightPlan, recordRunnerError, verdictLine, type JudgeSeams, type RunOptions } from "./run.js";
+import { git } from "./git.js";
+import { UsageLimitError } from "./limits.js";
+import { implement, implementerPermissions, implementerTools, judgeTask,preflightPlan, recordRunnerError, runTask, verdictLine, type JudgeSeams, type RunOptions } from "./run.js";
 import type { Finding, GateConfig, Plan, ReviewResult, Run, Task } from "./context.js";
 import { earlierFindingsSection, gatesSection, recordRound, retryMessage, settleOutcomes, settleRun } from "./review.js";
 
@@ -336,4 +338,183 @@ test("a later review round gets the earlier findings to check, and no new medium
   assert.equal(earlierFindingsSection(undefined), "");
   const s = earlierFindingsSection([{ kind: "missing", severity: "medium", issue: "weak test", file: "A.java" }]);
   assert.match(s, /^## Earlier findings[\s\S]*- medium missing in A\.java: weak test[\s\S]*only new high findings/);
+});
+
+/** A temp repo with a fake context, for runTask over the real git: the sessions and the gates are fakes. */
+function wipEnv(commitWip?: RunOptions["seams"] extends infer S ? (S extends { commitWip?: infer C } ? C : never) : never) {
+  const parent = mkdtempSync(join(tmpdir(), "wip-"));
+  const repo = join(parent, "repo");
+  mkdirSync(repo);
+  git(repo, "init", "-q", "-b", "main");
+  git(repo, "config", "user.email", "t@t");
+  git(repo, "config", "user.name", "t");
+  writeFileSync(join(repo, "a.txt"), "a\n");
+  writeFileSync(join(repo, ".gitignore"), "cov.dat\n");
+  git(repo, "add", ".");
+  git(repo, "commit", "-qm", "init");
+  const transitions: { to: string; run?: Run }[] = [];
+  const json = (b: unknown) => new Response(JSON.stringify(b), { headers: { "content-type": "application/json" } });
+  globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith("/gate-config")) {
+      return json({ config: { gates: [], retries: { max: 1 }, review: { enabled: false, max_rounds: 1 }, smoke_test: null, models: {},
+        budget: { task_minutes: 5, task_tokens: 1e9, plan_tokens: 1e9 } } });
+    }
+    if (url.endsWith("/state")) return json({ paused: null });
+    if (url.includes("/transition")) transitions.push(JSON.parse(String(init?.body)));
+    return json({ status: "ok" });
+  };
+  const prompts: string[] = [];
+  const seen: { cwd: string; files: string[]; status: string }[] = [];
+  /** The next session writes `files` in its worktree and then ends with `stop` (a result subtype) or throws `fail`. */
+  const session = (files: Record<string, string>, stop?: string, fail?: string) => ((args: any) => {
+    prompts.push(args.prompt);
+    seen.push({ cwd: args.options.cwd, files: readdirSync(args.options.cwd).filter((f) => f !== ".git").sort(),
+      status: git(args.options.cwd, "status", "--porcelain") });
+    for (const [f, text] of Object.entries(files)) writeFileSync(join(args.options.cwd, f), text);
+    return (async function* () {
+      if (fail) throw new Error(fail);
+      if (stop) yield { type: "result", subtype: stop, total_cost_usd: 0 };
+    })();
+  });
+  let query: ReturnType<typeof session> = session({});
+  const failGates = () => ({ passed: false, summary: "lint failed: x", outcomes: [] });
+  let gatesFn: JudgeSeams["gates"] = failGates;
+  const opts = (): RunOptions => ({ project: "p", repo, maxTasks: 1, push: false, log: () => {},
+    seams: { query: ((a: unknown) => query(a)) as never, gates: (c, b) => gatesFn(c, b), commitWip } });
+  const mk = (runs: Run[] = []) => ({ id: 5, project: "p", status: "pending", feature: null, layers: [],
+    body: { title: "t", spec: "s", acceptance: [], plan_id: 1, seq: 1, hold_before_merge: false, runs } }) as unknown as Task;
+  const exists = (branch: string) => {
+    try { git(repo, "rev-parse", "--verify", `refs/heads/${branch}`); return true; } catch { return false; }
+  };
+  const mainHasWip = () => git(repo, "log", "main", "--format=%s").split("\n").some((s) => s.startsWith("wip("));
+  return { repo, transitions, prompts, seen, mk, exists, mainHasWip, opts,
+    next: (q: ReturnType<typeof session>) => { query = q; },
+    gates: (g: JudgeSeams["gates"]) => { gatesFn = g; }, session };
+}
+
+const LIMIT_TEXT = "You've hit your session limit · resets 3:40pm";
+
+test("blocking with changes leaves a WIP commit on the branch, without ignored files, and removes the worktree", async () => {
+  const env = wipEnv();
+  env.next(env.session({ "b.txt": "b\n", "cov.dat": "ignored\n" }));
+  const run = (await runTask(env.mk(), env.opts()))!;
+  assert.equal(run.outcome, "blocked");
+  assert.ok(run.wip_sha);
+  assert.deepEqual(env.transitions.map((t) => t.to), ["blocked"]);
+  assert.equal(env.transitions[0].run?.wip_sha, run.wip_sha);
+  assert.equal(git(env.repo, "rev-parse", run.branch), run.wip_sha);
+  assert.equal(git(env.repo, "log", "-1", "--format=%s", run.branch), "wip(task-5): lint failed: x");
+  assert.equal(git(env.repo, "show", "--name-only", "--format=", run.branch), "b.txt");
+  assert.ok(!existsSync(run.worktree));
+  assert.ok(!env.mainHasWip());
+});
+
+test("blocking without changes creates no WIP commit", async () => {
+  const env = wipEnv();
+  const run = (await runTask(env.mk(), env.opts()))!; // the session changes nothing
+  assert.equal(run.outcome, "blocked");
+  assert.equal(run.wip_sha, undefined);
+  assert.equal(git(env.repo, "rev-parse", run.branch), run.base);
+  assert.ok(!existsSync(run.worktree));
+});
+
+test("a WIP commit that fails keeps the worktree", async () => {
+  const env = wipEnv(() => { throw new Error("index.lock exists"); });
+  env.next(env.session({ "b.txt": "b\n" }));
+  const run = (await runTask(env.mk(), env.opts()))!;
+  assert.equal(run.outcome, "blocked");
+  assert.equal(run.wip_sha, undefined);
+  assert.ok(existsSync(join(run.worktree, "b.txt")));
+});
+
+test("the usage limit keeps the work as WIP and does not delete the branch", async () => {
+  const env = wipEnv();
+  env.next(env.session({ "b.txt": "b\n" }, LIMIT_TEXT));
+  const err = await runTask(env.mk(), env.opts()).then(() => null, (e) => e);
+  assert.ok(err instanceof UsageLimitError);
+  const run = err.run!;
+  assert.equal(run.outcome, "usage_limit");
+  assert.ok(run.wip_sha);
+  assert.equal(git(env.repo, "rev-parse", run.branch), run.wip_sha);
+  assert.ok(!existsSync(run.worktree));
+  assert.ok(!env.mainHasWip());
+});
+
+test("the implementer's own usage limit, before a run exists, also keeps the WIP", async () => {
+  const env = wipEnv();
+  env.next(env.session({ "b.txt": "b\n" }, undefined, LIMIT_TEXT)); // the session throws mid-way
+  const err = await runTask(env.mk(), env.opts()).then(() => null, (e) => e);
+  assert.ok(err instanceof UsageLimitError);
+  assert.ok(err.run?.wip_sha);
+  assert.ok(env.exists(err.run!.branch));
+  assert.ok(!env.mainHasWip());
+});
+
+test("the usage limit without changes drops the branch and records no run", async () => {
+  const env = wipEnv();
+  env.next(env.session({}, LIMIT_TEXT));
+  const err = await runTask(env.mk(), env.opts()).then(() => null, (e) => e);
+  assert.ok(err instanceof UsageLimitError);
+  assert.equal(err.run, undefined);
+  assert.deepEqual(git(env.repo, "branch", "--list", "autonome/*"), "");
+});
+
+test("Try again applies the kept WIP in a new worktree and tells the session why it stopped", async () => {
+  const env = wipEnv();
+  env.next(env.session({ "b.txt": "b\n" }));
+  const first = (await runTask(env.mk(), env.opts()))!;
+  env.next(env.session({ "c.txt": "c\n" }));
+  const again = (await runTask(env.mk([first]), env.opts()))!;
+  const second = env.seen[1];
+  assert.notEqual(second.cwd, first.worktree);
+  assert.notEqual(again.branch, first.branch);
+  assert.deepEqual(second.files, [".gitignore", "a.txt", "b.txt"]); // b.txt is there when the session starts
+  assert.match(env.prompts[1], /A previous attempt stopped: lint failed: x\. Its work \(1 file changed, 1 insertion\(\+\)\) is applied in this worktree; check it before going on\./);
+  assert.equal(git(env.repo, "rev-parse", again.branch), again.wip_sha); // the new WIP holds both files
+  assert.deepEqual(git(env.repo, "show", "--name-only", "--format=", again.branch).split("\n").sort(), ["b.txt", "c.txt"]);
+  assert.ok(!env.mainHasWip());
+});
+
+test("a WIP that does not apply on main starts clean and the prompt says where the branch is", async () => {
+  const env = wipEnv();
+  env.next(env.session({ "a.txt": "mine\n" }));
+  const first = (await runTask(env.mk(), env.opts()))!;
+  writeFileSync(join(env.repo, "a.txt"), "theirs\n");
+  git(env.repo, "commit", "-qam", "main moved");
+  env.next(env.session({}));
+  await runTask(env.mk([first]), env.opts());
+  assert.match(env.prompts[1], new RegExp(`A previous attempt stopped: lint failed: x\\. Its work is on branch ${first.branch} and did not apply on main; start from main\\.`));
+  assert.equal(env.seen[1].status, ""); // clean at the start
+  assert.equal(git(env.repo, "show", "main:a.txt"), "theirs");
+  assert.ok(!env.mainHasWip());
+});
+
+test("a merge blocked after main moved keeps only the task's work for Try again", async () => {
+  const env = wipEnv();
+  const pass = { passed: true, summary: "all gates passed", outcomes: [] };
+  let calls = 0;
+  env.gates(() => (++calls === 1 ? pass : { passed: false, summary: "gates failed on top of main", outcomes: [] }));
+  const work = env.session({ "b.txt": "b\n" });
+  env.next(((args: any) => { // main gains a commit while the session runs, so the merge rebases
+    writeFileSync(join(env.repo, "m.txt"), "m\n");
+    git(env.repo, "add", "m.txt");
+    git(env.repo, "commit", "-qm", "main moved");
+    return work(args);
+  }) as never);
+  const first = (await runTask(env.mk(), env.opts()))!;
+  assert.equal(first.outcome, "blocked");
+  assert.match(first.reason!, /gates failed on top of main/);
+  assert.equal(first.base, git(env.repo, "rev-parse", "main")); // where the branch leaves main, not the old base
+  env.gates(() => ({ passed: false, summary: "lint failed: x", outcomes: [] }));
+  env.next(env.session({}));
+  await runTask(env.mk([first]), env.opts());
+  assert.match(env.prompts[1], /Its work \(1 file changed, 1 insertion\(\+\)\) is applied/);
+  assert.deepEqual(env.seen[1].files, [".gitignore", "a.txt", "b.txt", "m.txt"]);
+});
+
+test("a task without a WIP starts with the plain prompt", async () => {
+  const env = wipEnv();
+  await runTask(env.mk([{ at: "", branch: "x", worktree: "", base: "", outcome: "blocked", reason: "r" }]), env.opts());
+  assert.equal(env.prompts[0], "Run task #5: t. Read the briefing, then implement it.");
 });

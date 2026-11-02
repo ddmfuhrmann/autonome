@@ -65,6 +65,42 @@ export function stageWork(worktree: string): void {
 }
 
 /**
+ * Commits whatever the worktree holds (what .gitignore does not exclude) as WIP on its branch, before
+ * the worktree is removed. Returns the commit, or null when there is nothing to keep. Throws when the
+ * commit fails, so the caller keeps the worktree.
+ */
+export function commitWip(worktree: string, message: string): string | null {
+  stageWork(worktree);
+  if (!git(worktree, "status", "--porcelain")) return null;
+  git(worktree, "-c", "user.name=autonome", "-c", "user.email=autonome@localhost", "commit", "-q", "--no-verify", "-m", message);
+  return git(worktree, "rev-parse", "HEAD");
+}
+
+/** The subject of a WIP commit: the first line of why the task stopped, cut to 72 characters. */
+export function wipMessage(taskId: number, reason: string): string {
+  return `wip(task-${taskId}): ${reason.split("\n")[0].trim().slice(0, 72)}`;
+}
+
+/**
+ * Applies an earlier attempt's work (the diff from `base` to its WIP commit) in a fresh worktree.
+ * When it does not apply, the worktree is left as it was (clean) and `ok` is false.
+ */
+export function applyWip(worktree: string, base: string, wip: string): { ok: boolean; stat: string } {
+  const env = sessionEnv();
+  const run = (args: string[], input?: string) =>
+    execFileSync("git", args, { cwd: worktree, encoding: "utf8", input, env, maxBuffer: 512 * 1024 * 1024, stdio: ["pipe", "pipe", "pipe"] });
+  try {
+    const patch = run(["diff", "--binary", base, wip]);
+    if (patch) run(["apply", "--3way"], patch);
+    return { ok: true, stat: run(["diff", "--shortstat", base, wip]).trim() || "no changes" };
+  } catch {
+    tryGit(worktree, "reset", "-q", "--hard");
+    tryGit(worktree, "clean", "-fdq");
+    return { ok: false, stat: "" };
+  }
+}
+
+/**
  * Staged files that do not belong in a task's change: ones .gitignore excludes but are tracked
  * anyway, and new binary files the task (its title and spec) does not mention, build wrappers aside.
  */
