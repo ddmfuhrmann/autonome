@@ -27,6 +27,11 @@ plugin/bin/autonome doctor --project <slug> --repo <path>
 
 `run` runs these checks itself and refuses to start while one fails.
 
+After the checks, once per run, the runner tells the context whether it found the Jev key (in its
+environment or in `~/.autonome/secrets.env`). Only that yes/no is sent, never the key. The triage
+section of Settings shows it as found, missing, or unknown since when the runner last reported. If the
+report fails (context down, an error answer), the runner logs a `warning:` line and the run goes on.
+
 ### Turning on auto permissions
 
 `permissions: auto` in the gate config lets the implementer's sessions run scripts, judged by the

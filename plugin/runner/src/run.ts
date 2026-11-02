@@ -12,7 +12,7 @@ import { doctor, report } from "./doctor.js";
 import { bashPrefixes, scopedFileCommands } from "./fsguard.js";
 import { retryMessage, findingsForRetry, gatesSection, recordRound, review, settleRun, type GateOutcome } from "./review.js";
 import { smokeTest } from "./smoke-test.js";
-import { jevKey, sessionEnv } from "./secrets.js";
+import { findJevKey, jevKey, sessionEnv } from "./secrets.js";
 import { triagePending, triageRevisions } from "./triage-run.js";
 import type { askJev } from "./triage.js";
 import { advisoryLine } from "./triage.js";
@@ -773,6 +773,11 @@ export async function run(opts: RunOptions): Promise<number> {
   if (failing.length) throw new Error(`autonome doctor found problems; not starting:\n${report(failing)}`);
   const warned = checks.filter((c) => c.warn);
   if (warned.length) opts.log(report(warned));
+  try {
+    await context.runnerStatus(opts.project, Boolean(findJevKey().key));
+  } catch (e) {
+    opts.log(`warning: could not report the Jev key status to the context: ${String(e)}`); // never the task's fault
+  }
   await replayJournal(opts);
   let ran = 0;
   let sinceOverview = 0;

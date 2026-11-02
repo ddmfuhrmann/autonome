@@ -52,6 +52,7 @@
   "runner_status": {
     "endpoint": "POST /api/projects/{project}/runner-status",
     "about": "Sent at the start of a run: only whether the Jev key was found, never the key.",
+    "item": {"key_found": true},
     "body": {"triage_key": true}
   }
 }

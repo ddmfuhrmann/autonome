@@ -59,6 +59,51 @@ test("a merge the context could not record is recorded as done by the next run",
   assert.deepEqual(readdirSync(join(home, "state")).filter((f) => f.startsWith("merged-")), []);
 });
 
+async function runWithStatus(status: number, key?: string): Promise<{ posted: string[]; logs: string[] }> {
+  const repo = realpathSync(mkdtempSync(join(tmpdir(), "autonome-repo-")));
+  git(repo, "init", "-q", "-b", "main");
+  git(repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init");
+  const posted: string[] = [];
+  const logs: string[] = [];
+  const saved = process.env.TYPESAFE_API_KEY;
+  if (key) process.env.TYPESAFE_API_KEY = key; else delete process.env.TYPESAFE_API_KEY;
+  globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith("/health")) return json({ status: "ok" });
+    if (url.endsWith("/api/tags")) return json({ models: [{ name: "nomic-embed-text" }] });
+    if (url.endsWith("/waves/without-retro")) return json([]);
+    if (url.endsWith("/gate-config")) return json({ config: { gates: [{ name: "t", run: "true" }] } });
+    if (url.endsWith("/runner-status")) {
+      posted.push(String(init?.body));
+      return new Response(JSON.stringify({ error: "boom" }), { status, headers: { "content-type": "application/json" } });
+    }
+    return json({ task: null, preflight: null, smoke_test: null });
+  };
+  try {
+    await run({ project: "p", repo, maxTasks: 1, push: false, log: (l: string) => logs.push(l) });
+  } finally {
+    if (saved === undefined) delete process.env.TYPESAFE_API_KEY; else process.env.TYPESAFE_API_KEY = saved;
+  }
+  return { posted, logs };
+}
+
+test("a context that answers 500 to the runner status does not stop the run, which logs a warning", async () => {
+  const { posted, logs } = await runWithStatus(500);
+  assert.ok(posted.length >= 1);
+  assert.ok(logs.some((l) => l.startsWith("warning:") && l.includes("runner-status")), logs.join("\n"));
+});
+
+test("the runner status body says the key was found and never carries its value", async () => {
+  const { posted } = await runWithStatus(200, "sk-test-123");
+  assert.deepEqual(posted.map((b) => JSON.parse(b)), [{ triage_key: true }]);
+  assert.ok(posted.every((b) => !b.includes("sk-test-123")));
+});
+
+test("the runner status body says the key was not found when there is none", async () => {
+  const { posted } = await runWithStatus(200);
+  assert.deepEqual(posted.map((b) => JSON.parse(b)), [{ triage_key: false }]);
+});
+
 test("a setup task on a greenfield project may run the pending gates' tools, and no gate blocks it", async () => {
   const { implementerTools } = await import("./run.js");
   const { execFile } = await import("node:child_process");

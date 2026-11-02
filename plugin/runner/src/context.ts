@@ -303,6 +303,11 @@ export interface Pause {
   reason: string | null;
 }
 
+/** What the runner tells the context about its environment: whether the Jev key was found, never the key. */
+export function runnerStatusBody(triageKey: boolean): { triage_key: boolean } {
+  return { triage_key: triageKey };
+}
+
 export const context = {
   health: () => call<{ status: string }>("/health"),
   claim: (project: string) =>
@@ -311,6 +316,9 @@ export const context = {
   /** The project's pause, or null while the queue runs. A failure is thrown, never read as a pause. */
   projectPause: async (project: string): Promise<Pause | null> =>
     (await call<{ paused?: Pause | null }>(`/api/projects/${project}/state`)).paused ?? null,
+  runnerStatus: (project: string, triageKey: boolean) =>
+    call<{ ok: boolean }>(`/api/projects/${project}/runner-status`, {
+      method: "POST", body: JSON.stringify(runnerStatusBody(triageKey)) }),
   smokeTest: (planId: number, r: SmokeTestResult) =>
     call<{ outcome: "done" | "fixing" | "blocked" }>(`/api/plans/${planId}/smoke-test`, {
       method: "POST", body: JSON.stringify(r) }),
