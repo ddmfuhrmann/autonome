@@ -41,6 +41,8 @@ interface Setup {
   /** Whether the project's queue is paused, asked on every read of its state. */
   paused?: () => boolean;
   stateFails?: boolean;
+  /** The state read fails from this read on (1 = the first). */
+  stateFailsFrom?: number;
   /** What the fake session does after its init message; gets the options the SDK would. */
   session?: (options: any) => void;
   watch?: number;
@@ -56,6 +58,7 @@ async function play(repo: string, s: Setup) {
   const log: string[] = [];
   const queries: { prompt: string; options: any; interrupted: number }[] = [];
   let claims = 0;
+  let stateReads = 0;
   globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     if (url.endsWith("/health")) return json({ status: "ok" });
@@ -67,7 +70,7 @@ async function play(repo: string, s: Setup) {
       process.env.AUTONOME_CONTEXT_WAIT_S = "0";
       return json(s.claims.shift() ?? emptyClaim);
     }
-    if (url.endsWith("/state")) return s.stateFails ? new Response("down", { status: 500 }) : json({ paused: s.paused?.() ? { at: "", by: "jev", reason: "stop" } : null });
+    if (url.endsWith("/state") && ++stateReads) return s.stateFails || (s.stateFailsFrom && stateReads >= s.stateFailsFrom) ? new Response("down", { status: 500 }) : json({ paused: s.paused?.() ? { at: "", by: "jev", reason: "stop" } : null });
     if (url.endsWith("/gate-config")) return json({ config: { ...CONFIG, review: { enabled: !!s.review, max_rounds: 1 } } });
     if (url.includes("/briefing")) return json({ text: "briefing" });
     if (url.includes("/transition")) {
@@ -211,6 +214,18 @@ test("watch says who paused the queue and which task stopped", () => {
   const state = (over: object) => ({ tasks: [{ id: 9, title: "t", status: "running" }], plans: [], waves: [], waiting: [], ...over });
   const lines = changes(state({}), state({ tasks: [{ id: 9, title: "t", status: "paused" }], paused: { at: "", by: "jev", reason: "undo #921" } }));
   assert.deepEqual(lines, ["info #9 paused", "needs-you queue paused by jev: undo #921"]);
+});
+
+test("a context error in the pause lookup for the log still pauses the task with its session and worktree", async () => {
+  const repo = makeRepo();
+  const { transitions, error } = await play(repo, {
+    claims: [{ task: taskWith(), preflight: null, smoke_test: null }], paused: () => true, stateFailsFrom: 2 });
+  assert.equal(error, undefined);
+  assert.deepEqual(transitions.map((t) => t.to), ["paused"]);
+  const r = transitions[0].run!;
+  assert.equal(r.outcome, "paused");
+  assert.equal(r.session_id, "s-new");
+  assert.ok(existsSync(r.worktree));
 });
 
 test("a context error while reading the pause hands the task back to pending, never pauses it", async () => {

@@ -598,7 +598,11 @@ export async function runTask(task: Task, opts: RunOptions): Promise<Run | undef
   };
   // The queue was paused: the session and the worktree are kept as they are, and nothing merges.
   const pauseTask = async () => {
-    const by = await context.projectPause(opts.project);
+    // Only for the log: a context error here must not keep the task from being paused.
+    const by = await context.projectPause(opts.project).catch((e) => {
+      if (e instanceof ContextError) return null;
+      throw e;
+    });
     log(`  queue paused${by ? ` by ${by.by}` : ""}; #${task.id} stopped, worktree and session kept`);
     stage(opts, { task_id: task.id }, "paused");
     Object.assign(run, { outcome: "paused", session_id: result.sessionId || run.session_id,
