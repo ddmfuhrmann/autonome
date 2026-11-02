@@ -65,6 +65,26 @@ def _md_inline(v) -> Markup:
 
 templates.env.filters["mdi"] = _md_inline
 
+
+def _table_cols(rows: list) -> list[tuple[str, str]]:
+    """Columns of a list of objects as (key, width): `short` (never wraps), `mid` or `long` (takes the
+    room left). JSONB sorts keys by length, so order them for reading: known keys first, then the text, the rest."""
+    keys = list(dict.fromkeys(k for r in rows if isinstance(r, dict) for k in r))
+
+    def width(k: str) -> str:
+        lens = [len(str(r.get(k) or "")) for r in rows if isinstance(r, dict)] or [0]
+        if max(lens) <= 28:
+            return "short"
+        return "mid" if k in ("title", "name") or sum(lens) / len(lens) <= 60 else "long"
+
+    cols = [(k, width(k)) for k in keys]
+    lead = ("id", "seq", "at", "by", "item", "field", "title", "name", "old", "new")
+    rank = lambda c: (lead.index(c[0]),) if c[0] in lead else (len(lead) + {"mid": 0, "long": 1, "short": 2}[c[1]],)
+    return sorted(cols, key=rank)
+
+
+templates.env.filters["table_cols"] = _table_cols
+
 DOC_TYPES = ["handoff", "plan", "task", "decision", "convention", "gate_config", "design", "feature_doc", "wave", "backlog"]
 MODES = ["vector", "hybrid", "fts"]
 REF_PREFIX = {"task": "T", "plan": "P", "wave": "W", "decision": "D", "handoff": "H", "convention": "C"}

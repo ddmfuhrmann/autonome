@@ -343,6 +343,9 @@ a.card:hover .card__title { color: var(--accent); }
 .table thead th { padding: 0 16px 6px 0; border-top: 0; font-size: 12px; font-weight: 400; color: var(--faint); vertical-align: bottom; }
 .table td code, .table td .mono { overflow-wrap: anywhere; }
 .table td.num, .table th.num { text-align: right; }
+.table .col--short { white-space: nowrap; }
+.table .col--short .wrap { white-space: nowrap; }
+.table .col--mid { width: 28%; min-width: 9em; }
 .table th:last-child, .table td:last-child { padding-right: 0; }
 .table .best { font-weight: 700; color: var(--fg); }
 .table td.empty { padding: 16px 0; }
