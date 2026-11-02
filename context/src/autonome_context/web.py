@@ -414,6 +414,12 @@ async def decide(conn, indexer, doc: dict, to: str) -> str:
             await rules.transition(conn, doc_id, "abandoned", "human")
             if doc["status"] != "draft":
                 await plans.mark_backlog(conn, doc, "next")
+    elif doc["type"] == "task" and to == "abandoned":
+        async with conn.transaction():
+            await rules.transition(conn, doc_id, "abandoned", "human")
+            plan_id = doc["body"]["plan_id"]
+            if await store.finish_plan_if_complete(conn, plan_id):
+                await plans.finish_wave_if_complete(conn, plan_id)
     elif doc["type"] == "convention" and doc["status"] == "proposed" and to == "active":
         async with conn.transaction():
             await rules.transition(conn, doc_id, "active", "human")

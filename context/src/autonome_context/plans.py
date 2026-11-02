@@ -334,9 +334,10 @@ async def resolve_preflight(conn: AsyncConnection, indexer: store.Indexer, plan_
 
 async def finish_wave_if_complete(conn: AsyncConnection, plan_id: int) -> None:
     plan = await store.get_document(conn, plan_id)
-    if not plan or plan["status"] != "done":
+    if not plan or plan["status"] not in ("done", "abandoned"):
         return
-    await mark_backlog(conn, plan, "done")
+    if plan["status"] == "done":
+        await mark_backlog(conn, plan, "done")
     for w in await store.list_documents(conn, plan["project"], type="wave", status="approved", limit=200):
         ids = [f["plan_id"] for f in w["body"]["features"]]
         statuses = [(await store.get_document(conn, i))["status"] for i in ids] if plan_id in ids else []

@@ -968,15 +968,30 @@ async def finish_plan_if_complete(conn: AsyncConnection, plan_id: int) -> bool:
     plan = await get_document(conn, plan_id)
     if plan and plan["body"].get("kind") == "maintenance":
         return False  # the standing plan schedules add to; it ends only when a human abandons it
-    open_tasks = await (await conn.execute(
-        """select count(*) from link l join document t on t.id = l.to_id
-           where l.from_id = %s and l.kind = 'has_task' and t.status not in ('done', 'abandoned')""",
+    open_tasks, done_tasks, all_tasks = await (await conn.execute(
+        """select count(*) filter (where t.status not in ('done', 'abandoned')),
+                  count(*) filter (where t.status = 'done'), count(*)
+           from link l join document t on t.id = l.to_id
+           where l.from_id = %s and l.kind = 'has_task'""",
         (plan_id,),
     )).fetchone()
-    if open_tasks[0] == 0 and not await awaits_smoke_test(conn, plan):
-        await conn.execute("update document set status = 'done' where id = %s and status = 'approved'", (plan_id,))
+    if open_tasks == 0 and not await awaits_smoke_test(conn, plan):
+        # every task dropped: nothing was built, so the plan is abandoned, not done
+        to = "abandoned" if all_tasks and not done_tasks else "done"
+        await conn.execute("update document set status = %s where id = %s and status = 'approved'", (to, plan_id))
         return True
     return False
+
+
+async def finish_complete_plans(conn: AsyncConnection, project: str) -> list[int]:
+    """Closes the approved plans whose tasks are all finished, for the ones stuck since before a close
+    ran on abandon. Returns the plans it closed."""
+    closed = []
+    for plan in await list_documents(conn, project, type="plan", status="approved", limit=200):
+        has_tasks = any(l["kind"] == "has_task" and l["direction"] == "out" for l in await links_of(conn, plan["id"]))
+        if has_tasks and await finish_plan_if_complete(conn, plan["id"]):
+            closed.append(plan["id"])
+    return closed
 
 
 async def awaits_smoke_test(conn: AsyncConnection, plan: dict) -> bool:

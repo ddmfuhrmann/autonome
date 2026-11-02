@@ -75,6 +75,10 @@ async def claim_task(request: Request) -> JSONResponse:
     async with pool.connection() as conn:
         if paused := await store.project_pause(conn, request.path_params["project"]):
             return _json({"task": None, "preflight": None, "smoke_test": None, "paused": paused})
+        # Plans left approved with every task finished (done or abandoned) are closed before looking for work.
+        async with conn.transaction():
+            for plan_id in await store.finish_complete_plans(conn, request.path_params["project"]):
+                await plans.finish_wave_if_complete(conn, plan_id)
         # A feature whose tasks are all merged is tried in a running environment before anything else.
         if smoke_test := await plans.smoke_test_due(conn, request.path_params["project"]):
             return _json({"task": None, "preflight": None, "smoke_test": smoke_test})
@@ -178,6 +182,8 @@ async def task_transition(request: Request) -> JSONResponse:
                     new["after_merge_review"] = {"status": "pending"}  # merged; the human hears it when they like
                 # What the reviewer let through waits for the human too, instead of vanishing.
                 await store.add_version(conn, None, doc_id, plans.with_loose_ends(new, ends))
+            if body["to"] == "abandoned" and await store.finish_plan_if_complete(conn, task["body"]["plan_id"]):
+                await plans.finish_wave_if_complete(conn, task["body"]["plan_id"])
             if body["to"] == "done":
                 # Gates a plan proposed (approved by the human with it) start once their tooling is merged.
                 await plans.apply_gates(conn, indexer, task["project"], task["body"].get("adds_gates", []),
