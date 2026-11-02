@@ -309,6 +309,43 @@ def test_base_defines_the_time_formatter_and_the_tz_cookie():
     assert "time[data-fmt]" in base and "document.cookie = `tz=${tz}; path=/; max-age=31536000; samesite=lax`" in base
 
 
+# The three tests below assert the code of base.html, not its run: executing the script needs a JS
+# engine (node) and a DOM, a dependency the context's Python test suite does not have.
+def _base_html():
+    from pathlib import Path
+
+    return (Path(web.__file__).parent / "templates" / "base.html").read_text()
+
+
+def test_formatTimes_skips_an_invalid_datetime_before_touching_the_text():
+    base = _base_html()
+    start = base.index("function formatTimes(root)")
+    body = base[start:base.index('document.addEventListener("DOMContentLoaded"', start)]
+    guard = body.index("if (!options || isNaN(at)) continue;")
+    # the guard comes before anything that writes the element, so the server's text stays
+    assert guard < body.index("new Intl.DateTimeFormat") < body.index("el.textContent = text")
+    assert "catch { /* leave the server's text */ }" in body
+
+
+def test_the_tz_cookie_is_written_only_when_missing_or_different():
+    base = _base_html()
+    cond = 'if (tz && !document.cookie.split("; ").includes(`tz=${tz}`)) {'
+    assert cond in base
+    after = base[base.index(cond):]
+    write = after.index("document.cookie = `tz=${tz};")
+    assert write < after.index("\n    }\n  } catch")  # the write sits inside the condition's block
+    assert base.count("document.cookie = `tz=") == 1
+
+
+def test_the_final_refresh_swap_removes_an_empty_live_region_the_response_lacks():
+    base = _base_html()
+    assert 'const done = !next.querySelector("[data-refresh]");' in base
+    start = base.index("const fresh = next.getElementById(el.id);")
+    swap = base[start:base.index("last = Date.now();", start)]
+    assert "if (fresh) { el.replaceWith(fresh); formatTimes(fresh); }" in swap
+    assert "else if (done) el.remove();" in swap  # no fresh node and the page is done: drop the empty #live
+
+
 @pytest.mark.parametrize("path", [
     "", "/queue", "/approvals", "/documents", "/features", "/waves", "/insights",
     "/conventions", "/config", "/search", "/lab", "/triage", "/features/links",
