@@ -77,6 +77,15 @@ Only `store.resolve_feature` adds a feature. It works like this:
   catalog. A task session takes the feature from the task, whatever the writer says.
 - Two equal calls at once leave one row.
 
+The living doc of a feature has two parts, **Product** (`problem`, `what_it_does`, `how_to_use`,
+`limits`: no code paths, gates or function names) and **Technical** (`how_it_works`, `code`, `rules`,
+`diagrams`, `entities`, `interfaces`, `decisions_in_effect`, `known_issues`, `development`), plus
+`kind`. The feature page shows Product first; a doc in the old shape (`overview`, `how_it_works`)
+still renders as it did. `PUT /api/projects/{p}/features/{f}/doc` also takes an optional
+`description` (re-embedded, no similarity check; empty is ignored) and `paths`, which update the
+catalog. The features page lists every catalog feature with its description, documented or not; the
+summary under it is `product.what_it_does`, or `overview` in the old shape.
+
 `create_document` with a slug outside the catalog fails; it never creates the feature. The limit and
 how it was measured: [benchmarks/feature-similarity.md](benchmarks/feature-similarity.md).
 

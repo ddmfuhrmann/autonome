@@ -96,6 +96,36 @@ async def catalog_with_activity(conn: AsyncConnection, project: str) -> list[dic
     return [{**r, "last_activity": r["last_activity"].isoformat() if r["last_activity"] else None} for r in rows]
 
 
+async def update_feature_catalog(
+    conn: AsyncConnection, embedder: Embedder, project: str, slug: str,
+    description: str | None = None, paths: list[str] | None = None,
+) -> bool:
+    """Updates a catalog feature's description (re-embedded, no similarity check: the feature already
+    exists) and paths. An empty description is ignored; `paths=None` leaves the paths as they are.
+    Returns whether the feature was in the catalog."""
+    project_id = await ensure_project(conn, project)
+    description = (description or "").strip()
+    if description:
+        description = redact(description)
+        [vector] = await embedder.embed([description], "document")
+        cur = await conn.execute(
+            "update feature set description = %s, embedding = %s::vector, embed_model = %s"
+            " where project_id = %s and slug = %s returning id",
+            (description, str(vector), embedder.model, project_id, slug),
+        )
+        if await cur.fetchone() is None:
+            return False
+    elif await (
+        await conn.execute("select 1 from feature where project_id = %s and slug = %s", (project_id, slug))
+    ).fetchone() is None:
+        return False
+    if paths is not None:
+        await conn.execute(
+            "update feature set paths = %s where project_id = %s and slug = %s", (list(paths), project_id, slug)
+        )
+    return True
+
+
 def _kebab(slug: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", slug.lower()).strip("-")
 
@@ -891,7 +921,7 @@ async def features(conn: AsyncConnection, project: str) -> list[dict]:
     """Every feature with its activity: the map of the project."""
     async with conn.cursor(row_factory=dict_row) as cur:
         await cur.execute(
-            """select f.slug,
+            """select f.slug, f.description,
                       count(*) filter (where d.type = 'handoff') as handoffs,
                       count(*) filter (where d.type = 'task') as tasks,
                       count(*) filter (where d.type = 'decision' and d.status = 'accepted') as decisions,
@@ -904,7 +934,7 @@ async def features(conn: AsyncConnection, project: str) -> list[dict]:
                left join document d on d.feature_id = f.id
                left join lateral (select body, created_at from document_version v where v.document_id = d.id
                                   order by v.version desc limit 1) dv on true
-               group by f.slug order by max(d.created_at) desc nulls last""",
+               group by f.slug, f.description order by max(d.created_at) desc nulls last""",
             (project,),
         )
         return await cur.fetchall()

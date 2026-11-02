@@ -144,10 +144,23 @@ async def put_feature_doc(request: Request) -> JSONResponse:
     project = request.path_params["project"]
     feature = request.path_params.get("feature")  # absent: the system overview
     body = await request.json()
+    description, paths = body.get("description"), body.get("paths")
+    if description is not None and not isinstance(description, str):
+        return _json({"error": "description must be a string"}, 400)
+    if paths is not None and not (isinstance(paths, list) and all(isinstance(p, str) for p in paths)):
+        return _json({"error": "paths must be a list of strings"}, 400)
     pool, indexer = await services.get()
     async with pool.connection() as conn:
-        doc_id = await store.save_feature_doc(conn, indexer, project, feature, body["doc"],
-                                              body.get("layers", []), body.get("commit_sha"))
+        try:
+            async with conn.transaction():  # the doc and the catalog change together
+                doc_id = await store.save_feature_doc(conn, indexer, project, feature, body["doc"],
+                                                      body.get("layers", []), body.get("commit_sha"))
+                if feature and ((description or "").strip() or paths is not None):
+                    if not await store.update_feature_catalog(conn, indexer.embedder, project, feature,
+                                                              description, paths):
+                        raise LookupError(feature)
+        except (LookupError, rules.Forbidden):  # Forbidden: save_feature_doc on a slug outside the catalog
+            return _json({"error": f"feature {feature!r} is not in the catalog"}, 404)
     return _json({"document_id": doc_id})
 
 
@@ -167,7 +180,8 @@ async def get_features(request: Request) -> JSONResponse:
             doc = await store.feature_doc(conn, project, f["slug"])
             entry = described.get(f["slug"], {})
             out.append({**f, "description": entry.get("description"), "paths": entry.get("paths") or [],
-                        "overview": doc["body"].get("overview") if doc else None,
+                        "overview": ((doc["body"].get("product") or {}).get("what_it_does")
+                                     or doc["body"].get("overview")) if doc else None,
                         "kind": doc["body"].get("kind", "product") if doc else "product"})
     return _json(out)
 

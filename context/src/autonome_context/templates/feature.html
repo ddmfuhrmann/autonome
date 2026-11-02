@@ -18,6 +18,8 @@
   <div class="page-head__text">
     <h1>{{ feature }}</h1>
     <p class="subtitle">{% if doc %}Living doc v{{ doc.version }} · updated {{ doc.updated_at|ago }}{% if doc.commit_sha %} at <span class="mono" style="font-size: 14px">{{ doc.commit_sha[:8] }}</span>{% endif %}{% else %}No living doc yet{% endif %} · {{ handoffs|length }} handoff{{ 's' if handoffs|length != 1 }}{% if scored %} · adherence {{ '%.2f'|format(scored|sum / scored|length) }}{% endif %}</p>
+    {% if description %}<p class="subtitle">{{ description }}</p>{% endif %}
+    {% if paths %}<p class="footnote">{% for p in paths %}<span class="mono">{{ p }}</span>{{ ' · ' if not loop.last }}{% endfor %}</p>{% endif %}
   </div>
 </header>
 <div class="twocol">

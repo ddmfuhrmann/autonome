@@ -983,7 +983,9 @@ async def feature_page(request: Request) -> Response:
         doc = await store.feature_doc(conn, project, feature)
         timeline = [d for d in await store.list_documents(conn, project, feature=feature, limit=300)
                     if d["type"] in ("plan", "handoff", "decision", "task")]
-    return await render(request, "feature.html", feature=feature, doc=doc, timeline=timeline)
+        entry = next((c for c in await store.catalog(conn, project) if c["slug"] == feature), {})
+    return await render(request, "feature.html", feature=feature, doc=doc, timeline=timeline,
+                        description=entry.get("description"), paths=entry.get("paths") or [])
 
 
 async def triage_page(request: Request) -> Response:

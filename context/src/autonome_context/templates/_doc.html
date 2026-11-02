@@ -1,6 +1,38 @@
-{# A living doc: prose sections in markdown, diagrams in mermaid. Set `meta=false` when the page head already says version and date. #}
+{# A living doc: prose sections in markdown, diagrams in mermaid. Set `meta=false` when the page head already says version and date.
+   New shape: `product` (problem, what_it_does, how_to_use, limits) before `technical`. Old shape: overview, how_it_works at the top level. #}
 {% set b = doc.body %}
+{% set prod = b.get('product') %}
+{% set tech = b.get('technical') %}
+{% macro prose(value) %}{% if value is string %}<div class="prose">{{ value|md }}</div>{% else %}<div class="prose"><ul>{% for i in value %}<li>{{ i|mdi }}</li>{% endfor %}</ul></div>{% endif %}{% endmacro %}
+{% macro diagrams(list) %}{% for d in list or [] %}
+<section><h3>{{ d.title }}</h3><pre class="mermaid">{{ d.mermaid }}</pre></section>
+{% endfor %}{% endmacro %}
 {% if meta is not defined or meta %}<p class="footnote">Version {{ doc.version }} · updated {{ doc.updated_at|ago }}{% if doc.commit_sha %} at <span class="mono">{{ doc.commit_sha[:10] }}</span>{% endif %}</p>{% endif %}
+{% if prod or tech %}
+{% if prod %}
+<section aria-labelledby="product-h"><h2 id="product-h">Product</h2>
+  {% for key, label in [('problem', 'Problem'), ('what_it_does', 'What it does'), ('how_to_use', 'How to use'), ('limits', 'Limits')] if prod.get(key) %}
+  <h3>{{ label }}</h3>{{ prose(prod[key]) }}
+  {% endfor %}
+</section>
+{% endif %}
+{% if tech %}
+<section aria-labelledby="technical-h"><h2 id="technical-h">Technical</h2>
+  {% for key, label in [('how_it_works', 'How it works'), ('code', 'Code'), ('rules', 'Rules')] if tech.get(key) %}
+  <h3>{{ label }}</h3>{{ prose(tech[key]) }}
+  {% endfor %}
+  {{ diagrams(tech.get('diagrams')) }}
+  {% for key, label in [('entities', 'Entities'), ('interfaces', 'Interfaces'), ('decisions_in_effect', 'Decisions in effect'), ('known_issues', 'Known issues')] if tech.get(key) %}
+  <h3>{{ label }}</h3>{{ prose(tech[key]) }}
+  {% endfor %}
+  {% if tech.get('development') %}
+  <h3>Development</h3>
+  <p class="footnote">Running, testing and the gates; not part of the product.</p>
+  <div class="prose prose--sm">{{ tech.development|md }}</div>
+  {% endif %}
+</section>
+{% endif %}
+{% else %}
 {% for key, label in [('overview', 'Overview'), ('how_it_works', 'How it works')] if b.get(key) %}
 <section><h2>{{ label }}</h2><div class="prose">{{ b[key]|md }}</div></section>
 {% endfor %}
@@ -14,4 +46,5 @@
 <section aria-labelledby="dev-h"><h2 id="dev-h">Development</h2>
   <p class="footnote">Running, testing and the gates; not part of the product.</p>
   <div class="prose prose--sm">{{ b.development|md }}</div></section>
+{% endif %}
 {% endif %}

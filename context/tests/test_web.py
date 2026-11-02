@@ -123,6 +123,87 @@ def test_tooling_features_and_development_notes_stay_apart_from_the_product(clie
     assert 'id="dev-h">Development</h2>' in page and "<code>uv run pytest</code> runs the tests" in page
 
 
+def test_feature_page_shows_product_before_technical(client, project, run_db, indexer):
+    async def go(conn):
+        async with conn.transaction():
+            await add_feature(conn, project, "links")
+            await store.save_feature_doc(conn, indexer, project, "links", {
+                "kind": "product",
+                "product": {"problem": "Long URLs are hard to share.", "what_it_does": "Makes short links.",
+                            "how_to_use": "Paste a URL.", "limits": "No custom domains."},
+                "technical": {"how_it_works": "A hash of the URL.", "code": "the shortener module",
+                              "rules": ["One slug per URL"], "interfaces": ["POST /links"]}})
+    run_db(go)
+    page = client.get(f"/ui/p/{project}/features/links").text
+    for text in ("Long URLs are hard to share.", "Makes short links.", "A hash of the URL.", "One slug per URL"):
+        assert text in page
+    assert page.index(">Product</h2>") < page.index("Makes short links.") < page.index(">Technical</h2>")
+    assert page.index(">Technical</h2>") < page.index("A hash of the URL.")
+    listing = client.get(f"/ui/p/{project}/features").text
+    assert "Makes short links." in listing
+
+
+def test_feature_page_still_renders_a_doc_in_the_old_shape(client, project, run_db, indexer):
+    async def go(conn):
+        async with conn.transaction():
+            await add_feature(conn, project, "links")
+            await store.save_feature_doc(conn, indexer, project, "links", {
+                "overview": "Short links.", "how_it_works": "Hashing.", "development": "Run `uv run pytest`."})
+    run_db(go)
+    page = client.get(f"/ui/p/{project}/features/links").text
+    assert "<h2>Overview</h2>" in page and "Short links." in page and "<h2>How it works</h2>" in page
+    assert ">Product</h2>" not in page and ">Technical</h2>" not in page
+    assert 'id="dev-h">Development</h2>' in page
+
+
+def test_put_doc_with_description_updates_the_catalog_and_its_embedding(client, project, run_db, indexer):
+    async def setup(conn):
+        async with conn.transaction():
+            await add_feature(conn, project, "links", "short links")
+
+    async def row(conn):
+        r = await (await conn.execute(
+            "select f.description, f.paths, f.embedding::text from feature f join project p on p.id = f.project_id"
+            " where p.slug = %s and f.slug = 'links'", (project,))).fetchone()
+        return r
+
+    run_db(setup)
+    before = run_db(row)
+    body = {"doc": {"product": {"what_it_does": "Makes short links."}}}
+    r = client.put(f"/api/projects/{project}/features/links/doc",
+                   json={**body, "description": "Shortens URLs and counts clicks", "paths": ["src/links/"]})
+    assert r.status_code == 200
+    after = run_db(row)
+    assert after[0] == "Shortens URLs and counts clicks" and after[1] == ["src/links/"]
+    assert after[2] != before[2]
+    # an empty description is ignored; the paths are still taken
+    client.put(f"/api/projects/{project}/features/links/doc", json={**body, "description": "  ", "paths": ["lib/"]})
+    again = run_db(row)
+    assert again[0] == after[0] and again[2] == after[2] and again[1] == ["lib/"]
+
+
+def test_put_doc_rejects_badly_typed_catalog_fields(client, project, run_db):
+    async def setup(conn):
+        async with conn.transaction():
+            await add_feature(conn, project, "links", "short links")
+
+    run_db(setup)
+    url = f"/api/projects/{project}/features/links/doc"
+    assert client.put(url, json={"doc": {}, "paths": "src/"}).status_code == 400
+    assert client.put(url, json={"doc": {}, "description": 5}).status_code == 400
+    r = client.put(f"/api/projects/{project}/features/ghost/doc", json={"doc": {}, "description": "x y"})
+    assert r.status_code == 404
+
+
+def test_features_page_lists_the_description_of_a_feature_with_no_doc(client, project, run_db):
+    async def go(conn):
+        async with conn.transaction():
+            await add_feature(conn, project, "billing", "Charges customers monthly")
+    run_db(go)
+    page = client.get(f"/ui/p/{project}/features").text
+    assert "billing" in page and "Charges customers monthly" in page
+
+
 def test_finished_waves_are_listed_until_retro_done(client, project, run_db, indexer):
     async def go(conn):
         await add_feature(conn, project, "links")

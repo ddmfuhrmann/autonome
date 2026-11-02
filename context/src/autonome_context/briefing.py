@@ -49,7 +49,7 @@ async def build(conn: AsyncConnection, project: str, task_id: int | None = None)
     feature_docs = await store.list_documents(conn, project, type="feature_doc", feature=task["feature"], limit=1) \
         if task["feature"] else []
     if feature_docs:
-        parts.append(f"## How this feature works today\n{feature_docs[0]['body'].get('overview', '')}")
+        parts.append(f"## How this feature works today\n{(feature_docs[0]['body'].get('product') or {}).get('what_it_does') or feature_docs[0]['body'].get('overview', '')}")
     if task["feature"]:
         handoffs = await store.list_documents(conn, project, type="handoff", feature=task["feature"], limit=3)
         friction = [f for h in handoffs for f in h["body"].get("friction", [])]
