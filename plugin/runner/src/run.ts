@@ -478,8 +478,13 @@ export async function followPrs(opts: RunOptions): Promise<void> {
   const run = opts.seams?.gh ?? realGh;
   let waiting: Awaited<ReturnType<typeof context.tasksInPr>>;
   try {
-    if ((await context.gateConfig(opts.project)).config.merge?.mode !== "pr") return;
+    const prMode = (await context.gateConfig(opts.project)).config.merge?.mode === "pr";
     waiting = await context.tasksInPr(opts.project);
+    if (!prMode) {
+      // Not followed outside pr mode (no gh needed), but not silent either: the task waits until the mode is pr again.
+      if (waiting.length) opts.log(`warning: ${waiting.length} task(s) in_pr (${waiting.map((t) => `#${t.id}`).join(", ")}) but merge.mode is not pr; their pull requests are not followed`);
+      return;
+    }
   } catch (e) {
     if (e instanceof ContextError) return void opts.log(`warning: could not list the pull requests: ${e.message}`);
     throw e;
@@ -519,12 +524,12 @@ export async function followPrs(opts: RunOptions): Promise<void> {
         continue;
       }
       // Not hidden any longer: in_pr only goes back to pending by the human, so it blocks, work kept on the PR.
-      prFailures.delete(t.id);
+      // The streak is cleared only once the task is blocked: if the context is down, the next turn blocks it again.
       opts.log(`#${t.id} ${t.pr_url}: gh failed ${ERROR_STREAK} times in a row; blocked`);
       await context.transition(t.id, "blocked", {
         at: now(), branch: "", worktree: "", base: "", outcome: "blocked", pr_url: t.pr_url,
         reason: `could not follow the pull request (${ERROR_STREAK} in a row): ${e.message}`.slice(0, 2000),
-      }).catch((te) => {
+      }).then(() => void prFailures.delete(t.id), (te) => {
         if (!(te instanceof ContextError)) throw te;
         opts.log(`warning: #${t.id}: ${te.message}`);
       });

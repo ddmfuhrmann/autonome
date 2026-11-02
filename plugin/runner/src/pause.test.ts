@@ -262,7 +262,7 @@ test("a paused run with a wip_sha does not start from the WIP", async () => {
 test("a context error in the pause lookup for the log still pauses the task with its session and worktree", async () => {
   const repo = makeRepo();
   const { transitions, error } = await play(repo, {
-    claims: [{ task: taskWith(), preflight: null, smoke_test: null }], paused: () => true, stateFailsFrom: 2 });
+    claims: [{ task: taskWith(), preflight: null, smoke_test: null }], paused: () => true, stateFailsFrom: 3 }); // read 1 is followPrs listing the tasks in_pr, 2 the pause check, 3 the lookup for the log
   assert.equal(error, undefined);
   assert.deepEqual(transitions.map((t) => t.to), ["paused"]);
   const r = transitions[0].run!;

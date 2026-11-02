@@ -279,12 +279,77 @@ test("a pull request seen again resets the failures in a row", async () => {
   assert.deepEqual(transitions, []);
 });
 
-test("in fast-forward mode the runner does not look at pull requests", async () => {
+/** Like `follow`, but the context answers 503 to every transition; `attempted` lists the targets asked for. */
+async function followWithDownTransitions(repo: string, gh: Gh, attempted: string[]) {
+  fakeContext({ merge: PR_MANUAL, gh, inPr: waiting });
+  const up = globalThis.fetch;
+  const asked = new Set<string>(); // the call is retried, so a turn asks for each target more than once
+  globalThis.fetch = async (input, init) => {
+    if (String(input).includes("/transition")) {
+      asked.add(JSON.parse(String(init?.body)).to);
+      return new Response("down", { status: 503 });
+    }
+    return up(input, init);
+  };
+  const log: string[] = [];
+  await followPrs({ project: "p", repo, maxTasks: 1, push: false, log: (l) => log.push(l), seams: { gh, docs: () => {} } });
+  attempted.push(...asked);
+  return log;
+}
+
+test("a ContextError while following a pull request is only a warning: it never counts as a failure and never blocks the task", async () => {
+  resetPrFailures();
+  const { repo } = makeRepo();
+  const attempted: string[] = [];
+  const merged = fakeGh(view("MERGED", "abc123")).gh;
+  for (let i = 0; i < 4; i++) {
+    const log = await followWithDownTransitions(repo, merged, attempted);
+    assert.ok(log.some((l) => l.startsWith("warning: #9")));
+  }
+  assert.deepEqual(attempted, ["done", "done", "done", "done"]);
+  // The context errors did not build a streak: two gh failures after them still do not block.
+  const broken = fakeGh((a) => (a[1] === "view" ? { ok: false, out: "no network" } : undefined)).gh;
+  attempted.length = 0;
+  await follow(repo, broken);
+  await follow(repo, broken);
+  assert.deepEqual(attempted, []);
+});
+
+test("the third gh failure with the transition to blocked failing only warns, and the next turn tries to block again", async () => {
+  resetPrFailures();
+  const { repo } = makeRepo();
+  const attempted: string[] = [];
+  const broken = fakeGh((a) => (a[1] === "view" ? { ok: false, out: "gh is not installed" } : undefined)).gh;
+  await followWithDownTransitions(repo, broken, attempted);
+  await followWithDownTransitions(repo, broken, attempted);
+  assert.deepEqual(attempted, []);
+  const third = await followWithDownTransitions(repo, broken, attempted);
+  assert.deepEqual(attempted, ["blocked"]);
+  assert.ok(third.some((l) => l.startsWith("warning: #9") && l.includes("503")));
+  // The streak is kept until the task is blocked, so a context outage does not hide the task again.
+  await followWithDownTransitions(repo, broken, attempted);
+  assert.deepEqual(attempted, ["blocked", "blocked"]);
+  // Once the context is back, the transition goes through and the streak starts over.
+  assert.deepEqual((await follow(repo, broken)).transitions.map((t) => t.to), ["blocked"]);
+  assert.deepEqual((await follow(repo, broken)).transitions, []);
+});
+
+test("in fast-forward mode the runner does not follow pull requests, but warns about tasks left in_pr", async () => {
   const { repo } = makeRepo();
   const { gh, calls } = fakeGh(view("MERGED", "abc"));
   const transitions = fakeContext({ gh, inPr: waiting });
-  await followPrs({ project: "p", repo, maxTasks: 1, push: false, log: () => {}, seams: { gh } });
+  const log: string[] = [];
+  await followPrs({ project: "p", repo, maxTasks: 1, push: false, log: (l) => log.push(l), seams: { gh } });
   assert.deepEqual([transitions, calls], [[], []]);
+  assert.ok(log.some((l) => l.includes("warning:") && l.includes("#9") && l.includes("merge.mode is not pr")));
+});
+
+test("in fast-forward mode with no task in_pr nothing is logged", async () => {
+  const { repo } = makeRepo();
+  fakeContext({ gh: fakeGh().gh });
+  const log: string[] = [];
+  await followPrs({ project: "p", repo, maxTasks: 1, push: false, log: (l) => log.push(l), seams: { gh: fakeGh().gh } });
+  assert.deepEqual(log, []);
 });
 
 test("doctor with merge.mode pr fails the gh check when gh is not logged in, and passes when it is", async () => {

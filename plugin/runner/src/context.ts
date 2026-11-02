@@ -332,7 +332,7 @@ export const context = {
   tasksInPr: async (project: string): Promise<{ id: number; title: string; feature: string | null; pr_url: string }[]> =>
     (await call<{ tasks: { id: number; title: string; status: string; feature: string | null; pr_url?: string }[] }>(
       `/api/projects/${project}/state`)).tasks
-      .flatMap((t) => (t.status === "in_pr" && t.pr_url ? [{ id: t.id, title: t.title, feature: t.feature, pr_url: t.pr_url }] : [])),
+      ?.flatMap((t) => (t.status === "in_pr" && t.pr_url ? [{ id: t.id, title: t.title, feature: t.feature, pr_url: t.pr_url }] : [])) ?? [],
   runnerStatus: (project: string, triageKey: boolean) =>
     call<{ ok: boolean }>(`/api/projects/${project}/runner-status`, {
       method: "POST", body: JSON.stringify(runnerStatusBody(triageKey)) }),

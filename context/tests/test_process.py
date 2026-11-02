@@ -21,6 +21,14 @@ def test_agents_cannot_pass_human_gates():
     assert not rules.allowed("plan", "done", "draft", "human")  # undefined transitions are refused
 
 
+def test_in_pr_task_cannot_be_abandoned_by_anyone():
+    # Decided: a pull request is open on GitHub, so the way out is the PR itself (merged or closed), or the
+    # human sending the task back to pending; abandoning from in_pr is refused on purpose.
+    for actor in ("human", "runner", "agent"):
+        assert not rules.allowed("task", "in_pr", "abandoned", actor)
+    assert rules.allowed("task", "in_pr", "pending", "human")
+
+
 def test_draft_revise_approve_queues_tasks_with_hold_before_merge(run_db, project, indexer):
     async def go(conn):
         await add_feature(conn, project, "signup")
