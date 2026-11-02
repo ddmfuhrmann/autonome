@@ -43,5 +43,18 @@ def test_template_code_dynamic_parts_and_js_hooks_are_ignored():
     assert missing('<div class="btn{% if x %} not-a-class{% endif %}">') == {"not-a-class"}
 
 
+def test_every_input_in_a_template_has_a_type():
+    gaps = {t.name: tags for t in sorted(TEMPLATES.glob("*.html"))
+            if (tags := [m for m in re.findall(r"<input\b[^>]*>", t.read_text()) if not re.search(r"\btype=", m)])}
+    assert gaps == {}
+
+
+def test_settings_rows_style_input_select_and_textarea():
+    rule = re.search(r"\.srow input\[type=text\][^{]*\{([^}]*)\}", CSS).group(1)
+    assert ".srow select" in re.search(r"\.srow input\[type=text\][^{]*\{", CSS).group()
+    assert ".srow textarea" in re.search(r"\.srow input\[type=text\][^{]*\{", CSS).group()
+    assert "height: 32px" in rule and "padding: 0 10px" in rule and "border-radius: 6px" in rule
+
+
 def test_hidden_always_hides():
     assert re.search(r"\[hidden\]\s*\{[^}]*display:\s*none\s*!important", CSS)

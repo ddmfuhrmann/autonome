@@ -709,9 +709,17 @@ pre.mermaid { margin: 0; padding: 16px 0; background: none; border-top: 1px soli
 .srow--schedules { grid-template-columns: minmax(100px, 1fr) 110px 90px minmax(160px, 2fr) minmax(120px, 1.4fr) 110px; }
 .srow--checks { grid-template-columns: minmax(100px, 1fr) minmax(200px, 3fr) 90px 110px; }
 .srow--agents { grid-template-columns: minmax(200px, 2fr) minmax(100px, 1fr) 110px minmax(100px, 1fr); }
-.srow input, .srow select, .srow textarea { width: 100%; min-width: 0; }
-.srow textarea { min-height: 36px; resize: vertical; }
-.srow__check { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; }
+.srow input[type=text], .srow input[type=number], .srow select, .srow textarea {
+  width: 100%; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid var(--bg-2); border-radius: 6px;
+  font: 13px var(--sans); background: var(--bg-2); color: var(--fg); }
+.srow input[type=text]:focus, .srow input[type=number]:focus, .srow select:focus, .srow textarea:focus,
+.srow input[type=text]:focus-visible, .srow input[type=number]:focus-visible, .srow select:focus-visible,
+.srow textarea:focus-visible { border-color: var(--accent); outline: none; }
+.srow.has-error input[type=text], .srow.has-error input[type=number], .srow.has-error select,
+.srow.has-error textarea { border-color: var(--stop); }
+.srow input.mono, .srow textarea.mono { font: 12.5px var(--code); }
+.srow textarea { height: auto; min-height: 32px; padding: 7px 10px; line-height: 1.5; resize: vertical; }
+.srow__check { display: inline-flex; align-items: center; align-self: center; gap: 4px; color: var(--muted); font-size: 12px; }
 .srow__tools { display: inline-flex; gap: 2px; justify-content: flex-end; }
 .srow__role { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .srows__add { margin: 8px 0 0; }

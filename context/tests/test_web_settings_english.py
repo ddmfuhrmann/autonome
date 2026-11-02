@@ -26,6 +26,13 @@ def test_every_settings_page_is_in_english(client, project, saved):
     assert "Review diffs" in pages[0].text
 
 
+def test_the_gate_command_input_has_a_type_and_the_mono_class(client, project, saved):
+    saved(YAML)
+    text = client.get(f"/ui/p/{project}/settings").text
+    tag = re.search(r'<input[^>]*name="gates-0-run"[^>]*>', text).group()
+    assert 'type="text"' in tag and "mono" in tag
+
+
 def test_an_invalid_draft_shows_its_errors_in_english(client, project, saved):
     saved(YAML)
     base = {k: v for k, v in _fields().items() if not k.startswith("gates-")}

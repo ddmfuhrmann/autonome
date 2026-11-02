@@ -54,11 +54,11 @@ srow srow--{{ prefix if prefix != 'smoke_test-checks' else 'checks' }}{% if (pre
 
 {% macro gate_row(i, g) -%}
 <div class="{{ row_class('gates', i) }}" id="f-gates-{{ i }}" data-row>
-  <input name="gates-{{ i }}-name" value="{{ g.name }}" aria-label="Gate name" placeholder="name">
-  <input class="mono" name="gates-{{ i }}-run" value="{{ g.run }}" aria-label="Gate command" placeholder="command">
+  <input type="text" name="gates-{{ i }}-name" value="{{ g.name }}" aria-label="Gate name" placeholder="name">
+  <input type="text" class="mono" name="gates-{{ i }}-run" value="{{ g.run }}" aria-label="Gate command" placeholder="command">
   <select name="gates-{{ i }}-mode" aria-label="Mode">{% for m in ('block', 'fix') %}<option{% if g.mode == m %} selected{% endif %}>{{ m }}</option>{% endfor %}</select>
   <label class="srow__check"><input type="checkbox" name="gates-{{ i }}-fast" value="on"{% if g.fast %} checked{% endif %}> fast</label>
-  <textarea name="gates-{{ i }}-when" rows="{{ [(g.when or '').splitlines()|length, 1]|max }}"spellcheck="false" aria-label="when: globs, one per line" placeholder="when">{{ g.when }}</textarea>
+  <textarea name="gates-{{ i }}-when" rows="{{ [(g.when or '').splitlines()|length, 1]|max }}" spellcheck="false" aria-label="when: globs, one per line" placeholder="when">{{ g.when }}</textarea>
   <input type="number" name="gates-{{ i }}-timeout_s" value="{{ g.timeout_s }}" aria-label="Timeout (s)">
   {{ row_tools('gates', i) }}
   {{ row_errors('gates', i) }}
@@ -67,11 +67,11 @@ srow srow--{{ prefix if prefix != 'smoke_test-checks' else 'checks' }}{% if (pre
 
 {% macro schedule_row(i, s) -%}
 <div class="{{ row_class('schedules', i) }}" id="f-schedules-{{ i }}" data-row>
-  <input name="schedules-{{ i }}-name" value="{{ s.name }}" aria-label="Schedule name" placeholder="name">
+  <input type="text" name="schedules-{{ i }}-name" value="{{ s.name }}" aria-label="Schedule name" placeholder="name">
   <select name="schedules-{{ i }}-kind" aria-label="Kind">{% for k in ('command', 'doc-drift', 'main-red') %}<option{% if s.kind == k %} selected{% endif %}>{{ k }}</option>{% endfor %}</select>
   <input type="number" name="schedules-{{ i }}-every_hours" value="{{ s.every_hours }}" aria-label="Every (hours)">
-  <input class="mono" name="schedules-{{ i }}-run" value="{{ s.run }}" aria-label="Command" placeholder="command (kind command)">
-  <input name="schedules-{{ i }}-task" value="{{ s.task }}" aria-label="Task title" placeholder="task title">
+  <input type="text" class="mono" name="schedules-{{ i }}-run" value="{{ s.run }}" aria-label="Command" placeholder="command (kind command)">
+  <input type="text" name="schedules-{{ i }}-task" value="{{ s.task }}" aria-label="Task title" placeholder="task title">
   {{ row_tools('schedules', i) }}
   {{ row_errors('schedules', i) }}
 </div>
@@ -79,8 +79,8 @@ srow srow--{{ prefix if prefix != 'smoke_test-checks' else 'checks' }}{% if (pre
 
 {% macro check_row(i, c) -%}
 <div class="{{ row_class('smoke_test-checks', i) }}" id="f-smoke_test-checks-{{ i }}" data-row>
-  <input name="smoke_test-checks-{{ i }}-name" value="{{ c.name }}" aria-label="Check name" placeholder="name">
-  <input class="mono" name="smoke_test-checks-{{ i }}-run" value="{{ c.run }}" aria-label="Check command" placeholder="command">
+  <input type="text" name="smoke_test-checks-{{ i }}-name" value="{{ c.name }}" aria-label="Check name" placeholder="name">
+  <input type="text" class="mono" name="smoke_test-checks-{{ i }}-run" value="{{ c.run }}" aria-label="Check command" placeholder="command">
   <input type="number" name="smoke_test-checks-{{ i }}-timeout_s" value="{{ c.timeout_s }}" aria-label="Timeout (s)">
   {{ row_tools('smoke_test-checks', i) }}
   {{ row_errors('smoke_test-checks', i) }}
@@ -244,9 +244,9 @@ srow srow--{{ prefix if prefix != 'smoke_test-checks' else 'checks' }}{% if (pre
         <div class="srow srow--agents{% if changed %} is-changed{% endif %}{% if ('models-' ~ role) in bad_rows %} has-error{% endif %}" id="f-models-{{ role }}">
           <span class="srow__role"><strong>{{ role }}</strong><span class="sfield__help">{{ gloss }}</span>
             {% if changed %}<span class="sfield__default">default {{ defaults['models-' ~ role ~ '-model'] }} · {{ defaults['models-' ~ role ~ '-effort'] }} · <button type="submit" class="btn btn--sm" name="reset" value="models-{{ role }}">reset</button></span>{% endif %}</span>
-          <input id="f-models-{{ role }}-model" name="models-{{ role }}-model" value="{{ form['models-' ~ role ~ '-model'] }}" aria-label="Model of {{ role }}">
+          <input type="text" id="f-models-{{ role }}-model" name="models-{{ role }}-model" value="{{ form['models-' ~ role ~ '-model'] }}" aria-label="Model of {{ role }}">
           <select id="f-models-{{ role }}-effort" name="models-{{ role }}-effort" aria-label="Effort of {{ role }}">{% for e in ('low', 'medium', 'high', 'xhigh', 'max') %}<option{% if e == form['models-' ~ role ~ '-effort'] %} selected{% endif %}>{{ e }}</option>{% endfor %}</select>
-          <input id="f-models-{{ role }}-fallback" name="models-{{ role }}-fallback" value="{{ form['models-' ~ role ~ '-fallback'] }}" aria-label="Fallback of {{ role }}" placeholder="none">
+          <input type="text" id="f-models-{{ role }}-fallback" name="models-{{ role }}-fallback" value="{{ form['models-' ~ role ~ '-fallback'] }}" aria-label="Fallback of {{ role }}" placeholder="none">
           {% for k, m in errors.items() if k.startswith('models-' ~ role ~ '-') %}<p class="sfield__error srow__error">{{ m }}</p>{% endfor %}
         </div>
         {% endfor %}
