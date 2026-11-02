@@ -59,6 +59,13 @@ def test_unknown_permissions_are_rejected(value):
         GateConfig.from_yaml(f"permissions: {value}")
 
 
+def test_task_size_defaults_to_300_lines_and_refuses_less_than_20():
+    assert GateConfig().task_size.max_lines == 300
+    assert GateConfig.from_yaml("task_size:\n  max_lines: 20\n").task_size.max_lines == 20
+    with pytest.raises(ValidationError):
+        GateConfig.model_validate({"task_size": {"max_lines": 10}})
+
+
 def test_the_default_models_are_the_product_roles():
     assert set(DEFAULT_MODELS) == {"implementer", "reviewer", "preflight", "tester", "retro", "handoff", "docs"}
     assert set(GateConfig().models) == set(DEFAULT_MODELS)

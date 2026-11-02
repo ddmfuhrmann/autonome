@@ -25,7 +25,7 @@ from starlette.templating import Jinja2Templates
 from . import evaluation, insights, plans, rules, services, settings_form, store
 from .chunking import DEFAULT_STRATEGY, STRATEGIES
 from .gates import (DEFAULT_MODELS, FIELD_HELP, ROLE_GLOSS, Budget, Check, Gate, GateConfig, HoldBeforeMerge,
-                    Retries, Review, ReviewAfterMerge, RoleModel, Schedule, SmokeTest, Triage)
+                    Retries, Review, ReviewAfterMerge, RoleModel, Schedule, SmokeTest, TaskSize, Triage)
 from .presets import PRESETS, preset_config
 
 SETUP_EMPTY = "empty"  # the setup choice that starts with no gates
@@ -783,7 +783,7 @@ def _field_info() -> dict[str, tuple[str, str]]:
     """(label, one line) of each config field by path: FIELD_HELP first, else the schema's own description."""
     info: dict[str, tuple[str, str]] = {}
     for prefix, model in (("", GateConfig), ("gates", Gate), ("retries", Retries), ("budget", Budget),
-                          ("hold_before_merge", HoldBeforeMerge), ("review_after_merge", ReviewAfterMerge),
+                          ("task_size", TaskSize), ("hold_before_merge", HoldBeforeMerge), ("review_after_merge", ReviewAfterMerge),
                           ("schedules", Schedule), ("review", Review), ("smoke_test", SmokeTest),
                           ("smoke_test.checks", Check), ("triage", Triage), ("models", RoleModel)):
         for name, f in model.model_fields.items():
@@ -803,7 +803,7 @@ _ROW_LISTS = {"gates": _GATE_ROW, "schedules": _SCHEDULE_ROW, "smoke_test-checks
 _ROW_IDENTITY = ("name", "run", "task", "when")  # a row with none of these filled is the blank one to add
 
 _SECTION_OF = {"gates": "Gates", "permissions": "Execution", "retries": "Execution", "budget": "Execution",
-               "allowed_commands": "Execution", "interactive": "Execution",
+               "task_size": "Execution", "allowed_commands": "Execution", "interactive": "Execution",
                "hold_before_merge": "Human checkpoints", "review_after_merge": "Human checkpoints",
                "review": "Review", "triage": "Triage", "smoke_test": "Smoke test", "schedules": "Schedules",
                "models": "Agents"}

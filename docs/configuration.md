@@ -89,6 +89,9 @@ permissions: allowlist    # how the implementer's sessions are allowed to act: `
 retries: {max: 3, stop_on_repeat: true}  # gate failures sent back to the implementer before a task
                                          # blocks; the same failure twice blocks at once
 budget: {task_tokens: 400000, task_minutes: 30, plan_tokens: 3000000}
+task_size: {max_lines: 300}              # changed lines of code per task (min 20), tests and docs not
+                                         # counted; plans split bigger tasks, the runner records the ones
+                                         # that go over
 
 review: {enabled: true, max_rounds: 2}   # an independent agent reviews each diff against the plan,
                                          # its edges and the conventions. High findings block and send the

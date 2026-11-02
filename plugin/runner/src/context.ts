@@ -71,6 +71,7 @@ export interface GateConfig {
     permissions?: "allowlist" | "auto";
     retries: { max: number; stop_on_repeat: boolean };
     budget: { task_tokens: number; task_minutes: number; plan_tokens: number };
+    task_size?: { max_lines: number };
     hold_before_merge?: { features: string[] };
     review_after_merge?: { features: string[] };
     schedules?: Schedule[];

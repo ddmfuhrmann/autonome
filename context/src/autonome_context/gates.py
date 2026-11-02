@@ -70,6 +70,12 @@ class SmokeTest(_Strict):
     max_fixes: int = Field(default=2, description="fix rounds before the plan is blocked for a human")
 
 
+class TaskSize(_Strict):
+    """How big one task may be: plans split bigger tasks and the runner records the ones that go over."""
+
+    max_lines: int = Field(default=300, ge=20, description="changed lines of code per task, tests and docs not counted")
+
+
 class Review(_Strict):
     """An independent agent reviews each task's diff against its plan and the conventions before merge."""
 
@@ -137,6 +143,9 @@ FIELD_HELP: dict[str, tuple[str, str]] = {
     "schedules.name": ("Name", "Identifies the scheduled check."),
     "schedules.kind": ("Kind", "command runs a command; doc-drift compares docs and code; main-red watches main."),
     "schedules.every_hours": ("Every (hours)", "Interval between two runs."),
+    "task_size": ("Task size", "How big one task may be; plans split bigger tasks and the runner records the ones that go over."),
+    "task_size.max_lines": ("Max lines", "Changed lines of code per task, tests and docs not counted. "
+                                         "Plans split bigger tasks; the runner records the ones that go over."),
     "review": ("Review", "A reviewer reads each task's diff before merge."),
     "review.enabled": ("Review diffs", "When off, tasks go to merge without the reviewer."),
     "smoke_test": ("Smoke test", "Tries the finished feature in a running environment, with fakes and never real services."),
@@ -173,6 +182,7 @@ class GateConfig(_Strict):
         default=[], description="extra commands (first word) a runner session may run, besides the gates' own")
     retries: Retries = Retries()
     budget: Budget = Budget()
+    task_size: TaskSize = TaskSize()
     hold_before_merge: HoldBeforeMerge = HoldBeforeMerge()
     review_after_merge: ReviewAfterMerge = ReviewAfterMerge()
     schedules: list[Schedule] = []

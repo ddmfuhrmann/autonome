@@ -51,6 +51,7 @@ def test_gate_order_follows_index_not_key_order():
     {"interactive": True},
     {"permissions": "auto"},
     {"hold_before_merge": {"features": ["ui"]}, "review_after_merge": {"features": ["memory", "ui"]}},
+    {"task_size": {"max_lines": 150}},
     {"review": {"enabled": False, "max_rounds": 4}},
     {"triage": {"model": "haiku", "fallback": "off", "reject_at": 0.5, "max_rounds": 3}},
     {"triage": {}},
@@ -88,6 +89,15 @@ def test_malformed_budget_with_unit_is_a_field_error(text):
     data, errors = form_to_config(BASE | {"budget-task_tokens": text}, CATALOG)
     assert list(errors) == ["budget-task_tokens"]
     assert data == {} or "budget" not in data
+
+
+def test_task_size_default_is_not_written_and_low_values_are_errors():
+    data, errors = form_to_config(BASE | {"task_size-max_lines": "300"}, CATALOG)
+    assert (data, errors) == ({}, {})
+    data, errors = form_to_config(BASE | {"task_size-max_lines": "200"}, CATALOG)
+    assert (data, errors) == ({"task_size": {"max_lines": 200}}, {})
+    _, errors = form_to_config(BASE | {"task_size-max_lines": "10"}, CATALOG)
+    assert list(errors) == ["task_size-max_lines"]
 
 
 def test_triage_errors_and_off():
