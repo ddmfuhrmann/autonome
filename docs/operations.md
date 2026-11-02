@@ -181,6 +181,10 @@ docker compose up -d --build context            # rebuild the context; migration
 claude plugin update autonome@autonome          # then start a new Claude session
 ```
 
+The runner is built by `plugin/bin/autonome` on first use and again whenever a file in the runner's
+`src`, its `package.json` or its `pnpm-lock.yaml` is newer than the build. The build clears `dist`
+first, so tests left from a renamed or removed source do not run.
+
 ## When the memory needs care
 
 - Back up before anything destructive: see [configuration](configuration.md#5-keeping-the-memory-safe).
