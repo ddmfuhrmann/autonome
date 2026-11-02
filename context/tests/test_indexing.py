@@ -3,7 +3,7 @@ from autonome_context.chunking import STRATEGIES, Chunk, SectionV1
 from autonome_context.plans import PlanBody, TaskSpec
 from autonome_context.store import Indexer
 
-from conftest import FakeEmbedder
+from conftest import FakeEmbedder, add_feature
 
 
 class ContextLimitedEmbedder(FakeEmbedder):
@@ -32,6 +32,7 @@ def test_a_plan_longer_than_the_model_context_indexes_and_stays_searchable(run_d
     tasks[-1] = TaskSpec(title="Last", spec="wire the zebracounter into the redirect handler")
 
     async def go(conn):
+        await add_feature(conn, project, "links")
         plan_id = await plans.draft(conn, indexer, project, "links", [], PlanBody(title="Big", goal="g", tasks=tasks))
         return plan_id, await store.search(conn, "zebracounter", project, SectionV1(), indexer.embedder, mode="fts")
 
@@ -52,6 +53,7 @@ def test_a_failed_embedding_never_fails_the_write_and_reindex_picks_it_up(run_db
     from autonome_context.server import build_app
 
     async def setup(conn):
+        await add_feature(conn, project, "links")
         plan_id = await plans.draft(conn, indexer, project, "links", [], PlanBody(
             title="Links", goal="g", tasks=[TaskSpec(title="t", spec="s")]))
         await plans.approve(conn, indexer, plan_id)

@@ -1,6 +1,7 @@
 from autonome_context import plans, rules, store
 from autonome_context.plans import Fix, SmokeTestResult
 
+from conftest import add_feature
 from test_waves import body, play
 
 SMOKE_TEST = "smoke_test: {up: 'true', down: 'true', url: 'http://127.0.0.1:8000', max_fixes: 1}\n"
@@ -9,6 +10,7 @@ SMOKE_TEST = "smoke_test: {up: 'true', down: 'true', url: 'http://127.0.0.1:8000
 async def with_smoke_test(conn, indexer, project):
     async with conn.transaction():
         await store.save_singleton(conn, indexer, project, "gate_config", {"yaml": SMOKE_TEST})
+    await add_feature(conn, project, "links")
     plan_id = await plans.draft(conn, indexer, project, "links", ["api"], body("Links"))
     [task] = await plans.approve(conn, indexer, plan_id)
     await play(conn, task)

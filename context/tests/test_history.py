@@ -2,7 +2,7 @@ from autonome_context import history, plans, rules, store
 from autonome_context.handoff import Decision, PlanItem
 from autonome_context.plans import PlanBody, Preflight, TaskSpec
 
-from conftest import make_handoff
+from conftest import add_feature, make_handoff
 
 
 def test_review_rounds_are_read_from_reviews_and_old_runs_from_review():
@@ -18,6 +18,8 @@ def test_review_rounds_are_read_from_reviews_and_old_runs_from_review():
 
 def test_the_history_of_a_subject_gathers_what_went_off_plan(run_db, project, indexer):
     async def go(conn):
+        await add_feature(conn, project, "wallet")
+        await add_feature(conn, project, "signup", "register an account with a form")
         await store.put_handoff(conn, indexer, make_handoff(
             project, feature="wallet", summary="Debit with the ledger",
             plan_adherence=[PlanItem(item="Reject zero amounts", status="skipped", note="ran out of budget")],

@@ -20,6 +20,7 @@ def deviation(run_db, project, indexer):
     from autonome_context.handoff import Decision
 
     async def go(conn, deviation=True):
+        await add_feature(conn, project, "links")
         await store.put_handoff(conn, indexer, make_handoff(project, feature="links", decisions=[
             Decision(title="Dict instead of a response model", rationale="faster", deviation=deviation)]), None)
         await conn.commit()
@@ -307,8 +308,8 @@ def seed(run_db, indexer, project, *, session="s-1", title="Dict", source=None, 
 
     async def go(conn):
         task_id = None
+        await add_feature(conn, project, "links")
         if with_task:
-            await add_feature(conn, project, "links")
             plan_id = await store.create_document(conn, indexer, project=project, type="plan", status="approved",
                 feature="links", body={"title": "P", "goal": "Short links", "out_of_scope": ["analytics"], "tasks": []})
             body = {"title": "Task " + title, "spec": "do it", "acceptance": ["works"], "plan_id": plan_id,

@@ -23,6 +23,7 @@ def test_agents_cannot_pass_human_gates():
 
 def test_draft_revise_approve_queues_tasks_with_hold_before_merge(run_db, project, indexer):
     async def go(conn):
+        await add_feature(conn, project, "signup")
         async with conn.transaction():
             await store.create_document(conn, indexer, project=project, type="gate_config", status="active",
                                         body={"yaml": "hold_before_merge: {features: [sign*]}"})
@@ -46,6 +47,7 @@ def test_draft_revise_approve_queues_tasks_with_hold_before_merge(run_db, projec
 
 def test_task_briefing_has_spec_out_of_scope_and_layer_conventions(run_db, project, indexer):
     async def go(conn):
+        await add_feature(conn, project, "signup")
         async with conn.transaction():
             for title, layers in [("UI rules", ["ui"]), ("API rules", ["api"]), ("Everywhere", [])]:
                 await store.create_document(conn, indexer, project=project, type="convention", status="active",
@@ -63,6 +65,8 @@ def test_task_briefing_has_spec_out_of_scope_and_layer_conventions(run_db, proje
 def test_task_briefing_carries_the_plans_context_capped(run_db, project, indexer):
     api = "**Jev**\n- `POST https://api.typesafe.ai/v1/systemone` with `{model, state, questions}`"
     async def go(conn):
+        await add_feature(conn, project, "triage")
+        await add_feature(conn, project, "other")
         short = await plans.draft(conn, indexer, project, "triage", [], plan_body(context=api))
         [task, _] = await plans.approve(conn, indexer, short)
         long = await plans.draft(conn, indexer, project, "other", [], plan_body(context="line\n" * 2000))
@@ -77,6 +81,7 @@ def test_task_briefing_carries_the_plans_context_capped(run_db, project, indexer
 
 def test_tasks_are_claimed_in_order_respecting_dependencies(run_db, project, indexer):
     async def go(conn):
+        await add_feature(conn, project, "signup")
         plan_id = await plans.draft(conn, indexer, project, "signup", [], plan_body())
         first, second = await plans.approve(conn, indexer, plan_id)
         seen = []
@@ -98,8 +103,9 @@ def test_tasks_are_claimed_in_order_respecting_dependencies(run_db, project, ind
 
 def test_living_docs_are_one_per_feature_plus_overview(run_db, project, indexer):
     async def go(conn):
+        await add_feature(conn, project, "wallet")
         await store.put_handoff(conn, indexer, make_handoff(project), None)
-        a = await store.save_feature_doc(conn, indexer, project, "wallet", {"overview": "v1"})
+        a =await store.save_feature_doc(conn, indexer, project, "wallet", {"overview": "v1"})
         b = await store.save_feature_doc(conn, indexer, project, "wallet", {"overview": "v2"})
         o = await store.save_feature_doc(conn, indexer, project, None, {"overview": "system"})
         doc = await store.feature_doc(conn, project, "wallet")
@@ -116,6 +122,7 @@ def test_insights_cluster_repeated_friction_and_count_gate_failures(run_db, proj
     from autonome_context import insights
 
     async def go(conn):
+        await add_feature(conn, project, "wallet")
         for _ in range(2):
             await store.put_handoff(conn, indexer, make_handoff(project, friction=["no convention for money rounding"]), None)
         await store.put_handoff(conn, indexer, make_handoff(project, friction=["flaky docker startup"]), None)
@@ -219,6 +226,8 @@ def test_convention_effects_split_friction_close_to_the_rule_by_adoption(run_db,
     from autonome_context import insights
 
     async def go(conn):
+        await add_feature(conn, project, "wallet")
+        await conn.commit()  # now() is the transaction's start: the convention must not share it with the handoffs
         async with conn.transaction():
             await store.create_document(conn, indexer, project=project, type="convention", status="active",
                                         body={"title": "Validate input", "rule": "Validate input rule"})
@@ -239,6 +248,8 @@ def test_convention_effects_split_friction_close_to_the_rule_by_adoption(run_db,
 
 def test_deleting_a_project_removes_everything_in_it_and_nothing_else(run_db, project, indexer):
     async def go(conn):
+        await add_feature(conn, project, "wallet")
+        await add_feature(conn, project + "-other", "wallet")
         await store.put_handoff(conn, indexer, make_handoff(project), "raw transcript")
         await store.put_handoff(conn, indexer, make_handoff(project + "-other"), None)
         async with conn.transaction():

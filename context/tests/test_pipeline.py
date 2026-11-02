@@ -4,7 +4,7 @@ from autonome_context import evaluation, store
 from autonome_context.chunking import STRATEGIES, Doc, SectionV1, WholeV1
 from autonome_context.redact import redact
 
-from conftest import make_handoff
+from conftest import add_feature, make_handoff
 
 
 def test_redact_masks_identifiers_and_secrets():
@@ -38,6 +38,8 @@ def test_metrics():
 
 def test_put_and_search_roundtrip(run_db, project, indexer):
     async def go(conn):
+        await add_feature(conn, project, "wallet")
+        await add_feature(conn, project, "signup", "register an account with a form")
         await store.put_handoff(conn, indexer, make_handoff(project), "raw cpf 123.456.789-09")
         await store.put_handoff(conn, indexer, make_handoff(
             project, feature="signup", layers=["ui"], summary="Built the signup form.",
@@ -62,6 +64,7 @@ def test_put_and_search_roundtrip(run_db, project, indexer):
 
 def test_vector_hits_below_the_similarity_cutoff_are_dropped(run_db, project, indexer, monkeypatch):
     async def go(conn):
+        await add_feature(conn, project, "wallet")
         await store.put_handoff(conn, indexer, make_handoff(project), None)
         monkeypatch.setattr(store, "MIN_SIMILARITY", 0.9999)
         vector = await store.search(conn, "something else entirely", project, SectionV1(), indexer.embedder)
@@ -92,6 +95,7 @@ def test_every_strategy_indexes_and_new_versions_replace_old_in_search(run_db, p
 
 def test_eval_run_records_metrics(run_db, project, indexer):
     async def go(conn):
+        await add_feature(conn, project, "wallet")
         doc_id = await store.put_handoff(conn, indexer, make_handoff(project), None)
         await evaluation.add_question(conn, project, "missing tenant filter in tests", [doc_id], "manual")
         result = await evaluation.run(conn, project, SectionV1(), indexer.embedder, "hybrid", 5)

@@ -33,32 +33,13 @@ class FakeEmbedder:
         return out
 
 
-async def add_feature(conn, project: str, slug: str) -> None:
-    """Puts a feature in the project's catalog, the way create_document needs it to be."""
+async def add_feature(conn, project: str, slug: str, description: str | None = None) -> None:
+    """Puts a feature in the project's catalog, the way create_document needs it to be. The fake
+    embedder can make two one-word descriptions identical, so a pair of slugs may need a description."""
     from autonome_context import store
 
-    await store.resolve_feature(conn, FakeEmbedder(), project, slug, slug.replace("-", " "))
-
-
-def _lenient_feature_for():
-    """Test stand-in for store.feature_for: a new slug enters the catalog with its words as the
-    description, so tests need not seed a catalog. test_feature_catalog.py restores the real one."""
-    from autonome_context import store
-
-    async def feature_for(conn, indexer, project, slug, description=None):
-        if not slug or indexer is None:
-            return slug
-        r = await store.resolve_feature(conn, indexer.embedder, project, slug, description or slug.replace("-", " "))
-        return r["similar_to"] or r["slug"]
-
-    return feature_for
-
-
-@pytest.fixture(autouse=True)
-def lenient_features(monkeypatch):
-    from autonome_context import store
-
-    monkeypatch.setattr(store, "feature_for", _lenient_feature_for())
+    r = await store.resolve_feature(conn, FakeEmbedder(), project, slug, description or slug.replace("-", " "))
+    assert r["similar_to"] is None, f"{slug!r} was refused as similar to {r['similar_to']!r}: give it a description"
 
 
 def make_handoff(project: str, **kw) -> Handoff:

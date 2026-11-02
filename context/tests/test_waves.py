@@ -4,6 +4,8 @@ from autonome_context import briefing, plans, rules, store
 from autonome_context.gates import GateConfig
 from autonome_context.plans import PlanBody, ProposedGate, Preflight, TaskSpec, WaveBody, WaveFeature
 
+from conftest import add_feature
+
 
 def body(title: str, tasks=1, **kw) -> PlanBody:
     return PlanBody(title=title, goal=f"{title} goal",
@@ -21,6 +23,8 @@ async def gates_of(conn, project):
 
 
 async def two_feature_wave(conn, indexer, project):
+    await add_feature(conn, project, "links")
+    await add_feature(conn, project, "stats", "count the clicks of each short url")
     links = await plans.draft(conn, indexer, project, "links", ["api"], body("Links"))
     stats = await plans.draft(conn, indexer, project, "stats", ["api"], body("Stats", tasks=2))
     wave = await plans.draft_wave(conn, indexer, project, WaveBody(
@@ -58,6 +62,7 @@ def test_a_wave_is_approved_at_once_and_plays_features_in_order(run_db, project,
 def test_a_plan_cannot_join_two_waves_and_dependencies_point_back(run_db, project, indexer):
     async def go(conn):
         links, _, _ = await two_feature_wave(conn, indexer, project)
+        await add_feature(conn, project, "loose")
         loose = await plans.draft(conn, indexer, project, "loose", [], body("Loose"))
         errors = []
         for features in ([WaveFeature(plan_id=links)], [WaveFeature(plan_id=loose, depends_on=[1])]):
@@ -89,6 +94,7 @@ def test_preflight_ready_adds_notes_to_the_briefing(run_db, project, indexer):
 
 def test_the_briefing_reads_the_preflight_notes_from_body_preflight_notes(run_db, project, indexer):
     async def go(conn):
+        await add_feature(conn, project, "notes")
         plan = await plans.draft(conn, indexer, project, "notes", [], body("Notes"))
         [task] = await plans.approve(conn, indexer, plan)
         await plans.preflight(conn, indexer, plan, Preflight(verdict="ready", notes="X-from-preflight"))
@@ -125,6 +131,7 @@ def test_a_revised_plan_is_held_until_the_human_accepts_it(run_db, project, inde
 
 def test_proposed_gates_join_the_config_on_approval_or_when_their_task_is_merged(run_db, project, indexer):
     async def go(conn):
+        await add_feature(conn, project, "web")
         async with conn.transaction():
             await store.save_singleton(conn, indexer, project, "gate_config",
                                        {"yaml": "gates:\n  - {name: test, run: pytest}\n"})
@@ -147,6 +154,7 @@ def test_proposed_conventions_become_active_on_approval_and_never_replace_one(ru
     from autonome_context.plans import ProposedConvention
 
     async def go(conn):
+        await add_feature(conn, project, "links")
         async with conn.transaction():
             await store.create_document(conn, indexer, project=project, type="convention", status="active",
                                         layers=["api"], body={"title": "Response models", "rule": "the original"})
@@ -171,6 +179,7 @@ def test_gates_waiting_for_their_setup_task_are_listed_as_pending(run_db, projec
     from autonome_context import api
 
     async def go(conn):
+        await add_feature(conn, project, "links")
         plan_id = await plans.draft(conn, indexer, project, "links", [], body("Links", tasks=2, gates=[
             ProposedGate(name="ruff-format", run="uv run ruff format --check .", with_task=1),
             ProposedGate(name="pytest", run="uv run pytest -q", with_task=1)]))
@@ -190,6 +199,8 @@ def test_gates_waiting_for_their_setup_task_are_listed_as_pending(run_db, projec
 def test_a_plan_keeps_the_backlog_items_it_delivers_in_step(run_db, project, indexer):
     from autonome_context import backlog, web
     async def setup(conn):
+        await add_feature(conn, project, "ledger")
+        await add_feature(conn, project, "audit")
         async with conn.transaction():
             await store.create_document(conn, indexer, project=project, type="backlog", status="open", body={
                 "wave": 2, "title": "Wave 2", "items": [{"id": "w2-ledger", "title": "Ledger", "status": "next"},

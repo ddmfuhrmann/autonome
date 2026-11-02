@@ -13,13 +13,6 @@ from autonome_context.plans import PlanBody, TaskSpec
 from conftest import FakeEmbedder, make_handoff
 
 EMBEDDER = FakeEmbedder()
-REAL_FEATURE_FOR = store.feature_for  # conftest swaps in a lenient one for the other test files
-
-
-@pytest.fixture(autouse=True)
-def real_feature_for(lenient_features, monkeypatch):
-    monkeypatch.setattr(store, "feature_for", REAL_FEATURE_FOR)
-
 
 def test_a_new_slug_without_a_description_is_refused_with_the_catalog(run_db, project):
     async def go(conn):

@@ -28,6 +28,7 @@ def client(db_url, indexer, monkeypatch):
 @pytest.fixture
 def blocked_task(run_db, project, indexer):
     async def go(conn):
+        await add_feature(conn, project, "links")
         plan_id = await plans.draft(conn, indexer, project, "links", [], PlanBody(
             title="Links", goal="g", tasks=[TaskSpec(title="t", spec="s")]))
         [task] = await plans.approve(conn, indexer, plan_id)
@@ -68,6 +69,7 @@ def test_a_refused_or_failed_transition_is_reported_and_changes_nothing(client, 
 
 def test_the_wave_page_shows_how_each_task_played(client, project, run_db, indexer):
     async def go(conn):
+        await add_feature(conn, project, "links")
         a = await plans.draft(conn, indexer, project, "links", [], PlanBody(title="Links", goal="g", tasks=[
             TaskSpec(title="Schema", spec="s"), TaskSpec(title="Routes", spec="s")]))
         wave = await plans.draft_wave(conn, indexer, project, plans.WaveBody(
@@ -123,6 +125,7 @@ def test_tooling_features_and_development_notes_stay_apart_from_the_product(clie
 
 def test_finished_waves_are_listed_until_retro_done(client, project, run_db, indexer):
     async def go(conn):
+        await add_feature(conn, project, "links")
         a = await plans.draft(conn, indexer, project, "links", [], PlanBody(title="L", goal="g", tasks=[TaskSpec(title="t", spec="s")]))
         wave = await plans.draft_wave(conn, indexer, project, plans.WaveBody(title="MVP", goal="g", features=[plans.WaveFeature(plan_id=a)]))
         await plans.approve_wave(conn, indexer, wave)
@@ -147,6 +150,7 @@ def test_only_what_blocks_the_queue_counts_as_waiting_on_you(client, project, bl
     from autonome_context.handoff import Decision
 
     async def go(conn):
+        await add_feature(conn, project, "wallet")
         await store.put_handoff(conn, indexer, make_handoff(project, decisions=[
             Decision(title="Kept codes at 7 characters", rationale="62^7 is plenty"),
             Decision(title="Skipped the response model for /health", rationale="plain dict", deviation=True)]), None)
@@ -164,6 +168,7 @@ def test_a_choice_within_the_plan_is_in_effect_and_a_rejected_deviation_queues_i
     from autonome_context.handoff import Decision
 
     async def go(conn):
+        await add_feature(conn, project, "links")
         await store.put_handoff(conn, indexer, make_handoff(project, feature="links", decisions=[
             Decision(title="Kept codes at 7 characters", rationale="62^7 is plenty"),
             Decision(title="Dict instead of a response model", rationale="faster", deviation=True)]), None)
@@ -185,6 +190,7 @@ def test_a_choice_within_the_plan_is_in_effect_and_a_rejected_deviation_queues_i
 
 def test_after_merge_review_merges_then_waits_to_be_reviewed_and_a_fix_is_a_new_task(client, project, run_db, indexer):
     async def go(conn):
+        await add_feature(conn, project, "wallet")
         async with conn.transaction():
             await store.save_singleton(conn, indexer, project, "gate_config", {"yaml": "review_after_merge: {features: [wallet*]}\n"})
         plan_id = await plans.draft(conn, indexer, project, "wallet", ["domain"], PlanBody(
@@ -226,6 +232,7 @@ def test_a_running_task_shows_what_its_session_is_doing(client, project, run_db,
     from autonome_context import store as store_mod
 
     async def go(conn):
+        await add_feature(conn, project, "links")
         plan_id = await plans.draft(conn, indexer, project, "links", [], PlanBody(title="L", goal="g", tasks=[TaskSpec(title="Routes", spec="s")]))
         [task] = await plans.approve(conn, indexer, plan_id)
         await rules.transition(conn, task, "running", "runner")
@@ -252,6 +259,7 @@ def test_a_running_task_shows_what_its_session_is_doing(client, project, run_db,
 
 def _task_in(run_db, indexer, project, *path):
     async def go(conn):
+        await add_feature(conn, project, "live")
         plan_id = await plans.draft(conn, indexer, project, "live", [], PlanBody(title="L", goal="g", tasks=[TaskSpec(title="Routes", spec="s")]))
         [task] = await plans.approve(conn, indexer, plan_id)
         for to in path:
@@ -382,6 +390,7 @@ def test_the_documents_page_groups_days_in_the_zone_of_the_tz_cookie(client, pro
     from conftest import make_handoff
 
     async def go(conn):
+        await add_feature(conn, project, "links")
         await store.put_handoff(conn, indexer, make_handoff(project, feature="links", summary="Near midnight."), None)
         await conn.execute("update document set created_at = %s where project_id = (select id from project where slug = %s)",
                            (datetime(2026, 11, 2, 2, 30, tzinfo=UTC), project))
@@ -407,6 +416,7 @@ def test_the_state_snapshot_lists_tasks_plans_and_what_waits(client, project, bl
 
 def test_what_a_merge_left_open_waits_for_review_instead_of_vanishing(client, project, run_db, indexer):
     async def go(conn):
+        await add_feature(conn, project, "links")
         plan_id = await plans.draft(conn, indexer, project, "links", [], PlanBody(
             title="Links", goal="g", tasks=[TaskSpec(title="Probe", spec="s"), TaskSpec(title="Clean", spec="s")]))
         tasks = await plans.approve(conn, indexer, plan_id)
@@ -435,6 +445,7 @@ def test_what_a_merge_left_open_waits_for_review_instead_of_vanishing(client, pr
 
 def test_insights_count_review_rounds_as_retries_and_show_the_debt(client, project, run_db, indexer):
     async def go(conn):
+        await add_feature(conn, project, "links")
         plan_id = await plans.draft(conn, indexer, project, "links", [], PlanBody(
             title="Links", goal="g", tasks=[TaskSpec(title="Probe", spec="s")]))
         [task] = await plans.approve(conn, indexer, plan_id)
@@ -486,6 +497,7 @@ def test_adopting_a_replacing_convention_archives_the_old_one_and_edits_keep_its
 
 def test_a_draft_plan_shows_its_design_and_full_task_specs(client, project, run_db, indexer):
     async def go(conn):
+        await add_feature(conn, project, "ledger")
         plan = await plans.draft(conn, indexer, project, "ledger", [], PlanBody(
             title="Ledger", goal="g", tasks=[TaskSpec(title="Entries", spec="Adds entries.\n\n**Where**\n\n- `ledger.py`",
                                                       acceptance=["amounts are positive"])],
@@ -506,6 +518,8 @@ def test_documents_facets_narrow_the_list_and_the_drawer_shows_the_picked_docume
     from autonome_context.handoff import Decision
 
     async def go(conn):
+        await add_feature(conn, project, "links")
+        await add_feature(conn, project, "billing", "refunds and invoices for customers")
         await store.put_handoff(conn, indexer, make_handoff(project, feature="links", layers=["api"], decisions=[
             Decision(title="Kept codes at 7 characters", rationale="62^7 is plenty"),
             Decision(title="Dict instead of a response model", rationale="faster", deviation=True)]), None)

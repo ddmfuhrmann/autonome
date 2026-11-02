@@ -16,6 +16,8 @@ from autonome_context import plans, rules, services, store
 from autonome_context.plans import PlanBody, ProposedGate, TaskSpec
 from autonome_context.server import build_app
 
+from conftest import add_feature
+
 
 @pytest.fixture
 def server(db_url, indexer, monkeypatch):
@@ -60,6 +62,7 @@ def call(url, tool, args, answer):
 @pytest.fixture
 def draft(run_db, project, indexer):
     async def go(conn):
+        await add_feature(conn, project, "links")
         plan_id = await plans.draft(conn, indexer, project, "links", [], PlanBody(
             title="Links", goal="Shorten and redirect", out_of_scope=["auth"],
             tasks=[TaskSpec(title="Schema", spec="s"), TaskSpec(title="Routes", spec="s")],
@@ -106,6 +109,7 @@ def test_a_plan_in_a_wave_is_approved_with_its_wave(server, project, draft, run_
 @pytest.fixture
 def blocked(run_db, project, indexer):
     async def go(conn):
+        await add_feature(conn, project, "links")
         plan_id = await plans.draft(conn, indexer, project, "links", [], PlanBody(
             title="Links", goal="g", tasks=[TaskSpec(title="Routes", spec="add the routes")]))
         [task] = await plans.approve(conn, indexer, plan_id)
