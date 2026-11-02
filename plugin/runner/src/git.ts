@@ -16,6 +16,21 @@ export function tryGit(cwd: string, ...args: string[]): { ok: boolean; out: stri
   }
 }
 
+const NOT_CODE = [/(^|\/)test_[^/]*\.py$/, /_test\.py$/, /\.test\.ts$/, /(^|\/)tests?\//, /\.md$/, /^docs\//];
+
+/** Changed lines of code since `base`: tests, docs and binary files are not counted. Throws when git fails. */
+export function codeLines(worktree: string, base: string): number {
+  const numstat = git(worktree, "diff", "--numstat", "--no-renames", `${base}...HEAD`);
+  let total = 0;
+  for (const line of numstat.split("\n").filter(Boolean)) {
+    const [added, removed, ...rest] = line.split("\t");
+    const file = rest.join("\t");
+    if (added === "-" || removed === "-" || NOT_CODE.some((re) => re.test(file))) continue;
+    total += Number(added) + Number(removed);
+  }
+  return total;
+}
+
 /** Where `main` is checked out, if anywhere. */
 export function mainCheckout(repo: string, main = "main"): string | null {
   const list = git(repo, "worktree", "list", "--porcelain").split("\n\n");

@@ -25,7 +25,7 @@ const live = (opts: RunOptions, role: string, owner: { task_id?: number; plan_id
   (msg: unknown) => fromMessage(msg).forEach((e) => opts.events?.push({ ...e, role, ...owner }));
 const stage = (opts: RunOptions, owner: { task_id?: number; plan_id?: number }, text: string) =>
   opts.events?.push({ role: "runner", kind: "stage", text, ...owner });
-import { applyWip, commitMessage, commitWip, fastForwardMain, git, mainCheckout, stageWork, strayFiles, tryGit, wipMessage } from "./git.js";
+import { applyWip, codeLines, commitMessage, commitWip, fastForwardMain, git, mainCheckout, stageWork, strayFiles, tryGit, wipMessage } from "./git.js";
 
 export const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 export const AUTONOME_HOME = process.env.AUTONOME_HOME ?? join(homedir(), ".autonome");
@@ -45,7 +45,7 @@ export interface RunOptions {
   events?: EventStream;
   /** Tests replace the agent sessions and Jev's API with fakes. */
   seams?: { query?: typeof query; preflight?: typeof preflight; ask?: typeof askJev; runTask?: (task: Task, opts: RunOptions) => Promise<Run | undefined>;
-    gates?: JudgeSeams["gates"]; review?: typeof review; commitWip?: typeof commitWip };
+    gates?: JudgeSeams["gates"]; review?: typeof review; commitWip?: typeof commitWip; codeLines?: typeof codeLines };
 }
 
 /** How often a running session looks at the project's pause (at most), in ms. */
@@ -330,6 +330,21 @@ export function updateDocs(repo: string, project: string, args: string[], log: R
   const cwd = mainCheckout(repo) ?? repo;
   const r = spawnSync(join(PLUGIN_ROOT, "bin", "autonome-docs"), ["--project", project, ...args], { cwd, encoding: "utf8", env: sessionEnv() });
   log(r.status === 0 ? `  docs: ${r.stdout.trim()}` : `  docs update failed: ${r.stderr.slice(-400)}`);
+}
+
+/** Records the task's size on the run; going over the limit is only noted, never a block. */
+function measureSize(run: Run, worktree: string, base: string, max: number | undefined, taskId: number, opts: RunOptions): void {
+  try {
+    run.code_lines = (opts.seams?.codeLines ?? codeLines)(worktree, base);
+  } catch (e) {
+    opts.log(`  warning: could not measure the task's lines: ${String(e).split("\n")[0]}`);
+    return;
+  }
+  if (max === undefined || run.code_lines <= max) return;
+  Object.assign(run, { oversize: true, max_lines: max });
+  const text = `task oversize: ${run.code_lines} > ${max}`;
+  opts.log(`  ${text}`);
+  stage(opts, { task_id: taskId }, text);
 }
 
 /** Rebase the task's branch on main, re-check the gates, and fast-forward main. */
@@ -636,6 +651,7 @@ export async function runTask(task: Task, opts: RunOptions): Promise<Run | undef
   execFileSync("git", ["commit", "-q", "-F", "-"], { cwd: worktree, input: commitMessage(task), env: sessionEnv() });
 
   run.duration_s = Math.round((Date.now() - started) / 1000);
+  measureSize(run, worktree, base, cfg.task_size?.max_lines, task.id, opts);
   if (task.body.hold_before_merge) {
     settleRun(run, "merged");
     log(`  green; held before merge for your review`);

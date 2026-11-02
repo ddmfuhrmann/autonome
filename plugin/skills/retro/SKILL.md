@@ -21,6 +21,7 @@ What `insights_get` gives you, beyond adherence and gates:
 - `retries_per_task`: trips back to the implementer (failed gates and review rounds after the first).
 - `spent`: tokens and cost, and the costliest tasks with their review rounds.
 - `heavy_conventions`: active conventions taking more than a quarter of the session briefing.
+- `oversize_tasks`: merged tasks whose diff went over `task_size.max_lines` (code lines, tests and docs not counted).
 - `convention_effects`: per active convention, what it targets before and after its adoption
   (`findings_before/after`, `friction_before/after`, `tasks_after`) and `holding`: `true` (it worked),
   `false` (the problem kept coming after it) or `null` (too little history to tell).

@@ -58,6 +58,11 @@ export interface Run {
   merged_sha?: string;
   /** The work the task stopped with, committed as WIP on `branch`; Try again starts from it. */
   wip_sha?: string;
+  /** Changed lines of code in the task's diff (tests, docs and binaries not counted). */
+  code_lines?: number;
+  /** The diff went over `task_size.max_lines`; `max_lines` is the limit it was measured against. */
+  oversize?: boolean;
+  max_lines?: number;
 }
 
 export interface GateConfig {

@@ -201,9 +201,13 @@ async def build(conn: AsyncConnection, project: str, embedder: Embedder, limit: 
     blocked = [{"task_id": t["id"], "title": t["body"]["title"], "feature": t["feature"],
                 "reason": (t["body"].get("runs") or [{}])[-1].get("reason", "")[:300]}
                for t in tasks if t["status"] == "blocked"]
+    oversize = [{"task_id": t["id"], "title": t["body"]["title"], "feature": t["feature"],
+                 "code_lines": r["code_lines"], "max_lines": r.get("max_lines")}
+                for t in tasks for r in runs_of(t)[-1:] if r.get("oversize") and t["status"] == "done"]
 
     return {
         "handoffs": len(handoffs),
+        "oversize_tasks": oversize,
         "adherence": sorted(
             ({"feature": f, "layer": l, "avg": sum(v) / len(v), "n": len(v)} for (f, l), v in adherence.items()),
             key=lambda r: r["avg"]),

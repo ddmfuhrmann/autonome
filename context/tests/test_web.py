@@ -564,6 +564,24 @@ def test_insights_count_review_rounds_as_retries_and_show_the_debt(client, proje
     assert data["heavy_conventions"][0]["title"] == "Huge"
 
 
+def test_insights_list_merged_tasks_that_went_over_the_size_limit(client, project, run_db, indexer):
+    async def go(conn):
+        await add_feature(conn, project, "links")
+        plan_id = await plans.draft(conn, indexer, project, "links", [], PlanBody(
+            title="Links", goal="g", tasks=[TaskSpec(title="Big", spec="s"), TaskSpec(title="Small", spec="s")]))
+        return await plans.approve(conn, indexer, plan_id)
+    big, small = run_db(go)
+    for task, run in ((big, {"code_lines": 200, "oversize": True, "max_lines": 100}), (small, {"code_lines": 20})):
+        client.post(f"/api/tasks/{task}/transition", json={"to": "running"})
+        client.post(f"/api/tasks/{task}/transition", json={"to": "done", "run": {"outcome": "merged", **run}})
+
+    async def go2(conn):
+        from autonome_context import insights
+        return await insights.build(conn, project, indexer)
+    data = run_db(go2)
+    assert data["oversize_tasks"] == [{"task_id": big, "title": "Big", "feature": "links", "code_lines": 200, "max_lines": 100}]
+
+
 def test_adopting_a_replacing_convention_archives_the_old_one_and_edits_keep_its_why(client, project, run_db, indexer):
     async def go(conn):
         async with conn.transaction():
