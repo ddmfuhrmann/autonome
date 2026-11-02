@@ -6,7 +6,7 @@ import logging
 import re
 from dataclasses import asdict
 from collections import Counter
-from datetime import UTC, datetime, tzinfo
+from datetime import UTC, datetime, timedelta, tzinfo
 from pathlib import Path
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -956,6 +956,22 @@ def _review_context(doc: dict | None, new_cfg: GateConfig, text: str, origin: st
             "nothing_changed": bool(doc) and not changes and not diff, "doc": doc}
 
 
+RUNNER_STALE_AFTER = timedelta(hours=24)
+
+
+def _key_status(cfg: GateConfig | None, runner: dict) -> dict | None:
+    """What the Triage section says about the Jev key: None with triage off, else
+    {state: found | missing | unknown | stale, seen_at}."""
+    if not (cfg and cfg.triage and cfg.triage.model != "off"):
+        return None
+    seen = _when(runner["seen_at"]) if runner["seen_at"] else None
+    if seen is None or runner["triage_key"] is None:
+        return {"state": "unknown", "seen_at": None}
+    if datetime.now(UTC) - seen > RUNNER_STALE_AFTER:
+        return {"state": "stale", "seen_at": seen}
+    return {"state": "found" if runner["triage_key"] else "missing", "seen_at": seen}
+
+
 async def settings_page(request: Request) -> Response:
     """A POST never saves from the form directly: it turns the posted fields into a draft shown in the requested
     view (`action`: view_form, view_yaml, validate) or in the review (`review`). `save` writes a new version
@@ -1028,6 +1044,7 @@ async def settings_page(request: Request) -> Response:
                 review_ctx = _review_context(doc, review[0], review[1], review[2], "", None, False)
                 return await render(request, "settings_review.html", **review_ctx)
         pending = await store.pending_gates(conn, project)
+        runner = await store.runner_status(conn, project)
     saved_cfg = GateConfig()
     if doc:
         try:
@@ -1043,7 +1060,7 @@ async def settings_page(request: Request) -> Response:
     ctx: dict = {"doc": doc, "view": view, "text": text, "error": error, "error_line": error_line,
                  "notice": notice, "pending": pending, "origin": _version_origin(doc["body"]) if doc else None,
                  "sections": SETTINGS_SECTIONS, "errors": {}, "problems": [], "bad_sections": [],
-                 "changed_sections": []}
+                 "changed_sections": [], "runner_status": _key_status(saved_cfg, runner)}
     if view == "form":
         defaults = settings_form.config_to_form(GateConfig())
         saved_form = settings_form.config_to_form(saved_cfg or GateConfig())

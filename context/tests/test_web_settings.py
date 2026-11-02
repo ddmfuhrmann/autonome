@@ -72,6 +72,52 @@ def test_the_page_shows_every_section_the_real_keys_and_what_differs_from_the_de
     assert "v1" in page.text and "você" in page.text
 
 
+TRIAGE_ON = YAML + "triage: {model: jev-latest}\n"
+
+
+def report_key(run_db, project, found, days_ago=0):
+    async def go(conn):
+        await store.set_runner_status(conn, project, found)
+        await conn.execute("update project set runner_seen_at = now() - make_interval(days => %s) where slug = %s",
+                           (days_ago, project))
+        await conn.commit()
+
+    run_db(go)
+
+
+def test_triage_on_and_a_missing_key_says_faltando(client, project, saved, run_db):
+    saved(TRIAGE_ON)
+    report_key(run_db, project, False)
+    text = client.get(f"/ui/p/{project}/settings").text
+    assert "faltando" in text and "nunca guardada aqui" in text
+
+
+def test_triage_on_and_a_found_key_says_encontrada(client, project, saved, run_db):
+    saved(TRIAGE_ON)
+    report_key(run_db, project, True)
+    text = client.get(f"/ui/p/{project}/settings").text
+    assert "encontrada" in text and "faltando" not in text
+
+
+def test_triage_on_without_a_report_says_desconhecida(client, project, saved):
+    saved(TRIAGE_ON)
+    assert "desconhecida" in client.get(f"/ui/p/{project}/settings").text
+
+
+def test_a_report_older_than_a_day_says_the_runner_was_not_seen_since(client, project, saved, run_db):
+    saved(TRIAGE_ON)
+    report_key(run_db, project, True, days_ago=2)
+    text = client.get(f"/ui/p/{project}/settings").text
+    assert "não visto desde" in text and re.search(r'não visto desde <time datetime="[^"]+Z"', text)
+
+
+def test_triage_off_shows_no_key_status(client, project, saved, run_db):
+    saved(YAML)
+    report_key(run_db, project, False)
+    text = client.get(f"/ui/p/{project}/settings").text
+    assert "Key do Jev" not in text and "faltando" not in text
+
+
 def test_the_header_names_a_version_that_came_from_a_plan(client, project, saved):
     saved(YAML, source={"plan_id": 77, "task_id": 3})
     assert "plano #77" in client.get(f"/ui/p/{project}/settings").text

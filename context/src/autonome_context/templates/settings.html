@@ -197,6 +197,14 @@ srow srow--{{ prefix if prefix != 'smoke_test-checks' else 'checks' }}{% if (pre
   <section class="ssec{{ sec('Triage') }}" id="triage">
     <h2>Triage</h2>
     <p class="ssec__lead"><code class="sfield__key">triage</code>{{ info['triage'][1] }}</p>
+    {% if runner_status %}
+    <p class="ssec__lead" id="triage-key">Key do Jev:
+      {% if runner_status.state == 'found' %}<strong>encontrada</strong>
+      {% elif runner_status.state == 'missing' %}<span class="callout callout--hold"><strong>faltando</strong> — o triage está ligado mas o runner não achou a key; todo deviation vai para você. A key é lida do ambiente do runner e nunca guardada aqui.</span>
+      {% elif runner_status.state == 'stale' %}runner não visto desde {{ runner_status.seen_at|when }}
+      {% else %}<strong>desconhecida</strong> — o runner ainda não reportou.{% endif %}
+    </p>
+    {% endif %}
     {{ field('triage-model', 'triage.model', 'select', ('jev-latest', 'haiku', 'off')) }}
     {{ field('triage-fallback', 'triage.fallback', 'select', ('haiku', 'off')) }}
     {{ field('triage-reject_at', 'triage.reject_at', 'number') }}
