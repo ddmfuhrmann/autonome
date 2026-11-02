@@ -25,6 +25,8 @@ Before asking the user anything:
 - `history_get` with the subject (and the feature, if known): what went off plan before on the same
   subject (items changed or skipped, deviations and how the user judged them, reviewer blocks, fixes,
   blocked tasks, friction). Every pattern there is a lesson this plan must apply (section 3).
+- `features_get`: the project's feature catalog (slug, description, code paths). The plan's feature
+  is chosen from it (section 3).
 - `plan_list` for plans on the same feature (an approved one may already cover it).
 - When the user names a roadmap wave ("wave 2", "the checkout-api wave"), read it with `backlog_list`
   (`wave`): its open items are the starting scope of the autonome wave, and their notes and PRD flags
@@ -202,8 +204,19 @@ challenge found, and the simpler path, as an assistant turn in the plan's `discu
 reviewer and the preflight see it too. The challenge is a step inside drafting, never the end of your
 turn: carry on to `plan_draft` (and, for a wave, `wave_draft`) and the hand-over.
 
-Call `plan_draft` with `project`, `feature` (kebab-case slug), `layers` and the plan. To revise, call
-it again with the same `plan_id`; only drafts can change.
+**The feature.** A feature is a stable capability of the product (`runner`, `triage`), never the
+name of a change ("rename the preflight", "public fixtures"). Pick it from the `features_get`
+catalog by the paths the tasks touch: the feature whose paths cover them wins, and the most specific
+one when several do. A change to an existing capability goes into that capability's feature, even
+when the request is phrased as something new. Create a feature only when none in the catalog serves:
+give a kebab-case slug of the capability, `feature_description` (one sentence on what the capability
+does for whoever uses it, not on this change) and `feature_paths` (the code paths it lives in). If
+`plan_draft` refuses the new feature for being too similar to an existing one, use the suggested
+one, or show the user why it is a different capability before insisting.
+
+Call `plan_draft` with `project`, `feature`, `layers` and the plan (plus `feature_description` and
+`feature_paths` when the feature is new). To revise, call it again with the same `plan_id`; only
+drafts can change.
 
 ## 4. Hand it over
 
@@ -233,7 +246,9 @@ it in the UI.
 - **Grill the wave first**: its goal, the list of features, what is out of scope for the whole wave,
   and the order. Then go feature by feature, still one question per message, only on what changes
   that feature's plan. Do not re-ask what the wave already settled.
-- **Plan every feature fully now**, as in section 3, each with its own `feature` slug. A feature
+- **Plan every feature fully now**, as in section 3, each with its own `feature` slug. Two new
+  features in the wave must not describe the same capability: if they would, they are one feature.
+  A feature
   that builds on another names the other's files, entities and endpoints as that plan defines them.
   Gate setup (section 3) goes in the first feature that needs the gate.
 - Draft each plan with `plan_draft`, then group them with `wave_draft`, using the `plan_id` each
