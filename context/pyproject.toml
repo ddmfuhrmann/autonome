@@ -32,3 +32,4 @@ autonome-context = "autonome_context.server:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+faulthandler_timeout = 60

@@ -121,6 +121,21 @@ run without asking.
 | `autonome doctor found problems; not starting` | see "Before a run" | |
 | `nothing to run` | no approved task is ready | approve a plan, or check Approvals for what blocks |
 
+## What the runner limits in a session
+
+A command stuck in the implementer's session must not just be waited on:
+
+- The Bash tool is cut at 5 minutes (`BASH_MAX_TIMEOUT_MS`, set in the session's environment), not the
+  default 10.
+- Running a command in the background and the `Monitor` tool are denied, in both permission modes. The
+  session cannot park a command and wait for it.
+- The prompt tells the implementer to investigate a command that passes 2 minutes (what it is waiting
+  on, a stack trace) instead of waiting.
+- A build or check that really takes longer than 5 minutes should be a gate: gates have their own
+  `timeout_s` and are not cut by the session's Bash limit.
+- In autonome's own tests, pytest prints the traceback of a test stuck for more than 60 s
+  (`faulthandler_timeout`). It only prints; the test is not failed.
+
 ## Pausing the queue
 
 Pause when something wrong is about to merge or you need the runner to stop touching the project
