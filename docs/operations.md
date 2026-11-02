@@ -58,10 +58,14 @@ branch (`autonome/task-<id>-…`, kept for inspection). Typical reasons:
 | `the session changed nothing` | the implementer did nothing | the spec was probably unclear: abandon and re-plan |
 
 Before the runner removes the worktree of a blocked task (or one that stopped on the usage limit), it
-commits the changes as `wip(task-N): <reason>` on the task's branch; the WIP never reaches `main`.
+commits the changes as `wip(task-N): <reason>` on the task's branch and records its sha in the run
+(`wip_sha`); the WIP never reaches `main`. To see it: `git log main..<branch>` (the branch is on the
+task's page) and `git show <wip_sha>`.
 **Try again** starts a new session in a fresh worktree from `main` with that work applied, and the
-prompt says why the last attempt stopped. If the work no longer applies on `main`, the session starts
-clean and is told which branch holds it. If the WIP commit fails, the worktree is kept.
+prompt says why the last attempt stopped. It starts clean, with no WIP, when the work no longer
+applies on `main` (the session is told which branch holds it), when the run has no `wip_sha` (nothing
+changed, or the WIP commit failed, in which case the worktree is kept) and after a pause (a paused
+task resumes its own session and worktree).
 
 **Try again** sends it back to pending; **Abandon** drops it (tasks that depend on it then never
 run: abandon or re-plan them too).

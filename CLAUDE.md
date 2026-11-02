@@ -45,7 +45,8 @@ plugin/runner/  the runner (TypeScript, Claude Agent SDK): one session + worktre
   the gates' own commands, `allowed_commands`, read-only git), or, when the project opts in
   (`permissions: auto`), the Agent SDK's classifier; git history, `~/.autonome` and paths outside
   the worktree stay denied by rules and the fsguard hook in both. Never `bypassPermissions`. Only the
-  runner commits, and main only moves by fast-forward, never over uncommitted work.
+  runner commits (including the WIP commit on the task's branch when it blocks or hits the usage limit,
+  where Try again starts from), and main only moves by fast-forward, never over uncommitted work.
 - **Waves**: several features planned in one plan session, each with a full plan, approved together; a plan
   waits for the plans it depends on, and the runner runs a preflight on it against main before its first task
   (ready with notes, or held with a revision that Jev accepts when it drops no acceptance, adds no

@@ -96,7 +96,7 @@ connection errors.
 | Method and path | What |
 |---|---|
 | `POST /api/projects/{project}/tasks/claim` | the next work: `{task, preflight, smoke_test}`; a pending task moves to running; `preflight` is the plan to check first, `smoke_test` a finished plan to try |
-| `POST /api/tasks/{id}/transition` | runner moves (running → done, blocked, on_hold, pending; released → done): `{to, run?}`; on done it applies gates the task set up, closes the plan and wave, and opens an after-merge review when configured |
+| `POST /api/tasks/{id}/transition` | runner moves (running → done, blocked, on_hold, pending; released → done): `{to, run?}`; `run.wip_sha` is the `wip(task-N)` commit on the task's branch kept when it blocks or stops on the usage limit, where Try again starts from; on done it applies gates the task set up, closes the plan and wave, and opens an after-merge review when configured |
 | `POST /api/plans/{id}/preflight` | `{verdict: ready\|revise, notes, plan?}` → `{plan_status}` |
 | `POST /api/plans/{id}/smoke-test` | `{passed, report, checks, fixes}` → `{outcome: done\|fixing\|blocked}` |
 | `POST /api/events` | what running sessions are doing: `{project, events: [{task_id?, plan_id?, role, kind, text, at?}]}`; redacted, the newest 2,000 kept per task or plan |
