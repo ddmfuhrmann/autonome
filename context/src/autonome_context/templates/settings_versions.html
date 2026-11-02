@@ -2,6 +2,7 @@
 {% block title %}Settings · versions{% endblock %}
 {% block main %}
 {% if detail %}
+<p class="crumb"><a href="/ui/p/{{ project }}/settings">← Settings</a> · <a href="/ui/p/{{ project }}/settings/versions">Versions</a></p>
 <header class="page-head">
   <div class="page-head__text"><h1>Version {{ detail.version }}</h1>
     <p class="subtitle">{{ detail.created_at|when }}{% if detail.origin %} · {{ detail.origin }}{% endif %}{% if detail.note %} · {{ detail.note }}{% endif %}</p></div>
@@ -31,9 +32,9 @@
     <button class="btn btn--primary" type="submit">Restore as draft</button>
   </form>
   {% endif %}
-  <a class="btn btn--ghost" href="/ui/p/{{ project }}/settings/versions">Back</a>
 </div>
 {% else %}
+<p class="crumb"><a href="/ui/p/{{ project }}/settings">← Settings</a></p>
 <header class="page-head">
   <div class="page-head__text"><h1>Versions</h1>
     <p class="subtitle">Every save is a new version; none is overwritten.</p></div>
@@ -56,6 +57,5 @@
   {% endfor %}
   </tbody>
 </table>
-<p><a class="btn btn--ghost" href="/ui/p/{{ project }}/settings">Back</a></p>
 {% endif %}
 {% endblock %}

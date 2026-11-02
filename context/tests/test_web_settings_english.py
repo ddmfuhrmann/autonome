@@ -1,3 +1,5 @@
+import re
+
 from autonome_context.gates import FIELD_HELP, ROLE_GLOSS
 
 from test_web_settings import YAML, _fields, bare, client, saved  # noqa: F401  (fixtures)
@@ -53,6 +55,41 @@ def test_human_checkpoints_tell_hold_before_merge_from_review_after_merge(client
     assert "Hold before merge" in section and "Stops before merge until you approve. Blocks the queue." in section
     assert "Review after merge" in section and "Merges, then you review later. Never blocks." in section
     assert ">Features<" not in section
+
+
+def test_a_gate_with_three_globs_gets_a_three_row_when_box(client, project, saved):
+    saved(YAML.replace('when: ["src/**"]', 'when: ["a/**", "b/**", "c/**"]'))
+    text = client.get(f"/ui/p/{project}/settings").text
+    assert re.search(r'<textarea name="gates-1-when" rows="3"', text)
+    assert re.search(r'<textarea name="gates-0-when" rows="1"', text)
+
+
+def test_allowed_commands_box_has_a_row_per_command_and_at_least_two(client, project, saved):
+    saved(YAML)
+    assert re.search(r'<textarea id="f-allowed_commands" name="allowed_commands" rows="2"', client.get(f"/ui/p/{project}/settings").text)
+    saved(YAML + "allowed_commands: [uv, pnpm, node]\n")
+    assert re.search(r'<textarea id="f-allowed_commands" name="allowed_commands" rows="3"', client.get(f"/ui/p/{project}/settings").text)
+
+
+def test_triage_on_says_default_triage_off_and_offers_turn_off(client, project, saved):
+    saved(YAML + "triage: {model: jev-latest}\n")
+    text = client.get(f"/ui/p/{project}/settings").text
+    assert "default: triage off" in text and ">turn off</button>" in text
+    assert "default off" not in text.split('id="triage"')[1].split('id="smoke-test"')[0]
+
+
+def test_versions_links_back_to_settings_and_has_no_back_button(client, project, saved):
+    saved(YAML)
+    for path in ("/versions", "/versions/1"):
+        text = client.get(f"/ui/p/{project}/settings{path}").text
+        assert f'href="/ui/p/{project}/settings">← Settings</a>' in text
+        assert ">Back<" not in text
+
+
+def test_reset_is_a_bordered_small_button_not_a_link(client, project, saved):
+    saved(YAML)
+    text = client.get(f"/ui/p/{project}/settings").text
+    assert re.search(r'<button type="submit" class="btn btn--sm" name="reset" value="retries-max">reset</button>', text)
 
 
 def test_help_texts_have_no_portuguese():

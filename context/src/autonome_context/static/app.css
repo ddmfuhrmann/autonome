@@ -638,6 +638,26 @@ pre.mermaid { margin: 0; padding: 16px 0; background: none; border-top: 1px soli
 .page-head__title > .id { display: none; } /* the breadcrumb above already names it */
 
 /* ---------- 18. Settings: the gate config as a form ---------- */
+[hidden] { display: none !important; }
+.settings { display: block; }
+.crumb { margin: 0 0 8px; font-size: 13px; color: var(--faint); }
+.crumb a { color: var(--muted); }
+.crumb a:hover { color: var(--accent); }
+.ssec > h2 { font-size: 20px; font-weight: 600; color: var(--fg); margin: 0 0 4px; }
+.ssec__lead .sfield__key { display: inline; margin: 0 8px 0 0; }
+.sfield__default .btn--sm { border: 1px solid var(--line-2); background: transparent; color: var(--muted); min-height: 24px; padding: 0 8px; font-size: 12px; }
+.sfield__default .btn--sm:hover { color: var(--fg); background: var(--bg-3); }
+.srow__tools { opacity: 0; transition: opacity .12s; }
+.srow:hover .srow__tools, .srow:focus-within .srow__tools { opacity: 1; }
+@media (hover: none) { .srow__tools { opacity: 1; } }
+.seg--links { align-items: center; }
+.schanges { margin: 0 0 14px; padding: 0; list-style: none; color: var(--fg-2); font-size: 14px; }
+.schanges li { position: relative; padding: 3px 0 3px 16px; }
+.schanges li::before { content: "•"; position: absolute; left: 2px; color: var(--accent); }
+.sdiff { padding: 8px 0; overflow-x: auto; white-space: pre; background: var(--bg-2); border-radius: 10px; font: 12.5px/1.6 var(--code); }
+.sdiff__add { background: var(--diff-add-bg); color: var(--diff-add-fg); }
+.sdiff__del { background: var(--diff-del-bg); color: var(--diff-del-fg); }
+.sdiff__ctx { color: var(--muted); }
 .sbar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 6px 0 14px; color: var(--muted); font-size: 14px; }
 .sbar__version strong { color: var(--fg); }
 .sbar .seg { margin-left: auto; }

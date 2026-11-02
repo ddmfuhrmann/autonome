@@ -20,7 +20,7 @@
     {%- elif kind == 'seg' -%}
     <div class="seg" id="f-{{ key }}" role="radiogroup" aria-label="{{ label }}">{% for o in options %}<label class="seg__opt"><input type="radio" name="{{ key }}" value="{{ o }}"{% if o == value %} checked{% endif %}><span>{{ o }}</span></label>{% endfor %}</div>
     {%- elif kind == 'lines' -%}
-    <textarea id="f-{{ key }}" name="{{ key }}" rows="3" spellcheck="false">{{ value }}</textarea>
+    <textarea id="f-{{ key }}" name="{{ key }}" rows="{{ [value.splitlines()|length, 2]|max }}" spellcheck="false">{{ value }}</textarea>
     {%- elif kind == 'chips' -%}
     <div class="chips" data-chips="f-{{ key }}">{% for c in chips[path.split('.')[0]] %}<span class="chip">{{ c }}</span>{% endfor %}</div>
     <input type="text" id="f-{{ key }}" name="{{ key }}" value="{{ value|replace('\n', ', ') }}" list="features-list" placeholder="feature-slug, other-feature" autocomplete="off">
@@ -28,7 +28,8 @@
     <input type="{{ 'number' if kind == 'number' else 'text' }}"{% if kind == 'number' %} step="any"{% endif %} id="f-{{ key }}" name="{{ key }}" value="{{ value }}">
     {%- endif %}
     {% if errors[key] %}<p class="sfield__error">{{ errors[key] }}</p>{% endif %}
-    {% if changed %}<p class="sfield__default">default {% if kind == 'check' %}{{ 'on' if d else 'off' }}{% else %}{{ (d|replace('\n', ', ')) or 'empty' }}{% endif %} · <button type="submit" class="btn btn--link btn--sm" name="reset" value="{{ key }}">reset</button></p>{% endif %}
+    {% if changed %}<p class="sfield__default">{% if key == 'triage-model' %}default: triage off · <button type="submit" class="btn btn--sm" name="reset" value="{{ key }}">turn off</button>
+      {%- else %}default {% if kind == 'check' %}{{ 'on' if d else 'off' }}{% else %}{{ (d|replace('\n', ', ')) or 'empty' }}{% endif %} · <button type="submit" class="btn btn--sm" name="reset" value="{{ key }}">reset</button>{% endif %}</p>{% endif %}
   </div>
 </div>
 {%- endmacro %}
@@ -57,7 +58,7 @@ srow srow--{{ prefix if prefix != 'smoke_test-checks' else 'checks' }}{% if (pre
   <input class="mono" name="gates-{{ i }}-run" value="{{ g.run }}" aria-label="Gate command" placeholder="command">
   <select name="gates-{{ i }}-mode" aria-label="Mode">{% for m in ('block', 'fix') %}<option{% if g.mode == m %} selected{% endif %}>{{ m }}</option>{% endfor %}</select>
   <label class="srow__check"><input type="checkbox" name="gates-{{ i }}-fast" value="on"{% if g.fast %} checked{% endif %}> fast</label>
-  <textarea name="gates-{{ i }}-when" rows="1" spellcheck="false" aria-label="when: globs, one per line" placeholder="when">{{ g.when }}</textarea>
+  <textarea name="gates-{{ i }}-when" rows="{{ [(g.when or '').splitlines()|length, 1]|max }}"spellcheck="false" aria-label="when: globs, one per line" placeholder="when">{{ g.when }}</textarea>
   <input type="number" name="gates-{{ i }}-timeout_s" value="{{ g.timeout_s }}" aria-label="Timeout (s)">
   {{ row_tools('gates', i) }}
   {{ row_errors('gates', i) }}
@@ -242,7 +243,7 @@ srow srow--{{ prefix if prefix != 'smoke_test-checks' else 'checks' }}{% if (pre
         {% set changed = form['models-' ~ role ~ '-model'] != defaults['models-' ~ role ~ '-model'] or form['models-' ~ role ~ '-effort'] != defaults['models-' ~ role ~ '-effort'] or form['models-' ~ role ~ '-fallback'] != defaults['models-' ~ role ~ '-fallback'] %}
         <div class="srow srow--agents{% if changed %} is-changed{% endif %}{% if ('models-' ~ role) in bad_rows %} has-error{% endif %}" id="f-models-{{ role }}">
           <span class="srow__role"><strong>{{ role }}</strong><span class="sfield__help">{{ gloss }}</span>
-            {% if changed %}<span class="sfield__default">default {{ defaults['models-' ~ role ~ '-model'] }} · {{ defaults['models-' ~ role ~ '-effort'] }} · <button type="submit" class="btn btn--link btn--sm" name="reset" value="models-{{ role }}">reset</button></span>{% endif %}</span>
+            {% if changed %}<span class="sfield__default">default {{ defaults['models-' ~ role ~ '-model'] }} · {{ defaults['models-' ~ role ~ '-effort'] }} · <button type="submit" class="btn btn--sm" name="reset" value="models-{{ role }}">reset</button></span>{% endif %}</span>
           <input id="f-models-{{ role }}-model" name="models-{{ role }}-model" value="{{ form['models-' ~ role ~ '-model'] }}" aria-label="Model of {{ role }}">
           <select id="f-models-{{ role }}-effort" name="models-{{ role }}-effort" aria-label="Effort of {{ role }}">{% for e in ('low', 'medium', 'high', 'xhigh', 'max') %}<option{% if e == form['models-' ~ role ~ '-effort'] %} selected{% endif %}>{{ e }}</option>{% endfor %}</select>
           <input id="f-models-{{ role }}-fallback" name="models-{{ role }}-fallback" value="{{ form['models-' ~ role ~ '-fallback'] }}" aria-label="Fallback of {{ role }}" placeholder="none">
