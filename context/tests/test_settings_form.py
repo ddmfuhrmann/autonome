@@ -120,9 +120,9 @@ def test_extra_checks_each():
         "budget": {"task_tokens": 0},
     })
     errors = extra_checks(cfg, CATALOG)
-    assert errors["gates-0-run"] == "Obrigatório. Um gate precisa de um comando."
-    assert "repetido" in errors["gates-1-name"]
-    assert "controle" in errors["gates-2-name"]
+    assert errors["gates-0-run"] == "Required. A gate needs a command."
+    assert "Duplicate name" in errors["gates-1-name"]
+    assert "control character" in errors["gates-2-name"]
     assert "gates-3-name" in errors
     assert "schedules-0-run" in errors and "schedules-1-run" not in errors
     assert "nope" in errors["hold_before_merge-features"] and "ui" not in errors["hold_before_merge-features"]
@@ -146,9 +146,22 @@ def test_field_changes_gates():
                                                {"name": "migrations", "run": "m"}]})
     changes = field_changes(old, new)
     assert "Gate pytest: timeout 900 → 300" in changes
-    assert "Gate migrations adicionado" in changes
-    assert "Gate old removido" in changes
+    assert "Gate migrations added" in changes
+    assert "Gate old removed" in changes
     assert field_changes(new, new) == []
+
+
+def test_field_changes_in_english():
+    old = GateConfig.model_validate({"budget": {"task_tokens": 400000}})
+    new = GateConfig.model_validate({"budget": {"task_tokens": 1000000},
+                                     "gates": [{"name": "plugin-version", "run": "x"}]})
+    changes = field_changes(old, new)
+    assert "Gate plugin-version added" in changes
+    assert "budget.task_tokens: 400000 → 1000000" in changes
+    assert "Gate plugin-version removed" in field_changes(new, old)
+    with_triage = GateConfig.model_validate({"triage": {"reject_at": 0.5}})
+    assert any(c.endswith("(new)") for c in field_changes(GateConfig(), with_triage))
+    assert any(c.endswith("→ removed") for c in field_changes(with_triage, GateConfig()))
 
 
 def test_field_changes_other_fields():
@@ -157,9 +170,9 @@ def test_field_changes_other_fields():
                                      "models": {"docs": {"model": "haiku", "effort": "low"}}})
     changes = field_changes(old, new)
     assert "permissions: allowlist → auto" in changes
-    assert "retro_after_wave: sim → não" in changes
+    assert "retro_after_wave: yes → no" in changes
     assert any(c.startswith("triage.model: jev-latest") for c in changes)
-    assert "Modelo docs: model: sonnet → haiku" in changes
+    assert "Model docs: model: sonnet → haiku" in changes
     assert field_changes(None, GateConfig()) == []
 
 
@@ -188,7 +201,7 @@ def test_every_undescribed_field_has_help():
         if norm not in FIELD_HELP:
             missing.append(key)
     assert missing == []
-    assert "permissions" in FIELD_HELP and "classificador" in FIELD_HELP["permissions"][1]
+    assert "permissions" in FIELD_HELP and "classifier" in FIELD_HELP["permissions"][1]
 
 
 def test_role_gloss_covers_every_role():

@@ -103,8 +103,8 @@ def _number(text: str, field: str, errors: dict[str, str], *, kind: type = int, 
             return int(float(text[:-1].replace(",", ".")) * _UNITS[text[-1].lower()])
         return int(text)
     except (ValueError, OverflowError):  # OverflowError: int(inf) from `infk` or `1e999k`
-        errors[field] = ("Número, como 0.7." if kind is float else
-                         "Número inválido. Use 400000, 400k ou 3M." if units else "Número inteiro.")
+        errors[field] = ("A number, like 0.7." if kind is float else
+                         "Not a valid number. Use 400000, 400k or 3M." if units else "A whole number.")
         return None
 
 
@@ -239,7 +239,7 @@ def form_to_config(form: Mapping[str, str | list[str]], catalog: set[str]) -> tu
     except ValidationError as e:
         for err in e.errors():
             field = _remap(_field_name(err["loc"]), index_map)
-            errors.setdefault(field, "Obrigatório." if err["type"] == "missing" else err["msg"])
+            errors.setdefault(field, "Required." if err["type"] == "missing" else err["msg"])
         return {}, errors
     for field, message in extra_checks(cfg, catalog).items():
         errors.setdefault(_remap(field, index_map), message)
@@ -256,24 +256,24 @@ def extra_checks(cfg: GateConfig, catalog: set[str]) -> dict[str, str]:
     seen: set[str] = set()
     for i, g in enumerate(cfg.gates):
         if not g.run.strip():
-            errors[f"gates-{i}-run"] = "Obrigatório. Um gate precisa de um comando."
+            errors[f"gates-{i}-run"] = "Required. A gate needs a command."
         if not g.name.strip():
-            errors[f"gates-{i}-name"] = "Obrigatório. Dê um nome ao gate."
+            errors[f"gates-{i}-name"] = "Required. Give the gate a name."
         elif _bad_name(g.name):
-            errors[f"gates-{i}-name"] = "O nome tem um caractere de controle."
+            errors[f"gates-{i}-name"] = "The name has a control character."
         elif g.name in seen:
-            errors[f"gates-{i}-name"] = f"Nome repetido: {g.name}."
+            errors[f"gates-{i}-name"] = f"Duplicate name: {g.name}."
         seen.add(g.name)
     for i, s in enumerate(cfg.schedules):
         if s.kind == "command" and not (s.run or "").strip():
-            errors[f"schedules-{i}-run"] = "Obrigatório. Um schedule do tipo command precisa de um comando."
+            errors[f"schedules-{i}-run"] = "Required. A schedule of kind command needs a command."
     for section, features in (("hold_before_merge", cfg.hold_before_merge.features),
                               ("review_after_merge", cfg.review_after_merge.features)):
         if unknown := [f for f in features if f not in catalog]:
-            errors[f"{section}-features"] = f"Feature fora do catálogo: {', '.join(unknown)}."
+            errors[f"{section}-features"] = f"Feature not in the catalog: {', '.join(unknown)}."
     for f in _BUDGET_FIELDS:
         if getattr(cfg.budget, f) <= 0:
-            errors[f"budget-{f}"] = "Precisa ser maior que zero."
+            errors[f"budget-{f}"] = "Must be greater than zero."
     return errors
 
 
@@ -286,10 +286,10 @@ def _flatten(value: Any, path: str = "") -> dict[str, Any]:
 
 def _fmt(v: Any) -> str:
     if isinstance(v, bool):
-        return "sim" if v else "não"
+        return "yes" if v else "no"
     if isinstance(v, list):
-        return ", ".join(map(str, v)) or "vazio"
-    return str(v) if str(v) != "" else "vazio"
+        return ", ".join(map(str, v)) or "empty"
+    return str(v) if str(v) != "" else "empty"
 
 
 def _diff(label: str, old: dict[str, Any], new: dict[str, Any], name_of=lambda p: p, sep: str = ": ") -> list[str]:
@@ -301,9 +301,9 @@ def _diff(label: str, old: dict[str, Any], new: dict[str, Any], name_of=lambda p
             if o != n:
                 out.append(f"{head}{_fmt(o)} → {_fmt(n)}")
         elif path in new:
-            out.append(f"{head}{_fmt(n)} (novo)")
+            out.append(f"{head}{_fmt(n)} (new)")
         else:
-            out.append(f"{head}{_fmt(o)} → removido")
+            out.append(f"{head}{_fmt(o)} → removed")
     return out
 
 
@@ -312,20 +312,20 @@ def _item_changes(kind: str, old: list[dict], new: list[dict]) -> list[str]:
     out = []
     for name, item in new_by.items():
         if name not in old_by:
-            out.append(f"{kind} {name} adicionado")
+            out.append(f"{kind} {name} added")
         else:
             out += _diff(f"{kind} {name}: ", _flatten(old_by[name]), _flatten(item),
                          lambda p: "timeout" if p == "timeout_s" else p, sep=" ")
-    out += [f"{kind} {name} removido" for name in old_by if name not in new_by]
+    out += [f"{kind} {name} removed" for name in old_by if name not in new_by]
     kept_old = [n for n in old_by if n in new_by]
     if kept_old != [n for n in new_by if n in old_by]:
-        out.append(f"Ordem de {kind.lower()}s mudou")
+        out.append(f"{kind} order changed")
     return out
 
 
 def _label(path: str) -> str:
     _, role, field = path.split(".")
-    return f"Modelo {role}: {field}"
+    return f"Model {role}: {field}"
 
 
 def field_changes(old: GateConfig | None, new: GateConfig) -> list[str]:

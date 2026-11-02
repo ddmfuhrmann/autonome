@@ -23,12 +23,12 @@
     <textarea id="f-{{ key }}" name="{{ key }}" rows="3" spellcheck="false">{{ value }}</textarea>
     {%- elif kind == 'chips' -%}
     <div class="chips" data-chips="f-{{ key }}">{% for c in chips[path.split('.')[0]] %}<span class="chip">{{ c }}</span>{% endfor %}</div>
-    <input type="text" id="f-{{ key }}" name="{{ key }}" value="{{ value|replace('\n', ', ') }}" list="features-list" placeholder="feature-slug, outra-feature" autocomplete="off">
+    <input type="text" id="f-{{ key }}" name="{{ key }}" value="{{ value|replace('\n', ', ') }}" list="features-list" placeholder="feature-slug, other-feature" autocomplete="off">
     {%- else -%}
     <input type="{{ 'number' if kind == 'number' else 'text' }}"{% if kind == 'number' %} step="any"{% endif %} id="f-{{ key }}" name="{{ key }}" value="{{ value }}">
     {%- endif %}
     {% if errors[key] %}<p class="sfield__error">{{ errors[key] }}</p>{% endif %}
-    {% if changed %}<p class="sfield__default">default {% if kind == 'check' %}{{ 'ligado' if d else 'desligado' }}{% else %}{{ (d|replace('\n', ', ')) or 'vazio' }}{% endif %} · <button type="submit" class="btn btn--link btn--sm" name="reset" value="{{ key }}">reset</button></p>{% endif %}
+    {% if changed %}<p class="sfield__default">default {% if kind == 'check' %}{{ 'on' if d else 'off' }}{% else %}{{ (d|replace('\n', ', ')) or 'empty' }}{% endif %} · <button type="submit" class="btn btn--link btn--sm" name="reset" value="{{ key }}">reset</button></p>{% endif %}
   </div>
 </div>
 {%- endmacro %}
@@ -37,9 +37,9 @@
 
 {% macro row_tools(prefix, i) -%}
 <span class="srow__tools">
-  <button type="submit" class="btn btn--ghost btn--sm" name="move" value="{{ prefix }}-{{ i }}-up" aria-label="Subir" data-move="-1">↑</button>
-  <button type="submit" class="btn btn--ghost btn--sm" name="move" value="{{ prefix }}-{{ i }}-down" aria-label="Descer" data-move="1">↓</button>
-  <button type="submit" class="btn btn--danger btn--sm" name="remove" value="{{ prefix }}-{{ i }}" aria-label="Remover" data-remove>×</button>
+  <button type="submit" class="btn btn--ghost btn--sm" name="move" value="{{ prefix }}-{{ i }}-up" aria-label="Move up" data-move="-1">↑</button>
+  <button type="submit" class="btn btn--ghost btn--sm" name="move" value="{{ prefix }}-{{ i }}-down" aria-label="Move down" data-move="1">↓</button>
+  <button type="submit" class="btn btn--danger btn--sm" name="remove" value="{{ prefix }}-{{ i }}" aria-label="Remove" data-remove>×</button>
 </span>
 {%- endmacro %}
 
@@ -53,11 +53,11 @@ srow srow--{{ prefix if prefix != 'smoke_test-checks' else 'checks' }}{% if (pre
 
 {% macro gate_row(i, g) -%}
 <div class="{{ row_class('gates', i) }}" id="f-gates-{{ i }}" data-row>
-  <input name="gates-{{ i }}-name" value="{{ g.name }}" aria-label="Nome do gate" placeholder="nome">
-  <input class="mono" name="gates-{{ i }}-run" value="{{ g.run }}" aria-label="Comando do gate" placeholder="comando">
-  <select name="gates-{{ i }}-mode" aria-label="Modo">{% for m in ('block', 'fix') %}<option{% if g.mode == m %} selected{% endif %}>{{ m }}</option>{% endfor %}</select>
+  <input name="gates-{{ i }}-name" value="{{ g.name }}" aria-label="Gate name" placeholder="name">
+  <input class="mono" name="gates-{{ i }}-run" value="{{ g.run }}" aria-label="Gate command" placeholder="command">
+  <select name="gates-{{ i }}-mode" aria-label="Mode">{% for m in ('block', 'fix') %}<option{% if g.mode == m %} selected{% endif %}>{{ m }}</option>{% endfor %}</select>
   <label class="srow__check"><input type="checkbox" name="gates-{{ i }}-fast" value="on"{% if g.fast %} checked{% endif %}> fast</label>
-  <textarea name="gates-{{ i }}-when" rows="1" spellcheck="false" aria-label="when: globs, um por linha" placeholder="when">{{ g.when }}</textarea>
+  <textarea name="gates-{{ i }}-when" rows="1" spellcheck="false" aria-label="when: globs, one per line" placeholder="when">{{ g.when }}</textarea>
   <input type="number" name="gates-{{ i }}-timeout_s" value="{{ g.timeout_s }}" aria-label="Timeout (s)">
   {{ row_tools('gates', i) }}
   {{ row_errors('gates', i) }}
@@ -66,11 +66,11 @@ srow srow--{{ prefix if prefix != 'smoke_test-checks' else 'checks' }}{% if (pre
 
 {% macro schedule_row(i, s) -%}
 <div class="{{ row_class('schedules', i) }}" id="f-schedules-{{ i }}" data-row>
-  <input name="schedules-{{ i }}-name" value="{{ s.name }}" aria-label="Nome do schedule" placeholder="nome">
-  <select name="schedules-{{ i }}-kind" aria-label="Tipo">{% for k in ('command', 'doc-drift', 'main-red') %}<option{% if s.kind == k %} selected{% endif %}>{{ k }}</option>{% endfor %}</select>
-  <input type="number" name="schedules-{{ i }}-every_hours" value="{{ s.every_hours }}" aria-label="A cada (horas)">
-  <input class="mono" name="schedules-{{ i }}-run" value="{{ s.run }}" aria-label="Comando" placeholder="comando (kind command)">
-  <input name="schedules-{{ i }}-task" value="{{ s.task }}" aria-label="Título da task" placeholder="título da task">
+  <input name="schedules-{{ i }}-name" value="{{ s.name }}" aria-label="Schedule name" placeholder="name">
+  <select name="schedules-{{ i }}-kind" aria-label="Kind">{% for k in ('command', 'doc-drift', 'main-red') %}<option{% if s.kind == k %} selected{% endif %}>{{ k }}</option>{% endfor %}</select>
+  <input type="number" name="schedules-{{ i }}-every_hours" value="{{ s.every_hours }}" aria-label="Every (hours)">
+  <input class="mono" name="schedules-{{ i }}-run" value="{{ s.run }}" aria-label="Command" placeholder="command (kind command)">
+  <input name="schedules-{{ i }}-task" value="{{ s.task }}" aria-label="Task title" placeholder="task title">
   {{ row_tools('schedules', i) }}
   {{ row_errors('schedules', i) }}
 </div>
@@ -78,8 +78,8 @@ srow srow--{{ prefix if prefix != 'smoke_test-checks' else 'checks' }}{% if (pre
 
 {% macro check_row(i, c) -%}
 <div class="{{ row_class('smoke_test-checks', i) }}" id="f-smoke_test-checks-{{ i }}" data-row>
-  <input name="smoke_test-checks-{{ i }}-name" value="{{ c.name }}" aria-label="Nome do check" placeholder="nome">
-  <input class="mono" name="smoke_test-checks-{{ i }}-run" value="{{ c.run }}" aria-label="Comando do check" placeholder="comando">
+  <input name="smoke_test-checks-{{ i }}-name" value="{{ c.name }}" aria-label="Check name" placeholder="name">
+  <input class="mono" name="smoke_test-checks-{{ i }}-run" value="{{ c.run }}" aria-label="Check command" placeholder="command">
   <input type="number" name="smoke_test-checks-{{ i }}-timeout_s" value="{{ c.timeout_s }}" aria-label="Timeout (s)">
   {{ row_tools('smoke_test-checks', i) }}
   {{ row_errors('smoke_test-checks', i) }}
@@ -96,7 +96,7 @@ srow srow--{{ prefix if prefix != 'smoke_test-checks' else 'checks' }}{% if (pre
     <template data-tpl>{{ row('__N__', empty) }}</template>
   </div>
 </div>
-<p class="srows__add"><button type="button" class="btn btn--sm" data-add="{{ prefix }}" hidden>+ Adicionar {{ noun }}</button></p>
+<p class="srows__add"><button type="button" class="btn btn--sm" data-add="{{ prefix }}" hidden>+ Add {{ noun }}</button></p>
 {%- endmacro %}
 
 <header class="page-head">
@@ -106,8 +106,8 @@ srow srow--{{ prefix if prefix != 'smoke_test-checks' else 'checks' }}{% if (pre
 
 <div class="sbar">
   <span class="sbar__version">{% if doc %}<strong>v{{ doc.version }}</strong> · {{ doc.updated_at|when }}{% if origin %} · {{ origin }}{% endif %}{% else %}not saved yet: defaults below{% endif %}</span>
-  <a class="btn btn--link" href="/ui/p/{{ project }}/settings/versions">Versões</a>
-  <span class="seg seg--links" role="group" aria-label="Visão">
+  <a class="btn btn--link" href="/ui/p/{{ project }}/settings/versions">Versions</a>
+  <span class="seg seg--links" role="group" aria-label="View">
     {% if view == 'form' %}
     <span class="seg__opt is-on" aria-current="page"><span>Form</span></span>
     <button type="submit" form="settings-form" class="seg__opt" name="action" value="view_yaml"><span>YAML</span></button>
@@ -123,7 +123,7 @@ srow srow--{{ prefix if prefix != 'smoke_test-checks' else 'checks' }}{% if (pre
 {% if notice %}<div class="callout callout--ok"><div class="wrap">{{ notice }}</div></div>{% endif %}
 {% if problems %}
 <div class="callout callout--block" id="problems"><div class="wrap">
-  <strong>{{ problems|length }} {{ 'problema impede' if problems|length == 1 else 'problemas impedem' }} salvar.</strong>
+  <strong>{{ problems|length }} {{ 'problem prevents' if problems|length == 1 else 'problems prevent' }} saving.</strong>
   <ul class="sproblems">{% for p in problems %}<li><a href="#{{ p.anchor }}"><code>{{ p.key }}</code></a> {{ p.message }}</li>{% endfor %}</ul>
 </div></div>
 {% endif %}
@@ -146,7 +146,7 @@ srow srow--{{ prefix if prefix != 'smoke_test-checks' else 'checks' }}{% if (pre
   </div>
 </form>
 {% else %}
-<nav class="snav" aria-label="Seções">{% for s in sections %}<a href="#{{ s|lower|replace(' ', '-') }}">{{ s }}{% if s in bad_sections %}<span class="sdot sdot--bad" title="tem erro"></span>{% elif s in changed_sections %}<span class="sdot" title="mudou"></span>{% endif %}</a>{% endfor %}</nav>
+<nav class="snav" aria-label="Sections">{% for s in sections %}<a href="#{{ s|lower|replace(' ', '-') }}">{{ s }}{% if s in bad_sections %}<span class="sdot sdot--bad" title="has an error"></span>{% elif s in changed_sections %}<span class="sdot" title="changed"></span>{% endif %}</a>{% endfor %}</nav>
 
 <datalist id="features-list">{% for slug in features %}<option value="{{ slug }}">{% endfor %}</datalist>
 
@@ -156,14 +156,14 @@ srow srow--{{ prefix if prefix != 'smoke_test-checks' else 'checks' }}{% if (pre
     <h2>Gates</h2>
     <p class="ssec__lead"><code class="sfield__key">gates</code>{{ info['gates'][1] }}</p>
     {{ rows('gates', gates, gate_row, {'name': '', 'run': '', 'mode': 'block', 'fast': '', 'when': '', 'timeout_s': '900'},
-            ('Nome', 'Comando', 'Modo', 'Fast', 'when', 'Timeout (s)'), 'gate') }}
+            ('Name', 'Command', 'Mode', 'Fast', 'when', 'Timeout (s)'), 'gate') }}
     {% if pending %}
     <div class="spending">
-      <h3>Vão entrar</h3>
+      <h3>Coming in</h3>
       {% for g in pending %}
       <div class="srow srow--pending">
         <span class="mono">{{ g.name }}</span><span class="mono">{{ g.run }}</span>
-        <span class="muted">plano #{{ g.plan_id }} · entra quando #{{ g.task_id }} for mergeada</span>
+        <span class="muted">plan #{{ g.plan_id }} · comes in when #{{ g.task_id }} is merged</span>
       </div>
       {% endfor %}
     </div>
@@ -198,11 +198,11 @@ srow srow--{{ prefix if prefix != 'smoke_test-checks' else 'checks' }}{% if (pre
     <h2>Triage</h2>
     <p class="ssec__lead"><code class="sfield__key">triage</code>{{ info['triage'][1] }}</p>
     {% if runner_status %}
-    <p class="ssec__lead" id="triage-key">Key do Jev:
-      {% if runner_status.state == 'found' %}<strong>encontrada</strong>
-      {% elif runner_status.state == 'missing' %}<span class="callout callout--hold"><strong>faltando</strong> — o triage está ligado mas o runner não achou a key; todo deviation vai para você. A key é lida do ambiente do runner e nunca guardada aqui.</span>
-      {% elif runner_status.state == 'stale' %}runner não visto desde {{ runner_status.seen_at|when }}
-      {% else %}<strong>desconhecida</strong> — o runner ainda não reportou.{% endif %}
+    <p class="ssec__lead" id="triage-key">Jev key:
+      {% if runner_status.state == 'found' %}<strong>found</strong>
+      {% elif runner_status.state == 'missing' %}<span class="callout callout--hold"><strong>missing</strong> — triage is on but the runner did not find the key; every deviation goes to you. The key is read from the runner's environment and never stored here.</span>
+      {% elif runner_status.state == 'stale' %}runner not seen since {{ runner_status.seen_at|when }}
+      {% else %}<strong>unknown</strong> — the runner has not reported yet.{% endif %}
     </p>
     {% endif %}
     {{ field('triage-model', 'triage.model', 'select', ('jev-latest', 'haiku', 'off')) }}
@@ -213,7 +213,7 @@ srow srow--{{ prefix if prefix != 'smoke_test-checks' else 'checks' }}{% if (pre
 
   <section class="ssec{{ sec('Smoke test') }}" id="smoke-test">
     <h2>Smoke test</h2>
-    <p class="ssec__lead"><code class="sfield__key">smoke_test</code>{{ info['smoke_test'][1] }} Deixe up, down e url vazios para não usar.</p>
+    <p class="ssec__lead"><code class="sfield__key">smoke_test</code>{{ info['smoke_test'][1] }} Leave up, down and url empty to not use it.</p>
     {{ field('smoke_test-up', 'smoke_test.up') }}
     {{ field('smoke_test-down', 'smoke_test.down') }}
     {{ field('smoke_test-url', 'smoke_test.url') }}
@@ -222,14 +222,14 @@ srow srow--{{ prefix if prefix != 'smoke_test-checks' else 'checks' }}{% if (pre
     {{ field('smoke_test-max_fixes', 'smoke_test.max_fixes', 'number') }}
     <h3 class="ssec__sub"><code class="sfield__key">smoke_test.checks</code>{{ info['smoke_test.checks'][1] }}</h3>
     {{ rows('smoke_test-checks', checks, check_row, {'name': '', 'run': '', 'timeout_s': '900'},
-            ('Nome', 'Comando', 'Timeout (s)'), 'check') }}
+            ('Name', 'Command', 'Timeout (s)'), 'check') }}
   </section>
 
   <section class="ssec{{ sec('Schedules') }}" id="schedules">
     <h2>Schedules</h2>
     <p class="ssec__lead"><code class="sfield__key">schedules</code>{{ info['schedules'][1] }}</p>
     {{ rows('schedules', schedules, schedule_row, {'name': '', 'kind': 'command', 'every_hours': '24', 'run': '', 'task': ''},
-            ('Nome', 'Tipo', 'A cada (h)', 'Comando', 'Task'), 'schedule') }}
+            ('Name', 'Kind', 'Every (h)', 'Command', 'Task'), 'schedule') }}
   </section>
 
   <section class="ssec{{ sec('Agents') }}" id="agents">
@@ -237,15 +237,15 @@ srow srow--{{ prefix if prefix != 'smoke_test-checks' else 'checks' }}{% if (pre
     <p class="ssec__lead"><code class="sfield__key">models</code>{{ info['models'][1] }}</p>
     <div class="sbox">
       <div class="sgrid">
-        <div class="srow srow--agents srow--head" aria-hidden="true"><span>Papel</span><span>Modelo</span><span>Esforço</span><span>Fallback</span></div>
+        <div class="srow srow--agents srow--head" aria-hidden="true"><span>Role</span><span>Model</span><span>Effort</span><span>Fallback</span></div>
         {% for role, gloss in roles %}
         {% set changed = form['models-' ~ role ~ '-model'] != defaults['models-' ~ role ~ '-model'] or form['models-' ~ role ~ '-effort'] != defaults['models-' ~ role ~ '-effort'] or form['models-' ~ role ~ '-fallback'] != defaults['models-' ~ role ~ '-fallback'] %}
         <div class="srow srow--agents{% if changed %} is-changed{% endif %}{% if ('models-' ~ role) in bad_rows %} has-error{% endif %}" id="f-models-{{ role }}">
           <span class="srow__role"><strong>{{ role }}</strong><span class="sfield__help">{{ gloss }}</span>
             {% if changed %}<span class="sfield__default">default {{ defaults['models-' ~ role ~ '-model'] }} · {{ defaults['models-' ~ role ~ '-effort'] }} · <button type="submit" class="btn btn--link btn--sm" name="reset" value="models-{{ role }}">reset</button></span>{% endif %}</span>
-          <input id="f-models-{{ role }}-model" name="models-{{ role }}-model" value="{{ form['models-' ~ role ~ '-model'] }}" aria-label="Modelo de {{ role }}">
-          <select id="f-models-{{ role }}-effort" name="models-{{ role }}-effort" aria-label="Esforço de {{ role }}">{% for e in ('low', 'medium', 'high', 'xhigh', 'max') %}<option{% if e == form['models-' ~ role ~ '-effort'] %} selected{% endif %}>{{ e }}</option>{% endfor %}</select>
-          <input id="f-models-{{ role }}-fallback" name="models-{{ role }}-fallback" value="{{ form['models-' ~ role ~ '-fallback'] }}" aria-label="Fallback de {{ role }}" placeholder="nenhum">
+          <input id="f-models-{{ role }}-model" name="models-{{ role }}-model" value="{{ form['models-' ~ role ~ '-model'] }}" aria-label="Model of {{ role }}">
+          <select id="f-models-{{ role }}-effort" name="models-{{ role }}-effort" aria-label="Effort of {{ role }}">{% for e in ('low', 'medium', 'high', 'xhigh', 'max') %}<option{% if e == form['models-' ~ role ~ '-effort'] %} selected{% endif %}>{{ e }}</option>{% endfor %}</select>
+          <input id="f-models-{{ role }}-fallback" name="models-{{ role }}-fallback" value="{{ form['models-' ~ role ~ '-fallback'] }}" aria-label="Fallback of {{ role }}" placeholder="none">
           {% for k, m in errors.items() if k.startswith('models-' ~ role ~ '-') %}<p class="sfield__error srow__error">{{ m }}</p>{% endfor %}
         </div>
         {% endfor %}

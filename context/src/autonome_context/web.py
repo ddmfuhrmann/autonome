@@ -909,7 +909,7 @@ def _parse_yaml(text: str, catalog: set[str]) -> tuple[GateConfig | None, str | 
         mark = getattr(e, "problem_mark", None)
         line = mark.line + 1 if mark else None
         problem = getattr(e, "problem", None) or str(e)
-        return None, f"YAML inválido{f' na linha {line}' if line else ''}: {problem}", line, {}
+        return None, f"Invalid YAML{f' at line {line}' if line else ''}: {problem}", line, {}
     except Exception as e:  # schema error
         return None, str(e), None, {}
     return cfg, None, None, settings_form.extra_checks(cfg, catalog)
@@ -918,9 +918,9 @@ def _parse_yaml(text: str, catalog: set[str]) -> tuple[GateConfig | None, str | 
 def _version_origin(body: dict) -> str | None:
     source = body.get("source")
     if source == "human":
-        return "você"
+        return "you"
     if isinstance(source, dict) and source.get("plan_id"):
-        return f"plano #{source['plan_id']}"
+        return f"plan #{source['plan_id']}"
     return None
 
 
@@ -929,9 +929,9 @@ NOTE_MAX = 500
 
 def _note_error(note: str) -> str | None:
     if len(note) > NOTE_MAX:
-        return f"A nota tem {len(note)} caracteres; o máximo é {NOTE_MAX}."
+        return f"The note has {len(note)} characters; the maximum is {NOTE_MAX}."
     if settings_form._bad_name(note):
-        return "A nota tem um caractere de controle."
+        return "The note has a control character."
     return None
 
 
@@ -953,7 +953,7 @@ def _review_context(doc: dict | None, new_cfg: GateConfig, text: str, origin: st
     new_text = _canonical(new_cfg)
     changes = settings_form.field_changes(old_cfg, new_cfg) if old_cfg or not doc else []
     diff = list(difflib.unified_diff(old_text.splitlines(), new_text.splitlines(),
-                                     f"v{doc['version']}" if doc else "defaults", "rascunho", lineterm=""))
+                                     f"v{doc['version']}" if doc else "defaults", "draft", lineterm=""))
     return {"changes": changes, "diff": diff, "text": text, "origin": origin, "note": note,
             "note_error": note_error, "stale": stale, "base_version": doc["version"] if doc else 0,
             "nothing_changed": bool(doc) and not changes and not diff, "doc": doc}
@@ -1021,7 +1021,7 @@ async def settings_page(request: Request) -> Response:
                     origin = "form" if data.get("origin") == "form" else "yaml"
                     review = (parsed, text, origin)
                 elif parsed is not None:
-                    notice = "Válido. Nada foi salvo."
+                    notice = "Valid. Nothing was saved."
             else:
                 posted, view = _apply_row_buttons(_posted(data), settings_form.config_to_form(GateConfig())), "form"
                 draft_dict, errors = settings_form.form_to_config(posted, set(catalog))
@@ -1031,7 +1031,7 @@ async def settings_page(request: Request) -> Response:
                     cfg = GateConfig.model_validate(draft_dict)
                     review = (cfg, yaml.safe_dump(draft_dict, sort_keys=False, allow_unicode=True), "form")
                 elif not errors and action == "validate":
-                    notice = "Válido. Nada foi salvo."
+                    notice = "Valid. Nothing was saved."
             if review is not None:
                 note = str(data.get("note", ""))
                 base_version = str(data.get("base_version", ""))
@@ -1117,7 +1117,7 @@ def _version_rows(versions: list[dict]) -> list[dict]:
         elif prev is None:
             changes = settings_form.field_changes(None, cfg)
         elif prev[1] is None:
-            changes = ["a versão anterior não lê no schema atual"]
+            changes = ["the previous version does not read in the current schema"]
         else:
             changes = settings_form.field_changes(prev[1], cfg)
         rows.append({"version": v["version"], "created_at": v["created_at"], "readable": cfg is not None,
@@ -1195,7 +1195,7 @@ async def settings_version_page(request: Request) -> Response:
     cfg, old_cfg = _readable_cfg(text), _readable_cfg(old_text) if against else None
     changes = settings_form.field_changes(old_cfg, cfg) if cfg and (old_cfg or not against) else None
     diff = list(difflib.unified_diff(old_text.splitlines(), text.splitlines(),
-                                     f"v{against_n}" if against else "vazio", f"v{n}", lineterm=""))
+                                     f"v{against_n}" if against else "empty", f"v{n}", lineterm=""))
     detail = {"version": n, "created_at": v["created_at"], "origin": _version_origin(v["body"]),
               "note": v["body"].get("note"), "text": text, "readable": cfg is not None, "against": against_n,
               "changes": changes, "diff": diff, "leaving": _leaving_gates(versions, n) if cfg else []}
@@ -1217,7 +1217,7 @@ async def settings_restore(request: Request) -> Response:
         return Response("not found", status_code=404)
     text = v["body"].get("yaml", "")
     if _readable_cfg(text) is None:
-        return Response("esta versão não lê no schema atual e não pode ser restaurada", status_code=409)
+        return Response("this version does not read in the current schema and cannot be restored", status_code=409)
     data = await request.form()
     leaving = _leaving_gates(versions, n)
     kept = {str(k) for k in data.getlist("keep")} & {g["name"] for g in leaving}

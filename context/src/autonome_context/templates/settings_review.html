@@ -1,34 +1,34 @@
 {% extends "base.html" %}
-{% block title %}Settings · revisão{% endblock %}
+{% block title %}Settings · review{% endblock %}
 {% block main %}
 <header class="page-head">
-  <div class="page-head__text"><h1>Revisar e salvar</h1>
-    <p class="subtitle">O que muda em relação à {% if doc %}v{{ doc.version }}{% else %}configuração padrão{% endif %}. Nada foi salvo ainda.</p></div>
+  <div class="page-head__text"><h1>Review &amp; save</h1>
+    <p class="subtitle">What changes against {% if doc %}v{{ doc.version }}{% else %}the default configuration{% endif %}. Nothing has been saved yet.</p></div>
 </header>
 
-{% if stale %}<div class="callout callout--block"><div class="wrap"><strong>A configuração mudou enquanto você revisava</strong> (um gate de plano pode ter entrado). Nada foi salvo; revise de novo contra a v{{ base_version }}.</div></div>{% endif %}
-{% if note_error %}<div class="callout callout--block"><div class="wrap"><strong>Nota recusada.</strong> {{ note_error }}</div></div>{% endif %}
+{% if stale %}<div class="callout callout--block"><div class="wrap"><strong>The configuration changed while you were reviewing</strong> (a plan gate may have come in). Nothing was saved; review again against v{{ base_version }}.</div></div>{% endif %}
+{% if note_error %}<div class="callout callout--block"><div class="wrap"><strong>Note refused.</strong> {{ note_error }}</div></div>{% endif %}
 
 <section class="section">
-  <h2>Mudanças</h2>
+  <h2>Changes</h2>
   {% if changes %}<ul class="schanges">{% for c in changes %}<li>{{ c }}</li>{% endfor %}</ul>
-  {% elif nothing_changed %}<p class="muted">nada mudou</p>{% endif %}
+  {% elif nothing_changed %}<p class="muted">nothing changed</p>{% endif %}
   {% if diff %}<pre class="code sdiff">{% for line in diff %}<span class="sdiff__{{ 'add' if line.startswith('+') and not line.startswith('+++') else 'del' if line.startswith('-') and not line.startswith('---') else 'ctx' }}">{{ line }}</span>
 {% endfor %}</pre>{% endif %}
 </section>
 
 {% if restore_n %}
 <section class="section">
-  <h2>Restaurar a v{{ restore_n }}</h2>
+  <h2>Restore v{{ restore_n }}</h2>
   {% if leaving %}
-  <p>Gates que entraram por planos depois da v{{ restore_n }}:</p>
+  <p>Gates that came in through plans after v{{ restore_n }}:</p>
   {% for g in leaving %}
   <form class="row" method="post" action="/ui/p/{{ project }}/settings/versions/{{ restore_n }}/restore">
     {% for k in kept %}{% if k != g.name %}<input type="hidden" name="keep" value="{{ k }}">{% endif %}{% endfor %}
     <code>{{ g.name }}</code>
-    {% if g.kept %}<span class="footnote">mantido no rascunho</span>
-    {% else %}<span class="footnote">vai sair</span>
-    <button class="btn btn--ghost" type="submit" name="keep" value="{{ g.name }}">manter</button>{% endif %}
+    {% if g.kept %}<span class="footnote">kept in the draft</span>
+    {% else %}<span class="footnote">will go</span>
+    <button class="btn btn--ghost" type="submit" name="keep" value="{{ g.name }}">keep</button>{% endif %}
   </form>
   {% endfor %}
   {% endif %}
@@ -39,13 +39,13 @@
   <textarea name="yaml" hidden>{{ text }}</textarea>
   <input type="hidden" name="origin" value="{{ origin }}">
   <input type="hidden" name="base_version" value="{{ base_version }}">
-  <p>{% if origin == 'form' %}Vai gravar o YAML canônico (veio do formulário).{% else %}Vai gravar o texto como está, com os comentários (veio da visão YAML).{% endif %}</p>
-  <label for="note">Nota (opcional)</label>
+  <p>{% if origin == 'form' %}Will write the canonical YAML (it came from the form).{% else %}Will write the text as is, with comments (it came from the YAML view).{% endif %}</p>
+  <label for="note">Note (optional)</label>
   <input type="text" id="note" name="note" value="{{ note }}" maxlength="500" autocomplete="off">
   <div class="row" style="padding-top: 10px">
     <button class="btn btn--primary" type="submit" name="action" value="save"{% if nothing_changed %} disabled{% endif %}>Save as v{{ base_version + 1 }}</button>
-    {% if nothing_changed %}<span class="footnote">nada mudou</span>{% endif %}
-    <a class="btn btn--ghost" href="{% if restore_n %}/ui/p/{{ project }}/settings/versions{% else %}/ui/p/{{ project }}/settings{{ '' if origin == 'form' else '?view=yaml' }}{% endif %}">Voltar</a>
+    {% if nothing_changed %}<span class="footnote">nothing changed</span>{% endif %}
+    <a class="btn btn--ghost" href="{% if restore_n %}/ui/p/{{ project }}/settings/versions{% else %}/ui/p/{{ project }}/settings{{ '' if origin == 'form' else '?view=yaml' }}{% endif %}">Back</a>
   </div>
 </form>
 {% endblock %}

@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}Settings · primeira configuração{% endblock %}
+{% block title %}Settings · first setup{% endblock %}
 {% block main %}
 <header class="page-head">
-  <div class="page-head__text"><h1>Primeira configuração</h1>
-    <p class="subtitle">Este projeto ainda não tem gates. Escolha o stack, desmarque o que não quer e revise antes de salvar a v1.</p></div>
+  <div class="page-head__text"><h1>First setup</h1>
+    <p class="subtitle">This project has no gates yet. Pick the stack, untick what you do not want and review before saving v1.</p></div>
 </header>
 
 {% if error %}<p class="notice notice--error" role="alert">{{ error }}</p>{% endif %}
@@ -17,15 +17,15 @@
     <code>{{ g.name }}</code> <span class="footnote">{{ g.run }}</span></label>
   {% endfor %}
   <div class="row" style="padding-top: 10px">
-    <button class="btn btn--primary" type="submit" name="preset" value="{{ key }}">Usar {{ preset.label }}</button>
+    <button class="btn btn--primary" type="submit" name="preset" value="{{ key }}">Use {{ preset.label }}</button>
   </div>
 </form>
 {% endfor %}
 
 <form class="section" method="post" action="/ui/p/{{ project }}/settings">
-  <h2>Começar vazio</h2>
-  <p class="muted">Sem gates; você adiciona os seus depois na página Settings.</p>
+  <h2>Start empty</h2>
+  <p class="muted">No gates; you add yours later on the Settings page.</p>
   <input type="hidden" name="action" value="setup">
-  <button class="btn btn--ghost" type="submit" name="preset" value="{{ empty }}">Começar vazio</button>
+  <button class="btn btn--ghost" type="submit" name="preset" value="{{ empty }}">Start empty</button>
 </form>
 {% endblock %}

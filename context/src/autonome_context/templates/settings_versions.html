@@ -1,23 +1,23 @@
 {% extends "base.html" %}
-{% block title %}Settings · versões{% endblock %}
+{% block title %}Settings · versions{% endblock %}
 {% block main %}
 {% if detail %}
 <header class="page-head">
-  <div class="page-head__text"><h1>Versão {{ detail.version }}</h1>
+  <div class="page-head__text"><h1>Version {{ detail.version }}</h1>
     <p class="subtitle">{{ detail.created_at|when }}{% if detail.origin %} · {{ detail.origin }}{% endif %}{% if detail.note %} · {{ detail.note }}{% endif %}</p></div>
 </header>
 
-{% if restore_error %}<div class="callout callout--block"><div class="wrap"><strong>Não deu para restaurar.</strong> {{ restore_error }}</div></div>{% endif %}
+{% if restore_error %}<div class="callout callout--block"><div class="wrap"><strong>Could not restore.</strong> {{ restore_error }}</div></div>{% endif %}
 
 {% if not detail.readable %}
-<p class="muted">não lê no schema atual: sem resumo e sem restore. O texto guardado está abaixo.</p>
+<p class="muted">does not read in the current schema: no summary and no restore. The stored text is below.</p>
 {% endif %}
 
 <section class="section">
-  <h2>Mudanças{% if detail.against %} contra a v{{ detail.against }}{% else %} contra o vazio{% endif %}</h2>
+  <h2>Changes{% if detail.against %} against v{{ detail.against }}{% else %} against empty{% endif %}</h2>
   {% if detail.changes %}<ul class="schanges">{% for c in detail.changes %}<li>{{ c }}</li>{% endfor %}</ul>{% endif %}
   {% if detail.diff %}<pre class="code sdiff">{% for line in detail.diff %}<span class="sdiff__{{ 'add' if line.startswith('+') and not line.startswith('+++') else 'del' if line.startswith('-') and not line.startswith('---') else 'ctx' }}">{{ line }}</span>
-{% endfor %}</pre>{% else %}<p class="muted">nada mudou</p>{% endif %}
+{% endfor %}</pre>{% else %}<p class="muted">nothing changed</p>{% endif %}
 </section>
 
 <section class="section">
@@ -28,18 +28,18 @@
 <div class="row">
   {% if detail.readable %}
   <form method="post" action="/ui/p/{{ project }}/settings/versions/{{ detail.version }}/restore">
-    <button class="btn btn--primary" type="submit">Restaurar como rascunho</button>
+    <button class="btn btn--primary" type="submit">Restore as draft</button>
   </form>
   {% endif %}
-  <a class="btn btn--ghost" href="/ui/p/{{ project }}/settings/versions">Voltar</a>
+  <a class="btn btn--ghost" href="/ui/p/{{ project }}/settings/versions">Back</a>
 </div>
 {% else %}
 <header class="page-head">
-  <div class="page-head__text"><h1>Versões</h1>
-    <p class="subtitle">Cada save é uma versão nova; nenhuma é sobrescrita.</p></div>
+  <div class="page-head__text"><h1>Versions</h1>
+    <p class="subtitle">Every save is a new version; none is overwritten.</p></div>
 </header>
 <table class="table">
-  <thead><tr><th>Versão</th><th>Quando</th><th>Quem</th><th>Nota</th><th>Mudanças</th></tr></thead>
+  <thead><tr><th>Version</th><th>When</th><th>Who</th><th>Note</th><th>Changes</th></tr></thead>
   <tbody>
   {% for r in rows %}
   <tr>
@@ -47,15 +47,15 @@
     <td>{{ r.created_at|when }}</td>
     <td>{{ r.origin or '—' }}</td>
     <td>{{ r.note or '' }}</td>
-    <td>{% if not r.readable %}<span class="muted">não lê no schema atual</span>
+    <td>{% if not r.readable %}<span class="muted">does not read in the current schema</span>
       {% elif r.changes %}<ul class="schanges">{% for c in r.changes %}<li>{{ c }}</li>{% endfor %}</ul>
-      {% else %}<span class="muted">nada mudou</span>{% endif %}</td>
+      {% else %}<span class="muted">nothing changed</span>{% endif %}</td>
   </tr>
   {% else %}
-  <tr><td colspan="5" class="muted">nenhuma versão salva ainda</td></tr>
+  <tr><td colspan="5" class="muted">no version saved yet</td></tr>
   {% endfor %}
   </tbody>
 </table>
-<p><a class="btn btn--ghost" href="/ui/p/{{ project }}/settings">Voltar</a></p>
+<p><a class="btn btn--ghost" href="/ui/p/{{ project }}/settings">Back</a></p>
 {% endif %}
 {% endblock %}

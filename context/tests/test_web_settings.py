@@ -71,7 +71,7 @@ def test_the_page_shows_every_section_the_real_keys_and_what_differs_from_the_de
     assert "default 3 · " in page.text and "default allowlist" in page.text
     assert 'name="reset" value="retries-max"' in page.text
     assert 'value="links"' in page.text  # the catalog, in the datalist
-    assert "v1" in page.text and "você" in page.text
+    assert "v1" in page.text and "· you" in page.text
 
 
 TRIAGE_ON = YAML + "triage: {model: jev-latest}\n"
@@ -87,40 +87,40 @@ def report_key(run_db, project, found, days_ago=0):
     run_db(go)
 
 
-def test_triage_on_and_a_missing_key_says_faltando(client, project, saved, run_db):
+def test_triage_on_and_a_missing_key_says_missing(client, project, saved, run_db):
     saved(TRIAGE_ON)
     report_key(run_db, project, False)
     text = client.get(f"/ui/p/{project}/settings").text
-    assert "faltando" in text and "nunca guardada aqui" in text
+    assert "<strong>missing</strong>" in text and "never stored here" in text
 
 
-def test_triage_on_and_a_found_key_says_encontrada(client, project, saved, run_db):
+def test_triage_on_and_a_found_key_says_found(client, project, saved, run_db):
     saved(TRIAGE_ON)
     report_key(run_db, project, True)
     text = client.get(f"/ui/p/{project}/settings").text
-    assert "encontrada" in text and "faltando" not in text
+    assert "<strong>found</strong>" in text and "<strong>missing</strong>" not in text
 
 
-def test_triage_on_without_a_report_says_desconhecida(client, project, saved):
+def test_triage_on_without_a_report_says_unknown(client, project, saved):
     saved(TRIAGE_ON)
-    assert "desconhecida" in client.get(f"/ui/p/{project}/settings").text
+    assert "<strong>unknown</strong>" in client.get(f"/ui/p/{project}/settings").text
 
 
 def test_a_report_older_than_a_day_says_the_runner_was_not_seen_since(client, project, saved, run_db):
     saved(TRIAGE_ON)
     report_key(run_db, project, True, days_ago=2)
     text = client.get(f"/ui/p/{project}/settings").text
-    assert "não visto desde" in text and re.search(r'não visto desde <time datetime="[^"]+Z"', text)
+    assert "runner not seen since" in text and re.search(r'runner not seen since <time datetime="[^"]+Z"', text)
 
 
-def test_a_missing_key_reported_over_a_day_ago_says_not_seen_since_not_faltando(client, project, saved, run_db):
+def test_a_missing_key_reported_over_a_day_ago_says_not_seen_since_not_missing(client, project, saved, run_db):
     saved(TRIAGE_ON)
     report_key(run_db, project, False, days_ago=2)
     text = client.get(f"/ui/p/{project}/settings").text
-    assert "não visto desde" in text and "faltando" not in text
+    assert "runner not seen since" in text and "<strong>missing</strong>" not in text
 
 
-def test_a_report_time_with_a_null_key_says_desconhecida(client, project, saved, run_db):
+def test_a_report_time_with_a_null_key_says_unknown(client, project, saved, run_db):
     saved(TRIAGE_ON)
 
     async def go(conn):
@@ -130,7 +130,7 @@ def test_a_report_time_with_a_null_key_says_desconhecida(client, project, saved,
 
     run_db(go)
     text = client.get(f"/ui/p/{project}/settings").text
-    assert "desconhecida" in text and "encontrada" not in text
+    assert "<strong>unknown</strong>" in text and "<strong>found</strong>" not in text
 
 
 def test_a_second_report_moves_the_seen_time_forward(client, project, saved, run_db):
@@ -161,12 +161,12 @@ def test_triage_off_shows_no_key_status(client, project, saved, run_db):
     saved(YAML)
     report_key(run_db, project, False)
     text = client.get(f"/ui/p/{project}/settings").text
-    assert "Key do Jev" not in text and "faltando" not in text
+    assert "Jev key:" not in text and "<strong>missing</strong>" not in text
 
 
 def test_the_header_names_a_version_that_came_from_a_plan(client, project, saved):
     saved(YAML, source={"plan_id": 77, "task_id": 3})
-    assert "plano #77" in client.get(f"/ui/p/{project}/settings").text
+    assert "plan #77" in client.get(f"/ui/p/{project}/settings").text
 
 
 def test_no_key_of_the_old_prototype_appears_in_the_rendered_page(client, project, saved):
@@ -196,7 +196,7 @@ def test_a_pending_gate_of_an_approved_plan_is_read_only_with_its_plan_and_task(
     plan_id, task = run_db(go)
     page = client.get(f"/ui/p/{project}/settings").text
     assert "e2e-later" in page and "make e2e" in page
-    assert f"plano #{plan_id} · entra quando #{task} for mergeada" in page
+    assert f"plan #{plan_id} · comes in when #{task} is merged" in page
     assert "e2e-later" not in "".join(
         line for line in page.splitlines() if "<input" in line or "<textarea" in line)
 
@@ -225,19 +225,19 @@ def bare(run_db, project):
 
 def test_a_project_without_a_saved_config_shows_the_four_presets_and_their_gates(client, project, bare):
     page = client.get(f"/ui/p/{project}/settings")
-    assert page.status_code == 200 and "Primeira configuração" in page.text
+    assert page.status_code == 200 and "First setup" in page.text
     for preset in PRESETS.values():
         assert f"<h2>{preset.label}</h2>" in page.text
         for g in preset.gates:
             assert f'name="keep-{g["name"]}"' in page.text
-    assert len(PRESETS) == 4 and "Começar vazio" in page.text
+    assert len(PRESETS) == 4 and "Start empty" in page.text
 
 
 def test_setup_with_a_gate_unchecked_saves_v1_without_it_from_the_human(client, project, bare, run_db):
     url = f"/ui/p/{project}/settings"
     keep = {f"keep-{g['name']}": "1" for g in PRESETS["python"].gates if g["name"] != "mypy"}
     review = client.post(url, data={"action": "setup", "preset": "python"} | keep)
-    assert review.status_code == 200 and "Revisar e salvar" in review.text and _versions(run_db, project) == 0
+    assert review.status_code == 200 and "Review &amp; save" in review.text and _versions(run_db, project) == 0
     done = client.post(url, data=_hidden(review) | {"action": "save", "note": ""}, follow_redirects=False)
     assert done.status_code == 303
     latest = _latest(run_db, project)
@@ -258,14 +258,14 @@ def test_a_config_saved_after_the_setup_is_not_overwritten(client, project, bare
 
     run_db(go)
     page = client.post(url, data=fields | {"action": "save", "note": ""}, follow_redirects=False)
-    assert page.status_code == 200 and "mudou enquanto você revisava" in page.text
+    assert page.status_code == 200 and "changed while you were reviewing" in page.text
     assert _hidden(page)["base_version"] == "1" and _versions(run_db, project) == 1
 
 
 def test_an_unknown_preset_is_a_400_and_saves_nothing(client, project, bare, run_db):
     page = client.post(f"/ui/p/{project}/settings", data={"action": "setup", "preset": "cobol"})
     assert page.status_code == 400 and "Unknown preset: cobol. Nothing was saved." in page.text and _versions(run_db, project) == 0
-    assert "Primeira configuração" in page.text  # the setup page itself, with the presets to choose again
+    assert "First setup" in page.text  # the setup page itself, with the presets to choose again
 
 
 def test_setup_with_a_saved_config_redirects_and_keeps_the_version(client, project, saved, run_db):
@@ -309,7 +309,7 @@ def test_the_yaml_view_goes_through_the_review_and_a_bad_text_is_refused(client,
     assert bad.status_code == 200 and "Not valid" in bad.text
     review = client.post(f"/ui/p/{project}/settings", data={"yaml": "retries: {max: 9}", "action": "review"},
                          follow_redirects=False)
-    assert review.status_code == 200 and "Revisar e salvar" in review.text
+    assert review.status_code == 200 and "Review &amp; save" in review.text
     assert _versions(run_db, project) == 1
 
 
@@ -332,7 +332,7 @@ def test_validate_keeps_what_was_typed_marks_the_field_and_disables_saving(clien
     assert page.status_code == 200
     assert 'name="triage-reject_at" value="1.4"' in page.text  # the typed value stays
     assert '<div class="sfield is-changed has-error" id="f-triage-reject_at-field">' in page.text
-    assert "1 problema impede salvar" in page.text and 'href="#f-triage-reject_at"' in page.text
+    assert "1 problem prevents saving" in page.text and 'href="#f-triage-reject_at"' in page.text
     assert 'class="sdot sdot--bad"' in page.text and 'class="ssec has-error" id="triage"' in page.text
     assert 'value="review" disabled>' in page.text
     assert _versions(run_db, project) == 1
@@ -342,7 +342,7 @@ def test_a_valid_draft_can_be_reviewed_and_marks_the_changed_sections(client, pr
     saved(YAML)
     page = client.post(f"/ui/p/{project}/settings", data=_fields() | {"action": "validate", "retries-max": "9"})
     assert "disabled" not in page.text.split("Review &amp; save")[0].rsplit("<button", 1)[1]
-    assert "problema" not in page.text and 'class="ssec is-changed" id="execution"' in page.text
+    assert 'id="problems"' not in page.text and 'class="ssec is-changed" id="execution"' in page.text
     assert 'class="ssec" id="gates"' in page.text and 'value="9"' in page.text
     assert _versions(run_db, project) == 1
 
@@ -370,7 +370,7 @@ def test_a_yaml_syntax_error_stays_in_the_yaml_view_with_the_line(client, projec
     for action in ("view_form", "validate"):
         page = client.post(f"/ui/p/{project}/settings", data={"yaml": bad, "action": action})
         assert page.status_code == 200 and 'name="yaml"' in page.text and "<h2>Gates</h2>" not in page.text
-        assert re.search(r"na linha \d+", page.text) and 'data-error-line="' in page.text
+        assert re.search(r"at line \d+", page.text) and 'data-error-line="' in page.text
         assert "retries: [unclosed" in page.text
     assert not re.search(r'data-error-line=""', page.text)
     assert _versions(run_db, project) == 1
@@ -380,7 +380,7 @@ def test_a_feature_outside_the_catalog_is_an_error_on_its_field(client, project,
     saved(YAML)
     page = client.post(f"/ui/p/{project}/settings", data=_fields() | {
         "action": "validate", "hold_before_merge-features": "links, no-such-feature"})
-    assert "Feature fora do catálogo: no-such-feature." in page.text
+    assert "Feature not in the catalog: no-such-feature." in page.text
     assert 'id="f-hold_before_merge-features-field"' in page.text and "has-error" in page.text
     assert 'name="hold_before_merge-features" value="links, no-such-feature"' in page.text
     assert 'class="ssec has-error" id="human-checkpoints"' in page.text
@@ -442,7 +442,7 @@ def test_the_row_and_reset_buttons_work_without_js(client, project, saved, run_d
 def test_the_yaml_view_validate_saves_nothing(client, project, saved, run_db):
     saved(YAML)
     page = client.post(f"/ui/p/{project}/settings", data={"yaml": "retries: {max: 9}", "action": "validate"})
-    assert page.status_code == 200 and "Válido" in page.text and 'name="yaml"' in page.text
+    assert page.status_code == 200 and "Valid. Nothing was saved." in page.text and 'name="yaml"' in page.text
     assert _versions(run_db, project) == 1
 
 
@@ -451,7 +451,7 @@ def test_the_yaml_view_refuses_what_the_extra_checks_refuse_and_saves_nothing(cl
     text = "gates:\n  - {name: lint, run: ruff check .}\nhold_before_merge: {features: [no-such-feature]}\n"
     bad = client.post(f"/ui/p/{project}/settings", data={"yaml": text}, follow_redirects=False)
     assert bad.status_code == 200
-    assert "Feature fora do catálogo: no-such-feature." in bad.text
+    assert "Feature not in the catalog: no-such-feature." in bad.text
     assert "no-such-feature" in bad.text  # the text stays in the textarea
 
     async def go(conn):
@@ -478,9 +478,9 @@ def test_review_then_save_creates_the_next_version_with_source_and_note(client, 
     saved(YAML)
     url = f"/ui/p/{project}/settings"
     review = client.post(url, data=_fields() | {"action": "review", "retries-max": "9"})
-    assert review.status_code == 200 and "Revisar e salvar" in review.text
+    assert review.status_code == 200 and "Review &amp; save" in review.text
     assert "retries.max: 5 → 9" in review.text and "+  max: 9" in review.text
-    assert "YAML canônico" in review.text and _versions(run_db, project) == 1
+    assert "canonical YAML" in review.text and _versions(run_db, project) == 1
     saved_page = client.post(url, data=_hidden(review) | {"action": "save", "note": "mais retries"},
                              follow_redirects=False)
     assert saved_page.status_code == 303 and saved_page.headers["location"] == url
@@ -505,7 +505,7 @@ def test_save_with_an_old_base_version_saves_nothing_and_reviews_against_the_new
 
     run_db(go)
     page = client.post(url, data=fields | {"action": "save", "note": "x"}, follow_redirects=False)
-    assert page.status_code == 200 and "mudou enquanto você revisava" in page.text
+    assert page.status_code == 200 and "changed while you were reviewing" in page.text
     assert _hidden(page)["base_version"] == "2" and "e2e" in page.text
     assert _versions(run_db, project) == 2
 
@@ -517,7 +517,7 @@ def test_two_saves_from_the_same_base_version_write_one_version(client, project,
     first = client.post(url, data=fields, follow_redirects=False)
     second = client.post(url, data=fields | {"retries-max": "9"}, follow_redirects=False)
     assert first.status_code == 303
-    assert second.status_code == 200 and "mudou enquanto você revisava" in second.text
+    assert second.status_code == 200 and "changed while you were reviewing" in second.text
     assert _versions(run_db, project) == 2
 
     async def race():  # both pass any earlier check: only the lock and the version test in the write stop one
@@ -539,7 +539,7 @@ def test_a_yaml_that_only_changes_a_comment_reviews_as_nothing_changed_with_save
         client, project, saved, run_db):
     saved(YAML)
     page = client.post(f"/ui/p/{project}/settings", data={"yaml": "# only a comment\n" + YAML, "action": "review"})
-    assert "nada mudou" in page.text and 'value="save" disabled>' in page.text
+    assert "nothing changed" in page.text and 'value="save" disabled>' in page.text
     assert _versions(run_db, project) == 1
 
 
@@ -549,12 +549,12 @@ def test_saving_from_the_yaml_view_keeps_the_comments_and_from_the_form_the_cano
     url = f"/ui/p/{project}/settings"
     commented = "# why nine\nretries: {max: 9}  # up from 5\n"
     review = client.post(url, data={"yaml": commented, "action": "review"})
-    assert "texto como está" in review.text
+    assert "text as is" in review.text
     assert client.post(url, data=_hidden(review) | {"action": "save"}, follow_redirects=False).status_code == 303
     assert _latest(run_db, project)["body"]["yaml"] == commented
 
     review = client.post(url, data=_fields(commented) | {"action": "review", "retries-max": "7"})
-    assert "YAML canônico" in review.text
+    assert "canonical YAML" in review.text
     client.post(url, data=_hidden(review) | {"action": "save"}, follow_redirects=False)
     body = _latest(run_db, project)["body"]
     assert body["yaml"] == yaml.safe_dump({"retries": {"max": 7}}, sort_keys=False) and "note" not in body
@@ -567,10 +567,10 @@ def test_an_invalid_draft_posted_straight_to_save_saves_nothing(client, project,
     assert bad_yaml.status_code == 200 and "Not valid" in bad_yaml.text
     bad_form = client.post(url, data=_fields() | {"action": "save", "base_version": "1", "triage-model": "haiku",
                                                   "triage-reject_at": "1.4"})
-    assert bad_form.status_code == 200 and "1 problema impede salvar" in bad_form.text
+    assert bad_form.status_code == 200 and "1 problem prevents saving" in bad_form.text
     unknown = client.post(url, data={"yaml": "hold_before_merge: {features: [nope]}", "action": "save",
                                      "base_version": "1"})
-    assert "Feature fora do catálogo" in unknown.text
+    assert "Feature not in the catalog" in unknown.text
     assert _versions(run_db, project) == 1
 
 
@@ -580,7 +580,7 @@ def test_a_note_with_a_control_character_or_over_500_characters_is_refused(clien
     url = f"/ui/p/{project}/settings"
     review = client.post(url, data=_fields() | {"action": "review", "retries-max": "9"})
     page = client.post(url, data=_hidden(review) | {"action": "save", "note": note})
-    assert page.status_code == 200 and "Nota recusada" in page.text
+    assert page.status_code == 200 and "Note refused" in page.text
     assert _versions(run_db, project) == 1
     ok = client.post(url, data=_hidden(review) | {"action": "save", "note": "x" * 500}, follow_redirects=False)
     assert ok.status_code == 303 and _versions(run_db, project) == 2
@@ -589,7 +589,7 @@ def test_a_note_with_a_control_character_or_over_500_characters_is_refused(clien
 def test_a_review_without_changes_disables_save_and_says_nothing_changed(client, project, saved, run_db):
     saved(YAML)
     page = client.post(f"/ui/p/{project}/settings", data=_fields() | {"action": "review"})
-    assert "nada mudou" in page.text and 'value="save" disabled>' in page.text
+    assert "nothing changed" in page.text and 'value="save" disabled>' in page.text
     assert _versions(run_db, project) == 1
 
 
@@ -613,7 +613,7 @@ def test_the_list_shows_every_version_with_origin_note_and_what_changed(client, 
     assert page.status_code == 200
     for v in ("v1", "v2", "v3"):
         assert f">{v}</a>" in page.text
-    assert "você" in page.text and "plano #7" in page.text and "mais retries" in page.text
+    assert "<td>you</td>" in page.text and "plan #7" in page.text and "mais retries" in page.text
     assert "retries.max: 5 → 9" in page.text
 
 
@@ -623,11 +623,11 @@ def test_a_version_the_schema_does_not_read_does_not_break_the_list_and_has_no_r
     _add_version(run_db, indexer, project, "retries: {nope: 1}\n", source="human")
     _add_version(run_db, indexer, project, YAML, source="human")
     page = client.get(f"/ui/p/{project}/settings/versions")
-    assert page.status_code == 200 and "não lê no schema atual" in page.text
+    assert page.status_code == 200 and "does not read in the current schema" in page.text
     old = client.get(f"/ui/p/{project}/settings/versions/2")
-    assert old.status_code == 200 and "não lê no schema atual" in old.text and "Restaurar" not in old.text
+    assert old.status_code == 200 and "does not read in the current schema" in old.text and "Restore as draft" not in old.text
     assert client.post(f"/ui/p/{project}/settings/versions/2/restore").status_code == 409
-    assert "Restaurar" in client.get(f"/ui/p/{project}/settings/versions/3").text
+    assert "Restore as draft" in client.get(f"/ui/p/{project}/settings/versions/3").text
 
 
 def test_a_version_shows_its_yaml_and_the_diff_against_another(client, project, saved, run_db, indexer):
@@ -645,7 +645,7 @@ def test_against_must_be_a_number_and_zero_means_no_other_version(client, projec
     base = f"/ui/p/{project}/settings/versions/2"
     assert client.get(f"{base}?against=abc").status_code == 404
     zero = client.get(f"{base}?against=0")  # 0 is "against nothing", like v1: the whole text as added lines
-    assert zero.status_code == 200 and "vazio" in zero.text and "+retries: {max: 9}" in zero.text
+    assert zero.status_code == 200 and "against empty" in zero.text and "+retries: {max: 9}" in zero.text
     assert "-retries: {max: 5}" not in zero.text
 
 
@@ -653,9 +653,9 @@ def test_the_version_origin_names_the_plan_and_you(client, project, saved, run_d
     saved(YAML)
     _add_version(run_db, indexer, project, YAML.replace("max: 5", "max: 9"), source={"plan_id": 7, "task_id": 2})
     page = client.get(f"/ui/p/{project}/settings/versions/2")
-    assert "plano #7" in page.text
+    assert "plan #7" in page.text
     assert "task #2" not in page.text  # the origin names the plan only; the source's task_id is not shown
-    assert "você" in client.get(f"/ui/p/{project}/settings/versions/1").text
+    assert re.search(r"· you(</p>| ·)", client.get(f"/ui/p/{project}/settings/versions/1").text)
 
 
 def test_restore_then_save_appends_a_version_with_the_old_content_and_keeps_the_others(
@@ -664,7 +664,7 @@ def test_restore_then_save_appends_a_version_with_the_old_content_and_keeps_the_
     _add_version(run_db, indexer, project, YAML.replace("max: 5", "max: 9"), source="human")
     before = run_db(lambda conn: store.gate_config_versions(conn, project))
     review = client.post(f"/ui/p/{project}/settings/versions/1/restore")
-    assert review.status_code == 200 and "Revisar e salvar" in review.text and "retries.max: 9 → 5" in review.text
+    assert review.status_code == 200 and "Review &amp; save" in review.text and "retries.max: 9 → 5" in review.text
     assert len(run_db(lambda conn: store.gate_config_versions(conn, project))) == 2
     saved_page = client.post(f"/ui/p/{project}/settings", data=_hidden(review) | {"action": "save"},
                              follow_redirects=False)
@@ -687,10 +687,10 @@ def test_a_gate_a_plan_added_later_leaves_on_restore_and_keep_puts_it_back(
     run_db(go)
     url = f"/ui/p/{project}/settings/versions/1/restore"
     review = client.post(url)
-    assert "vai sair" in review.text and "<code>e2e</code>" in review.text
+    assert "will go" in review.text and "<code>e2e</code>" in review.text
     assert "make e2e" not in _hidden(review)["yaml"]
     kept = client.post(url, data={"keep": "e2e"})
-    assert "mantido no rascunho" in kept.text and "make e2e" in _hidden(kept)["yaml"]
+    assert "kept in the draft" in kept.text and "make e2e" in _hidden(kept)["yaml"]
     assert client.post(f"/ui/p/{project}/settings", data=_hidden(kept) | {"action": "save"},
                        follow_redirects=False).status_code == 303
     assert "e2e" in [g.name for g in GateConfig.from_yaml(_latest(run_db, project)["body"]["yaml"]).gates]
@@ -702,7 +702,7 @@ def test_restore_still_lists_plan_gates_leaving_when_the_latest_version_is_unrea
     _add_version(run_db, indexer, project,
                  "gates:\n  - {name: e2e, run: make e2e}\nretries: {nope: 1}\n", source={"plan_id": 6, "task_id": 3})
     review = client.post(f"/ui/p/{project}/settings/versions/1/restore")
-    assert review.status_code == 200 and "vai sair" in review.text and "<code>e2e</code>" in review.text
+    assert review.status_code == 200 and "will go" in review.text and "<code>e2e</code>" in review.text
 
 
 def test_a_missing_version_or_one_of_another_project_is_a_404(client, project, saved, run_db, indexer):
