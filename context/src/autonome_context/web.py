@@ -1052,6 +1052,146 @@ async def settings_page(request: Request) -> Response:
     return await render(request, "settings.html", **ctx)
 
 
+def _readable_cfg(text: str) -> GateConfig | None:
+    """The config a version's YAML means today, or None when the current schema does not read it."""
+    try:
+        return GateConfig.from_yaml(text)
+    except Exception:  # a version saved before the schema changed
+        return None
+
+
+def _version_rows(versions: list[dict]) -> list[dict]:
+    """Newest first: each version with its origin, note and what changed against the previous one."""
+    ordered = sorted(versions, key=lambda v: v["version"])
+    rows, prev = [], None
+    for v in ordered:
+        cfg = _readable_cfg(v["body"].get("yaml", ""))
+        if cfg is None:
+            changes = None
+        elif prev is None:
+            changes = settings_form.field_changes(None, cfg)
+        elif prev[1] is None:
+            changes = ["a versão anterior não lê no schema atual"]
+        else:
+            changes = settings_form.field_changes(prev[1], cfg)
+        rows.append({"version": v["version"], "created_at": v["created_at"], "readable": cfg is not None,
+                     "origin": _version_origin(v["body"]), "note": v["body"].get("note"), "changes": changes})
+        prev = (v["version"], cfg)
+    return rows[::-1]
+
+
+def _leaving_gates(versions: list[dict], n: int) -> list[dict]:
+    """Gates of the latest config that a restore of version n drops and that a plan brought in after n."""
+    by_n = {v["version"]: v for v in versions}
+
+    def raw_gates(v: dict) -> list[dict] | None:
+        # read without the schema, so a newest version it no longer reads still shows what would leave
+        try:
+            gates = (yaml.safe_load(v["body"].get("yaml", "")) or {}).get("gates", [])
+        except (yaml.YAMLError, AttributeError):
+            return None
+        if not isinstance(gates, list) or not all(isinstance(g, dict) and g.get("name") for g in gates):
+            return None
+        return gates
+
+    target = raw_gates(by_n[n])
+    if target is None:
+        return []
+    have = {g["name"] for g in target}
+    from_plans: set[str] = set()
+    prev_names: set[str] | None = None
+    for v in sorted(versions, key=lambda v: v["version"]):
+        gates = raw_gates(v)
+        names = {g["name"] for g in gates} if gates is not None else None
+        if v["version"] > n and isinstance(v["body"].get("source"), dict) and names is not None:
+            from_plans |= names - (prev_names or set())
+        prev_names = names if names is not None else prev_names
+    latest = raw_gates(by_n[max(by_n)]) or []
+    return [g for g in latest if g["name"] in from_plans and g["name"] not in have]
+
+
+async def _version_of(conn, project: str, n: int) -> tuple[list[dict], dict | None]:
+    versions = await store.gate_config_versions(conn, project)
+    return versions, next((v for v in versions if v["version"] == n), None)
+
+
+async def settings_versions_page(request: Request) -> Response:
+    project = request.path_params["project"]
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        if not await store.project_exists(conn, project):
+            return Response("not found", status_code=404)
+        versions = await store.gate_config_versions(conn, project)
+    return await render(request, "settings_versions.html", rows=_version_rows(versions), detail=None)
+
+
+async def settings_version_page(request: Request) -> Response:
+    project, n = request.path_params["project"], request.path_params["n"]
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        if not await store.project_exists(conn, project):
+            return Response("not found", status_code=404)
+        versions, v = await _version_of(conn, project, n)
+    if v is None:
+        return Response("not found", status_code=404)
+    param = request.query_params.get("against")
+    if param is None:
+        against_n = n - 1 if n > 1 else None
+    elif param.isdigit():
+        against_n = int(param)
+    else:
+        return Response("not found", status_code=404)
+    against = next((x for x in versions if x["version"] == against_n), None) if against_n else None
+    if against_n and against is None:
+        return Response("not found", status_code=404)
+    text = v["body"].get("yaml", "")
+    old_text = against["body"].get("yaml", "") if against else ""
+    cfg, old_cfg = _readable_cfg(text), _readable_cfg(old_text) if against else None
+    changes = settings_form.field_changes(old_cfg, cfg) if cfg and (old_cfg or not against) else None
+    diff = list(difflib.unified_diff(old_text.splitlines(), text.splitlines(),
+                                     f"v{against_n}" if against else "vazio", f"v{n}", lineterm=""))
+    detail = {"version": n, "created_at": v["created_at"], "origin": _version_origin(v["body"]),
+              "note": v["body"].get("note"), "text": text, "readable": cfg is not None, "against": against_n,
+              "changes": changes, "diff": diff, "leaving": _leaving_gates(versions, n) if cfg else []}
+    return await render(request, "settings_versions.html", rows=None, detail=detail)
+
+
+async def settings_restore(request: Request) -> Response:
+    """Loads version n as a draft and shows the review. Gates a plan added after n are listed as leaving; each
+    `keep` puts one back in the draft. Nothing is saved here: the review's save writes a new version."""
+    project, n = request.path_params["project"], request.path_params["n"]
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        if not await store.project_exists(conn, project):
+            return Response("not found", status_code=404)
+        versions, v = await _version_of(conn, project, n)
+        catalog = {f["slug"] for f in await store.catalog(conn, project)}
+        latest_doc = await store.latest_of_type(conn, project, "gate_config")
+    if v is None:
+        return Response("not found", status_code=404)
+    text = v["body"].get("yaml", "")
+    if _readable_cfg(text) is None:
+        return Response("esta versão não lê no schema atual e não pode ser restaurada", status_code=409)
+    data = await request.form()
+    leaving = _leaving_gates(versions, n)
+    kept = {str(k) for k in data.getlist("keep")} & {g["name"] for g in leaving}
+    if kept:
+        raw = yaml.safe_load(text) or {}
+        raw["gates"] = list(raw.get("gates", [])) + [g for g in leaving if g["name"] in kept]
+        text = yaml.safe_dump(raw, sort_keys=False, allow_unicode=True)
+    cfg, error, _, checks = _parse_yaml(text, catalog)
+    if cfg is None or checks:
+        message = error or "\n".join(checks.values())
+        return await render(request, "settings_versions.html", rows=None, restore_error=message,
+                            detail={"version": n, "created_at": v["created_at"], "origin": _version_origin(v["body"]),
+                                    "note": v["body"].get("note"), "text": text, "readable": True, "against": None,
+                                    "changes": None, "diff": [], "leaving": leaving})
+    ctx = _review_context(latest_doc, cfg, text, "yaml", f"Restaurada da v{n}", None, False)
+    ctx |= {"restore_n": n, "leaving": [{"name": g["name"], "kept": g["name"] in kept} for g in leaving],
+            "kept": sorted(kept)}
+    return await render(request, "settings_review.html", **ctx)
+
+
 async def approvals_page(request: Request) -> Response:
     project = request.path_params["project"]
     kind = request.query_params.get("kind")
@@ -1345,6 +1485,9 @@ def routes() -> list:
         Route("/ui/p/{project}/config",
               lambda r: RedirectResponse(f"/ui/p/{r.path_params['project']}/settings", status_code=301)),
         Route("/ui/p/{project}/settings", settings_page, methods=["GET", "POST"]),
+        Route("/ui/p/{project}/settings/versions", settings_versions_page),
+        Route("/ui/p/{project}/settings/versions/{n:int}", settings_version_page),
+        Route("/ui/p/{project}/settings/versions/{n:int}/restore", settings_restore, methods=["POST"]),
         Route("/ui/p/{project}/approvals", approvals_page),
         Route("/ui/p/{project}/queue", queue_page),
         Route("/ui/p/{project}/queue/pause", queue_pause, methods=["POST"]),

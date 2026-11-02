@@ -402,3 +402,115 @@ def test_a_review_without_changes_disables_save_and_says_nothing_changed(client,
     page = client.post(f"/ui/p/{project}/settings", data=_fields() | {"action": "review"})
     assert "nada mudou" in page.text and 'value="save" disabled>' in page.text
     assert _versions(run_db, project) == 1
+
+
+# --- versions: list, diff, restore -------------------------------------------------------------------
+
+
+def _add_version(run_db, indexer, project, yaml_text, **body):
+    async def go(conn):
+        await store.save_singleton(conn, indexer, project, "gate_config", {"yaml": yaml_text} | body)
+        await conn.commit()
+
+    run_db(go)
+
+
+def test_the_list_shows_every_version_with_origin_note_and_what_changed(client, project, saved, run_db, indexer):
+    saved(YAML)
+    _add_version(run_db, indexer, project, YAML.replace("max: 5", "max: 9"), source="human", note="mais retries")
+    _add_version(run_db, indexer, project, YAML.replace("max: 5", "max: 9") + "schedules: []\n",
+                 source={"plan_id": 7, "task_id": 2})
+    page = client.get(f"/ui/p/{project}/settings/versions")
+    assert page.status_code == 200
+    for v in ("v1", "v2", "v3"):
+        assert f">{v}</a>" in page.text
+    assert "você" in page.text and "plano #7" in page.text and "mais retries" in page.text
+    assert "retries.max: 5 → 9" in page.text
+
+
+def test_a_version_the_schema_does_not_read_does_not_break_the_list_and_has_no_restore(
+        client, project, saved, run_db, indexer):
+    saved(YAML)
+    _add_version(run_db, indexer, project, "retries: {nope: 1}\n", source="human")
+    _add_version(run_db, indexer, project, YAML, source="human")
+    page = client.get(f"/ui/p/{project}/settings/versions")
+    assert page.status_code == 200 and "não lê no schema atual" in page.text
+    old = client.get(f"/ui/p/{project}/settings/versions/2")
+    assert old.status_code == 200 and "não lê no schema atual" in old.text and "Restaurar" not in old.text
+    assert client.post(f"/ui/p/{project}/settings/versions/2/restore").status_code == 409
+    assert "Restaurar" in client.get(f"/ui/p/{project}/settings/versions/3").text
+
+
+def test_a_version_shows_its_yaml_and_the_diff_against_another(client, project, saved, run_db, indexer):
+    saved(YAML)
+    _add_version(run_db, indexer, project, YAML.replace("max: 5", "max: 9"), source="human")
+    default = client.get(f"/ui/p/{project}/settings/versions/2")
+    assert "retries: {max: 9}" in default.text and "-retries: {max: 5}" in default.text
+    first = client.get(f"/ui/p/{project}/settings/versions/1?against=2")
+    assert "-retries: {max: 9}" in first.text and "+retries: {max: 5}" in first.text
+
+
+def test_restore_then_save_appends_a_version_with_the_old_content_and_keeps_the_others(
+        client, project, saved, run_db, indexer):
+    saved(YAML)
+    _add_version(run_db, indexer, project, YAML.replace("max: 5", "max: 9"), source="human")
+    before = run_db(lambda conn: store.gate_config_versions(conn, project))
+    review = client.post(f"/ui/p/{project}/settings/versions/1/restore")
+    assert review.status_code == 200 and "Revisar e salvar" in review.text and "retries.max: 9 → 5" in review.text
+    assert len(run_db(lambda conn: store.gate_config_versions(conn, project))) == 2
+    saved_page = client.post(f"/ui/p/{project}/settings", data=_hidden(review) | {"action": "save"},
+                             follow_redirects=False)
+    assert saved_page.status_code == 303
+    after = run_db(lambda conn: store.gate_config_versions(conn, project))
+    assert [v["version"] for v in after] == [3, 2, 1]
+    assert after[0]["body"]["yaml"] == before[1]["body"]["yaml"]
+    assert after[1:] == before
+
+
+def test_a_gate_a_plan_added_later_leaves_on_restore_and_keep_puts_it_back(
+        client, project, saved, run_db, indexer):
+    saved(YAML)
+
+    async def go(conn):
+        await plans.apply_gates(conn, indexer, project, [{"name": "e2e", "run": "make e2e"}],
+                                {"plan_id": 5, "task_id": 2})
+        await conn.commit()
+
+    run_db(go)
+    url = f"/ui/p/{project}/settings/versions/1/restore"
+    review = client.post(url)
+    assert "vai sair" in review.text and "<code>e2e</code>" in review.text
+    assert "make e2e" not in _hidden(review)["yaml"]
+    kept = client.post(url, data={"keep": "e2e"})
+    assert "mantido no rascunho" in kept.text and "make e2e" in _hidden(kept)["yaml"]
+    assert client.post(f"/ui/p/{project}/settings", data=_hidden(kept) | {"action": "save"},
+                       follow_redirects=False).status_code == 303
+    assert "e2e" in [g.name for g in GateConfig.from_yaml(_latest(run_db, project)["body"]["yaml"]).gates]
+
+
+def test_restore_still_lists_plan_gates_leaving_when_the_latest_version_is_unreadable(
+        client, project, saved, run_db, indexer):
+    saved(YAML)
+    _add_version(run_db, indexer, project,
+                 "gates:\n  - {name: e2e, run: make e2e}\nretries: {nope: 1}\n", source={"plan_id": 6, "task_id": 3})
+    review = client.post(f"/ui/p/{project}/settings/versions/1/restore")
+    assert review.status_code == 200 and "vai sair" in review.text and "<code>e2e</code>" in review.text
+
+
+def test_a_missing_version_or_one_of_another_project_is_a_404(client, project, saved, run_db, indexer):
+    saved(YAML)
+    other = f"{project}-b"
+
+    async def go(conn):
+        await store.save_singleton(conn, indexer, other, "gate_config", {"yaml": YAML, "source": "human"})
+        await store.save_singleton(conn, indexer, other, "gate_config", {"yaml": YAML, "source": "human"})
+        await conn.commit()
+
+    run_db(go)
+    base = f"/ui/p/{project}/settings/versions"
+    assert client.get(f"{base}/999").status_code == 404
+    assert client.get(f"{base}/1?against=999").status_code == 404
+    assert client.post(f"{base}/999/restore").status_code == 404
+    assert client.get(f"{base}/2").status_code == 404  # v2 exists only in the other project
+    assert client.post(f"{base}/2/restore").status_code == 404
+    assert client.get("/ui/p/nope-x/settings/versions").status_code == 404

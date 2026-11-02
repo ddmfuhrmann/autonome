@@ -17,6 +17,24 @@
 {% endfor %}</pre>{% endif %}
 </section>
 
+{% if restore_n %}
+<section class="section">
+  <h2>Restaurar a v{{ restore_n }}</h2>
+  {% if leaving %}
+  <p>Gates que entraram por planos depois da v{{ restore_n }}:</p>
+  {% for g in leaving %}
+  <form class="row" method="post" action="/ui/p/{{ project }}/settings/versions/{{ restore_n }}/restore">
+    {% for k in kept %}{% if k != g.name %}<input type="hidden" name="keep" value="{{ k }}">{% endif %}{% endfor %}
+    <code>{{ g.name }}</code>
+    {% if g.kept %}<span class="footnote">mantido no rascunho</span>
+    {% else %}<span class="footnote">vai sair</span>
+    <button class="btn btn--ghost" type="submit" name="keep" value="{{ g.name }}">manter</button>{% endif %}
+  </form>
+  {% endfor %}
+  {% endif %}
+</section>
+{% endif %}
+
 <form class="section" method="post" action="/ui/p/{{ project }}/settings">
   <textarea name="yaml" hidden>{{ text }}</textarea>
   <input type="hidden" name="origin" value="{{ origin }}">
@@ -27,7 +45,7 @@
   <div class="row" style="padding-top: 10px">
     <button class="btn btn--primary" type="submit" name="action" value="save"{% if nothing_changed %} disabled{% endif %}>Save as v{{ base_version + 1 }}</button>
     {% if nothing_changed %}<span class="footnote">nada mudou</span>{% endif %}
-    <a class="btn btn--ghost" href="/ui/p/{{ project }}/settings{{ '' if origin == 'form' else '?view=yaml' }}">Voltar</a>
+    <a class="btn btn--ghost" href="{% if restore_n %}/ui/p/{{ project }}/settings/versions{% else %}/ui/p/{{ project }}/settings{{ '' if origin == 'form' else '?view=yaml' }}{% endif %}">Voltar</a>
   </div>
 </form>
 {% endblock %}
