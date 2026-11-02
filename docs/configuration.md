@@ -99,6 +99,7 @@ task_size: {max_lines: 300}              # changed lines of code per task (min 2
 merge: {mode: ff, pr: manual}            # ff: the runner fast-forwards main. pr: it pushes the task's
                                          # branch and opens a pull request; pr manual: you merge it on
                                          # GitHub, pr auto: GitHub merges it when the checks pass.
+                                         # The task waits as `in_pr`; a PR closed without merge blocks it.
                                          # Needs `gh` logged in (doctor checks); see operations.md
 
 review: {enabled: true, max_rounds: 2}   # an independent agent reviews each diff against the plan,
