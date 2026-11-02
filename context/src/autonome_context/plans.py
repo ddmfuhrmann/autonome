@@ -473,7 +473,9 @@ async def reject_decision(conn: AsyncConnection, indexer: store.Indexer, decisio
         d = await rules.transition(conn, decision_id, "rejected", actor)
         handoffs = [l["id"] for l in await store.links_of(conn, decision_id) if l["kind"] == "records"]
         b = d["body"]
-        spec = (f"The human rejected this choice, made in an earlier session: {b.get('title')}.\n\n"
+        last = (b.get("triage_history") or [{}])[-1]
+        who = f"The triage ({last.get('backend')})" if actor == "runner" and last.get("backend") else "The human"
+        spec = (f"{who} rejected this choice, made in an earlier session: {b.get('title')}.\n\n"
                 f"What was done and why: {b.get('decision', '')}\n\n"
                 f"Change the code so it no longer does this, following the plan and the conventions that "
                 f"apply. Decision #{decision_id}" + (f", recorded by handoff #{handoffs[0]}." if handoffs else "."))

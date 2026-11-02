@@ -71,7 +71,10 @@ plugin/runner/  the runner (TypeScript, Claude Agent SDK): one session + worktre
   accepted decision is screened first (`is_deviation`); at or above `reject_at` it is reopened as a
   deviation and judged like one, so a deviation the handoff writer missed is still caught. The human's reject
   outranks the triage: a decision born from the undo of a decision the human rejected
-  (`undo_of_human_reject`) is accepted as the human's choice, with no screening or judging. The
+  (`undo_of_human_reject`) is accepted as the human's choice, with no screening or judging. So is a
+  decision that repeats a choice the human already made on the same feature (the
+  `repeats_human_choice` question, asked before the judging); the undo task says who rejected, the
+  human or the triage (<backend>). The
   Jev key (`TYPESAFE_API_KEY`) lives in the runner's environment or `~/.autonome/secrets.env`, never in
   the gate config, and never reaches agent sessions.
 - **Models**: every agent role (implementer, reviewer, preflight, tester, retro, handoff, docs) has a

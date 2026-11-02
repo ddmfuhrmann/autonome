@@ -189,6 +189,10 @@ conventions and gates instead.
 - **The human's reject wins**: a decision born from the undo of a decision *you* rejected (the undo
   task's handoff, `undo_of_human_reject`) is accepted as your choice, with no screening and no
   triage round. An undo of a reject the triage made is still judged, with its round.
+- **A repeated human choice is yours too**: before judging, the triage asks
+  (`repeats_human_choice`) whether the decision only repeats a choice you already made on the same
+  feature, even in other words. If it does, it is accepted as your choice, with no judging and no
+  undo. The undo task says who rejected: "The human rejected…" or "The triage (jev) rejected…".
 - **On failure**: Jev down or no key → the fallback judges; if that fails too (or is `off`) nothing
   is recorded, the decision stays proposed and is tried again at the next run. A failed triage never
   breaks storing a handoff.

@@ -60,6 +60,12 @@ Haiku's cost will be reported then.
 Order: weakened test, rule conflict, other flags. Measured before planning (Jev, the 14 real states):
 false rejects 3 → 1, two deviations go to the human, the 3 true rejects are still undone.
 
+## Repeated human choice
+
+Pending: the case `autonome-918` is in the fixture (a decision that repeats the human's choice of
+Sonnet for the reviewer, which the screening scored 0.89 and Jev rejected), with the
+`repeats_human_choice` question. It has not been run yet.
+
 ## Preflight revisions
 
 The runner also asks Jev about a revision the preflight proposes for a held plan: only the tasks that

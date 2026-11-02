@@ -82,6 +82,22 @@ def test_reject_queues_an_undo_task_like_the_human_path(client, project, run_db,
     assert undo["body"]["source"] == f"decision:{doc_id}" and undo["feature"] == "links"
 
 
+def test_the_undo_says_who_rejected(client, project, run_db, indexer, deviation):
+    enable(run_db, indexer, project)
+    by_jev = deviation()
+    body = {**verdict("reject"), "backend": "jev"}
+    assert client.post(f"/api/decisions/{by_jev}/triage", json=body).status_code == 200
+    [undo] = run_db(lambda c: store.list_documents(c, project, type="task"))
+    assert undo["body"]["spec"].startswith("The triage (jev) rejected this choice")
+
+    from autonome_context import plans
+
+    by_human = deviation_two(run_db, indexer, project)
+    run_db(lambda c: plans.reject_decision(c, indexer, by_human))
+    tasks = run_db(lambda c: store.list_documents(c, project, type="task"))
+    assert any(t["body"]["spec"].startswith("The human rejected this choice") for t in tasks)
+
+
 def test_escalate_keeps_the_deviation_proposed_and_shows_it_in_the_queue_as_a_rule_conflict(
         client, project, run_db, indexer, deviation):
     enable(run_db, indexer, project)
