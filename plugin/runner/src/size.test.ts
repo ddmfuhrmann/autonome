@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import type { Run } from "./context.js";
-import { codeLines, git } from "./git.js";
+import { codeLines, git, isCodeFile } from "./git.js";
 import { run } from "./run.js";
 
 process.env.AUTONOME_CONTEXT_RETRY_MS = "1";
@@ -49,11 +49,20 @@ test("codeLines counts code only: tests, docs and binaries are left out", () => 
   assert.equal(codeLines(repo, base), 200);
 });
 
+test("isCodeFile leaves out each NOT_CODE pattern and keeps look-alikes", () => {
+  const notCode = ["test_app.py", "pkg/test_app.py", "app_test.py", "src/app.test.ts", "test/x.py", "tests/x.py",
+    "pkg/tests/x.py", "pkg/test/x.py", "README.md", "docs/guide.txt", "docs/a/b.py"];
+  const code = ["app.py", "src/contest_app.py", "src/app_tests.py", "src/app.ts", "src/latest/x.py", "src/attests/x.py",
+    "notes.mdx", "src/docs/guide.py", "mydocs/guide.py", "src/app.test.js"];
+  for (const f of notCode) assert.equal(isCodeFile(f), false, f);
+  for (const f of code) assert.equal(isCodeFile(f), true, f);
+});
+
 const json = (body: unknown) => new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
 const task = { id: 9, project: "p", status: "running", feature: "links", layers: [],
   body: { title: "Links", spec: "adds logo.bin", acceptance: [], plan_id: 16, seq: 1, hold_before_merge: false, runs: [] } };
 
-async function play(repo: string, config: Record<string, unknown>, measure?: typeof codeLines) {
+async function play(repo: string, config: Record<string, unknown>, measure?: typeof codeLines, events?: unknown) {
   const transitions: { to: string; run?: Run }[] = [];
   const log: string[] = [];
   let claimed = false;
@@ -86,15 +95,18 @@ async function play(repo: string, config: Record<string, unknown>, measure?: typ
     yield { type: "assistant", message: { usage: { input_tokens: 1, output_tokens: 1 }, content: [] } };
     yield { type: "result", subtype: "success", total_cost_usd: 0 };
   })()) as never;
-  const error = await run({ project: "p", repo, maxTasks: 5, push: false, log: (l) => log.push(l),
+  const error = await run({ project: "p", repo, maxTasks: 5, push: false, log: (l) => log.push(l), events: events as never,
     seams: { query, codeLines: measure, gates: () => ({ passed: true, summary: "all gates passed" }) } }).then(() => undefined, (e: Error) => e);
   return { transitions, log, error };
 }
 
 test("a task over task_size.max_lines is merged, flagged oversize and logged", async () => {
   const repo = makeRepo();
-  const { transitions, log, error } = await play(repo, { task_size: { max_lines: 100 } });
+  const pushed: { kind: string; text: string }[] = [];
+  const events = { push: (e: { kind: string; text: string }) => pushed.push(e), flush: async () => undefined };
+  const { transitions, log, error } = await play(repo, { task_size: { max_lines: 100 } }, undefined, events);
   assert.equal(error, undefined);
+  assert.ok(pushed.some((e) => e.kind === "stage" && e.text === "task oversize: 200 > 100"), JSON.stringify(pushed));
   assert.deepEqual(transitions.map((t) => t.to), ["done"], log.join("\n"));
   const r = transitions[0].run!;
   assert.equal(r.outcome, "merged");
