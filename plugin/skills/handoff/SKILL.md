@@ -29,8 +29,14 @@ Rules:
   the human to correct it. Be specific; this is how the process improves. Count, don't generalise:
   "3 of 14 Bash calls were denied (bare pytest, a subshell, grep)", never "Bash was denied for the whole
   session" when other commands ran. Overstated friction sends the retro loop after the wrong problem.
-- feature: one kebab-case English slug for the product feature touched (e.g. credit-inquiry, wallet,
-  signup, infra, process). layers: any of domain, application, api, persistence, integration, ui, infra,
+- feature: a stable capability of the product, never the name of a change. In a task session the feature
+  comes from the task and the context overrides yours. Otherwise pick from the "Feature catalog" given
+  with the transcript: the feature whose paths cover the files the session changed; when several cover
+  them, the most specific path wins. If none fits, give a new kebab-case English slug plus
+  `feature_description` (one sentence on what the capability is) and `feature_paths` (the code paths it
+  owns). When you truly cannot tell between two features, use `null`. Never name the change
+  (`preflight-rename`, `fix-login`). With a catalog entry chosen, leave `feature_description` and
+  `feature_paths` out. layers: any of domain, application, api, persistence, integration, ui, infra,
   test, docs, process.
 - Never copy personal data, credentials or secrets into the handoff.
 - If the session was only conversation (no code or docs changed), still write it: summary and decisions
@@ -39,6 +45,8 @@ Rules:
 Answer with ONLY one JSON object, no prose, no code fence, in exactly this shape:
 {
   "feature": "string or null",
+  "feature_description": "string, only for a new feature",
+  "feature_paths": ["string, only for a new feature"],
   "layers": ["string"],
   "summary": "3-6 sentences",
   "plan_adherence": [{"item": "string", "status": "done|partial|skipped|changed", "note": "string"}],

@@ -69,9 +69,12 @@ Only `store.resolve_feature` adds a feature. It works like this:
 - The description is embedded and compared by cosine with the project's other features (same
   embedding model; features without an embedding are left out). At or above `FEATURE_SIMILAR_AT`
   nothing is created and the answer carries `similar_to`, the closest feature. The caller decides:
-  refuse, or use that one. Plans, handoffs and decisions have no description of their own yet: they
-  only accept a slug already in the catalog, and a new one is refused with the catalog listed.
-  Scheduled maintenance creates `maintenance` with a fixed description.
+  refuse, or use that one. Scheduled maintenance creates `maintenance` with a fixed description.
+- The handoff writer of an interactive session receives the catalog (slug, description, paths) in its
+  prompt and picks the feature whose paths cover the changed files, the most specific winning. It only
+  creates a feature when none fits, sending `feature_description` and `feature_paths` with the new
+  slug; a real doubt between two gives `null`. If the context is down the prompt says there is no
+  catalog. A task session takes the feature from the task, whatever the writer says.
 - Two equal calls at once leave one row.
 
 `create_document` with a slug outside the catalog fails; it never creates the feature. The limit and

@@ -83,12 +83,30 @@ def gate_facts(session_id: str) -> str:
     return "Gate runs recorded by the gate hook (authoritative; prefer them over the transcript):\n" + "\n".join(lines)
 
 
+def feature_catalog(project: str) -> str:
+    """The project's feature catalog for the writer to pick from; a fallback line when the context is out."""
+    features = common.get_json(f"/api/projects/{project}/features")
+    if not isinstance(features, list):
+        return "Feature catalog: no catalog available."
+    lines = []
+    for f in features:
+        if not f.get("description") and not f.get("paths"):
+            continue  # an old feature, never described: nothing to choose by
+        paths = ", ".join(f.get("paths") or []) or "none"
+        lines.append(f"- {f['slug']}: {f.get('description') or 'no description'} (paths: {paths})")
+    if not lines:
+        return "Feature catalog: empty (no feature described yet)."
+    return "Feature catalog (slug: description, paths):\n" + "\n".join(lines)
+
+
 def write(condensed: str, cwd: str, facts: str) -> dict:
     env = {**os.environ, "AUTONOME_HANDOFF_CHILD": "1"}
+    project = common.project_slug(cwd)
     out = subprocess.run(
         ["claude", "-p", *common.model_args(common.project_slug(cwd), "handoff"), "--output-format", "json",
          "--allowedTools", *READ_ONLY_TOOLS],
-        input="\n\n".join(filter(None, [prompt(), common.language_rule(common.project_slug(cwd)), facts, condensed])),
+        input="\n\n".join(filter(None, [prompt(), common.language_rule(project), feature_catalog(project),
+                                        facts, condensed])),
         cwd=cwd, env=env, capture_output=True, text=True, timeout=600,
     )
     if out.returncode != 0:
