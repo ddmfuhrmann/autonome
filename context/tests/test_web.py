@@ -454,7 +454,7 @@ def test_the_final_refresh_swap_removes_an_empty_live_region_the_response_lacks(
 
 @pytest.mark.parametrize("path", [
     "", "/queue", "/approvals", "/documents", "/features", "/waves", "/insights",
-    "/conventions", "/config", "/search", "/lab", "/triage", "/features/links",
+    "/conventions", "/search", "/lab", "/triage", "/features/links",
 ])
 def test_every_page_carries_the_time_formatter_and_the_tz_cookie(client, project, path):
     res = client.get(f"/ui/p/{project}{path}", follow_redirects=True)

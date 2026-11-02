@@ -20,9 +20,10 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 
-from . import evaluation, insights, plans, rules, services, store
+from . import evaluation, insights, plans, rules, services, settings_form, store
 from .chunking import DEFAULT_STRATEGY, STRATEGIES
-from .gates import EXAMPLE, GateConfig
+from .gates import (DEFAULT_MODELS, EXAMPLE, FIELD_HELP, ROLE_GLOSS, Budget, Check, Gate, GateConfig, HoldBeforeMerge,
+                    Retries, Review, ReviewAfterMerge, RoleModel, Schedule, SmokeTest, Triage)
 
 log = logging.getLogger(__name__)
 _HERE = Path(__file__).parent
@@ -698,7 +699,7 @@ async def document_page(request: Request) -> Response:
 
 
 NAV_SECTION = {"wave": "waves", "plan": "waves", "task": "queue", "convention": "conventions",
-               "gate_config": "config"}
+               "gate_config": "settings"}
 
 
 async def _wave(conn, wave: dict) -> dict:
@@ -770,30 +771,88 @@ async def _task(conn, task: dict) -> dict:
             "events": await store.events(conn, task_id=task["id"], limit=400)}
 
 
-async def config_page(request: Request) -> Response:
+def _field_info() -> dict[str, tuple[str, str]]:
+    """(label, one line) of each config field by path: FIELD_HELP first, else the schema's own description."""
+    info: dict[str, tuple[str, str]] = {}
+    for prefix, model in (("", GateConfig), ("gates", Gate), ("retries", Retries), ("budget", Budget),
+                          ("hold_before_merge", HoldBeforeMerge), ("review_after_merge", ReviewAfterMerge),
+                          ("schedules", Schedule), ("review", Review), ("smoke_test", SmokeTest),
+                          ("smoke_test.checks", Check), ("triage", Triage), ("models", RoleModel)):
+        for name, f in model.model_fields.items():
+            info[f"{prefix}.{name}" if prefix else name] = (name.replace("_", " ").capitalize(), f.description or "")
+    return {**info, **FIELD_HELP}
+
+
+FIELD_INFO = _field_info()
+SETTINGS_SECTIONS = ["Gates", "Execution", "Human checkpoints", "Review", "Triage", "Smoke test", "Schedules",
+                     "Agents", "Other"]
+
+
+def _form_rows(form: dict[str, str], prefix: str, fields: tuple[str, ...]) -> list[dict[str, str]]:
+    n = 0
+    while f"{prefix}-{n}-{fields[0]}" in form:
+        n += 1
+    return [{f: form[f"{prefix}-{i}-{f}"] for f in fields} for i in range(n)]
+
+
+def _version_origin(body: dict) -> str | None:
+    source = body.get("source")
+    if source == "human":
+        return "você"
+    if isinstance(source, dict) and source.get("plan_id"):
+        return f"plano #{source['plan_id']}"
+    return None
+
+
+async def settings_page(request: Request) -> Response:
     project = request.path_params["project"]
-    error, text, summary = None, None, None
+    error, text = None, None
     pool, indexer = await services.get()
     async with pool.connection() as conn:
+        if not await store.project_exists(conn, project):
+            return Response("not found", status_code=404)
+        catalog = [f["slug"] for f in await store.catalog(conn, project)]
         if request.method == "POST":
-            text = str((await request.form()).get("yaml", ""))
-            try:
-                GateConfig.from_yaml(text)
-            except Exception as e:  # YAML or schema error: show it, keep the text
-                error = str(e)
+            data = await request.form()
+            if "yaml" not in data:
+                error = "Salvar pelo formulário ainda não está disponível: use a visão YAML."
             else:
-                await store.save_singleton(conn, indexer, project, "gate_config", {"yaml": text})
-                return RedirectResponse(f"/ui/p/{project}/config", status_code=303)
+                text = str(data["yaml"])
+                try:
+                    checks = settings_form.extra_checks(GateConfig.from_yaml(text), set(catalog))
+                except Exception as e:  # YAML or schema error: show it, keep the text
+                    error = str(e)
+                else:
+                    if checks:
+                        error = "\n".join(checks.values())
+                    else:
+                        await store.save_singleton(conn, indexer, project, "gate_config",
+                                                   {"yaml": text, "source": "human"})
+                        return RedirectResponse(f"/ui/p/{project}/settings?view=yaml", status_code=303)
         doc = await store.latest_of_type(conn, project, "gate_config")
-        runs = await store.gate_runs(conn, project=project, limit=30)
+        pending = await store.pending_gates(conn, project)
+    view = "yaml" if request.query_params.get("view") == "yaml" or text is not None else "form"
+    cfg = GateConfig()
+    if doc:
+        try:
+            cfg = GateConfig.from_yaml(doc["body"]["yaml"])
+        except Exception as e:  # a version saved before the schema changed: only the YAML can be shown
+            cfg, view = None, "yaml"
+            error = error or str(e)
     if text is None:
         text = doc["body"]["yaml"] if doc else EXAMPLE
-        try:
-            cfg = GateConfig.from_yaml(text)
-            summary = f"{len(cfg.gates)} gates" + (", smoke_test configured" if cfg.smoke_test else "")
-        except Exception as e:
-            error = str(e)
-    return await render(request, "config.html", text=text, doc=doc, error=error, runs=runs, summary=summary)
+    ctx: dict = {"doc": doc, "view": view, "text": text, "error": error, "cfg": cfg, "pending": pending,
+                 "origin": _version_origin(doc["body"]) if doc else None, "sections": SETTINGS_SECTIONS}
+    if cfg is not None:
+        form = settings_form.config_to_form(cfg)
+        ctx |= {"form": form, "defaults": settings_form.config_to_form(GateConfig()), "info": FIELD_INFO,
+                "errors": {}, "features": catalog, "roles": [(r, ROLE_GLOSS.get(r, "")) for r in DEFAULT_MODELS],
+                "gates": _form_rows(form, "gates", ("name", "run", "mode", "fast", "when", "timeout_s")),
+                "schedules": _form_rows(form, "schedules", ("name", "kind", "every_hours", "run", "task")),
+                "checks": _form_rows(form, "smoke_test-checks", ("name", "run", "timeout_s")),
+                "chips": {k: form[f"{k}-features"].split("\n") if form[f"{k}-features"] else []
+                          for k in ("hold_before_merge", "review_after_merge")}}
+    return await render(request, "settings.html", **ctx)
 
 
 async def approvals_page(request: Request) -> Response:
@@ -1086,7 +1145,9 @@ def routes() -> list:
         Route("/ui/p/{project}/lab/questions", lab_question, methods=["POST"]),
         Route("/ui/p/{project}/documents", documents_page),
         Route("/ui/p/{project}/documents/{doc_id:int}", document_page),
-        Route("/ui/p/{project}/config", config_page, methods=["GET", "POST"]),
+        Route("/ui/p/{project}/config",
+              lambda r: RedirectResponse(f"/ui/p/{r.path_params['project']}/settings", status_code=301)),
+        Route("/ui/p/{project}/settings", settings_page, methods=["GET", "POST"]),
         Route("/ui/p/{project}/approvals", approvals_page),
         Route("/ui/p/{project}/queue", queue_page),
         Route("/ui/p/{project}/queue/pause", queue_pause, methods=["POST"]),

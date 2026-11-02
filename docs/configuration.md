@@ -2,7 +2,8 @@
 
 How to set a project up for autonome and adjust how it runs. Almost everything is the project's
 **gate config**, a YAML document kept in the context and edited only by a human, in the UI
-(`http://127.0.0.1:8765/ui/p/<project>/config`). The rest is a few environment variables.
+(Settings, `http://127.0.0.1:8765/ui/p/<project>/settings`: a form by sections, with the YAML as the
+`?view=yaml` view). The rest is a few environment variables.
 
 How the config is used, from the moment you save it:
 

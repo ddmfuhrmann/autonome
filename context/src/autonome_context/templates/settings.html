@@ -1,0 +1,289 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block main %}
+{% macro field(key, path, kind='text', options=(), list=None) -%}
+{% set label, help = info[path] %}
+{% set value = form[key] %}
+{% set d = defaults[key] %}
+{% set changed = value != d %}
+<div class="sfield{% if changed %} is-changed{% endif %}{% if errors[key] %} has-error{% endif %}">
+  <div class="sfield__text">
+    <label class="sfield__label" for="f-{{ key }}">{{ label }}</label>
+    <code class="sfield__key">{{ path }}</code>
+    <p class="sfield__help">{{ help }}</p>
+  </div>
+  <div class="sfield__control">
+    {% if kind == 'check' -%}
+    <input type="checkbox" id="f-{{ key }}" name="{{ key }}" value="on"{% if value %} checked{% endif %}>
+    {%- elif kind == 'select' -%}
+    <select id="f-{{ key }}" name="{{ key }}">{% for o in options %}<option{% if o == value %} selected{% endif %}>{{ o }}</option>{% endfor %}</select>
+    {%- elif kind == 'seg' -%}
+    <div class="seg" role="radiogroup" aria-label="{{ label }}">{% for o in options %}<label class="seg__opt"><input type="radio" name="{{ key }}" value="{{ o }}"{% if o == value %} checked{% endif %}><span>{{ o }}</span></label>{% endfor %}</div>
+    {%- elif kind == 'lines' -%}
+    <textarea id="f-{{ key }}" name="{{ key }}" rows="3" spellcheck="false">{{ value }}</textarea>
+    {%- elif kind == 'chips' -%}
+    {% if chips[path.split('.')[0]] %}<div class="chips">{% for c in chips[path.split('.')[0]] %}<span class="chip">{{ c }}</span>{% endfor %}</div>{% endif %}
+    <input type="text" id="f-{{ key }}" name="{{ key }}" value="{{ value|replace('\n', ', ') }}" list="features-list" placeholder="feature-slug, outra-feature" autocomplete="off">
+    {%- else -%}
+    <input type="{{ 'number' if kind == 'number' else 'text' }}"{% if kind == 'number' %} step="any"{% endif %} id="f-{{ key }}" name="{{ key }}" value="{{ value }}">
+    {%- endif %}
+    {% if errors[key] %}<p class="sfield__error">{{ errors[key] }}</p>{% endif %}
+    {% if changed %}<p class="sfield__default">default {% if kind == 'check' %}{{ 'ligado' if d else 'desligado' }}{% else %}{{ (d|replace('\n', ', ')) or 'vazio' }}{% endif %} · <button type="submit" class="btn btn--link btn--sm" name="reset" value="{{ key }}">reset</button></p>{% endif %}
+  </div>
+</div>
+{%- endmacro %}
+
+{% macro row_tools(prefix, i) -%}
+<span class="srow__tools">
+  <button type="submit" class="btn btn--ghost btn--sm" name="move" value="{{ prefix }}-{{ i }}-up" aria-label="Subir" data-move="-1">↑</button>
+  <button type="submit" class="btn btn--ghost btn--sm" name="move" value="{{ prefix }}-{{ i }}-down" aria-label="Descer" data-move="1">↓</button>
+  <button type="submit" class="btn btn--danger btn--sm" name="remove" value="{{ prefix }}-{{ i }}" aria-label="Remover" data-remove>×</button>
+</span>
+{%- endmacro %}
+
+{% macro gate_row(i, g) -%}
+<div class="srow srow--gates" data-row>
+  <input name="gates-{{ i }}-name" value="{{ g.name }}" aria-label="Nome do gate" placeholder="nome">
+  <input class="mono" name="gates-{{ i }}-run" value="{{ g.run }}" aria-label="Comando do gate" placeholder="comando">
+  <select name="gates-{{ i }}-mode" aria-label="Modo">{% for m in ('block', 'fix') %}<option{% if g.mode == m %} selected{% endif %}>{{ m }}</option>{% endfor %}</select>
+  <label class="srow__check"><input type="checkbox" name="gates-{{ i }}-fast" value="on"{% if g.fast %} checked{% endif %}> fast</label>
+  <textarea name="gates-{{ i }}-when" rows="1" spellcheck="false" aria-label="when: globs, um por linha" placeholder="when">{{ g.when }}</textarea>
+  <input type="number" name="gates-{{ i }}-timeout_s" value="{{ g.timeout_s }}" aria-label="Timeout (s)">
+  {{ row_tools('gates', i) }}
+</div>
+{%- endmacro %}
+
+{% macro schedule_row(i, s) -%}
+<div class="srow srow--schedules" data-row>
+  <input name="schedules-{{ i }}-name" value="{{ s.name }}" aria-label="Nome do schedule" placeholder="nome">
+  <select name="schedules-{{ i }}-kind" aria-label="Tipo">{% for k in ('command', 'doc-drift', 'main-red') %}<option{% if s.kind == k %} selected{% endif %}>{{ k }}</option>{% endfor %}</select>
+  <input type="number" name="schedules-{{ i }}-every_hours" value="{{ s.every_hours }}" aria-label="A cada (horas)">
+  <input class="mono" name="schedules-{{ i }}-run" value="{{ s.run }}" aria-label="Comando" placeholder="comando (kind command)">
+  <input name="schedules-{{ i }}-task" value="{{ s.task }}" aria-label="Título da task" placeholder="título da task">
+  {{ row_tools('schedules', i) }}
+</div>
+{%- endmacro %}
+
+{% macro check_row(i, c) -%}
+<div class="srow srow--checks" data-row>
+  <input name="smoke_test-checks-{{ i }}-name" value="{{ c.name }}" aria-label="Nome do check" placeholder="nome">
+  <input class="mono" name="smoke_test-checks-{{ i }}-run" value="{{ c.run }}" aria-label="Comando do check" placeholder="comando">
+  <input type="number" name="smoke_test-checks-{{ i }}-timeout_s" value="{{ c.timeout_s }}" aria-label="Timeout (s)">
+  {{ row_tools('smoke_test-checks', i) }}
+</div>
+{%- endmacro %}
+
+{% macro rows(prefix, items, row, empty, head, noun) -%}
+<div class="sbox">
+  <div class="sgrid" data-rows="{{ prefix }}">
+    <div class="srow srow--{{ prefix if prefix != 'smoke_test-checks' else 'checks' }} srow--head" aria-hidden="true">{% for h in head %}<span>{{ h }}</span>{% endfor %}<span></span></div>
+    <div data-list>{% for item in items %}{{ row(loop.index0, item) }}{% endfor %}</div>
+    <noscript>{{ row(items|length, empty) }}</noscript>
+    <template data-tpl>{{ row('__N__', empty) }}</template>
+  </div>
+</div>
+<p class="srows__add"><button type="button" class="btn btn--sm" data-add="{{ prefix }}" hidden>+ Adicionar {{ noun }}</button></p>
+{%- endmacro %}
+
+<header class="page-head">
+  <div class="page-head__text"><h1>Settings</h1>
+    <p class="subtitle">Which commands run, in what order, and how strictly. The rules live in the project's repo; only editable here, never by an agent. Every save is a new version.</p></div>
+</header>
+
+<div class="sbar">
+  <span class="sbar__version">{% if doc %}<strong>v{{ doc.version }}</strong> · {{ doc.updated_at|when }}{% if origin %} · {{ origin }}{% endif %}{% else %}not saved yet: defaults below{% endif %}</span>
+  <a class="btn btn--link" href="/ui/p/{{ project }}/settings/versions">Versões</a>
+  <span class="seg seg--links" role="group" aria-label="Visão">
+    <a class="seg__opt{% if view == 'form' %} is-on{% endif %}" href="/ui/p/{{ project }}/settings"{% if view == 'form' %} aria-current="page"{% endif %}><span>Form</span></a>
+    <a class="seg__opt{% if view == 'yaml' %} is-on{% endif %}" href="/ui/p/{{ project }}/settings?view=yaml"{% if view == 'yaml' %} aria-current="page"{% endif %}><span>YAML</span></a>
+  </span>
+</div>
+
+{% if not doc %}<div class="callout callout--block"><div class="wrap"><strong>Not saved yet.</strong> Until a config is saved autonome is not active here (no briefing, no handoffs, no run).</div></div>{% endif %}
+{% if error %}<div class="callout callout--block"><div class="wrap"><strong>Not valid.</strong> {{ error }}</div></div>{% endif %}
+
+{% if view == 'yaml' %}
+<form class="section" method="post" action="/ui/p/{{ project }}/settings">
+  <div class="yaml">
+    <pre class="yaml__lines" aria-hidden="true"></pre>
+    <div class="yaml__box">
+      <pre aria-hidden="true"></pre>
+      <label class="sr-only" for="yaml">Gate config (YAML)</label>
+      <textarea name="yaml" id="yaml" spellcheck="false" autocapitalize="off" autocomplete="off">{{ text }}</textarea>
+    </div>
+  </div>
+  <div class="row" style="padding-top: 10px">
+    <button class="btn btn--primary" type="submit">Save as v{{ (doc.version + 1) if doc else 1 }}</button>
+    <a class="btn btn--ghost" href="/ui/p/{{ project }}/settings?view=yaml">Revert</a>
+    <span class="footnote">Validated against the schema before saving. Applies to tasks that start after saving.</span>
+  </div>
+</form>
+<script>
+// YAML highlighting: the textarea stays the form field, transparent over a <pre> repainted on input.
+(() => {
+  const ta = document.getElementById("yaml"), pre = ta.previousElementSibling.previousElementSibling, nums = document.querySelector(".yaml__lines");
+  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  const value = (v) => /^\s*(true|false|null|~|-?\d+(\.\d+)?)\s*$/.test(v) ? `<span class="y-lit">${esc(v)}</span>` : esc(v);
+  const line = (l) => {
+    const c = l.search(/(^|\s)#/);
+    const code = c < 0 ? l : l.slice(0, c), note = c < 0 ? "" : `<span class="y-com">${esc(l.slice(c))}</span>`;
+    const m = code.match(/^(\s*)(- )?([^\s:#][^:#]*?)(:)(\s.*|$)/);
+    if (m) return `${m[1]}${m[2] ? '<span class="y-dash">-</span> ' : ""}<span class="y-key">${esc(m[3])}</span>:${value(m[5])}${note}`;
+    const d = code.match(/^(\s*)- (.*)$/);
+    return (d ? `${d[1]}<span class="y-dash">-</span> ${value(d[2])}` : esc(code)) + note;
+  };
+  const paint = () => {
+    const lines = ta.value.split("\n");
+    pre.innerHTML = lines.map(line).join("\n") + "\n";
+    nums.textContent = lines.map((_, i) => i + 1).join("\n");
+    ta.style.height = "auto";
+    ta.style.height = `${Math.max(420, ta.scrollHeight)}px`;
+  };
+  ta.addEventListener("input", paint);
+  ta.addEventListener("scroll", () => { pre.scrollLeft = ta.scrollLeft; });
+  paint();
+})();
+</script>
+{% else %}
+<nav class="snav" aria-label="Seções">{% for s in sections %}<a href="#{{ s|lower|replace(' ', '-') }}">{{ s }}</a>{% endfor %}</nav>
+
+<datalist id="features-list">{% for slug in features %}<option value="{{ slug }}">{% endfor %}</datalist>
+
+<form class="settings" method="post" action="/ui/p/{{ project }}/settings">
+  <section class="ssec" id="gates">
+    <h2>Gates</h2>
+    <p class="ssec__lead"><code class="sfield__key">gates</code>{{ info['gates'][1] }}</p>
+    {{ rows('gates', gates, gate_row, {'name': '', 'run': '', 'mode': 'block', 'fast': '', 'when': '', 'timeout_s': '900'},
+            ('Nome', 'Comando', 'Modo', 'Fast', 'when', 'Timeout (s)'), 'gate') }}
+    {% if pending %}
+    <div class="spending">
+      <h3>Vão entrar</h3>
+      {% for g in pending %}
+      <div class="srow srow--pending">
+        <span class="mono">{{ g.name }}</span><span class="mono">{{ g.run }}</span>
+        <span class="muted">plano #{{ g.plan_id }} · entra quando #{{ g.task_id }} for mergeada</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </section>
+
+  <section class="ssec" id="execution">
+    <h2>Execution</h2>
+    {{ field('permissions', 'permissions', 'seg', ('allowlist', 'auto')) }}
+    {{ field('retries-max', 'retries.max', 'number') }}
+    {{ field('retries-stop_on_repeat', 'retries.stop_on_repeat', 'check') }}
+    {{ field('budget-task_tokens', 'budget.task_tokens') }}
+    {{ field('budget-task_minutes', 'budget.task_minutes', 'number') }}
+    {{ field('budget-plan_tokens', 'budget.plan_tokens') }}
+    {{ field('allowed_commands', 'allowed_commands', 'lines') }}
+    {{ field('interactive', 'interactive', 'check') }}
+  </section>
+
+  <section class="ssec" id="human-checkpoints">
+    <h2>Human checkpoints</h2>
+    {{ field('hold_before_merge-features', 'hold_before_merge.features', 'chips') }}
+    {{ field('review_after_merge-features', 'review_after_merge.features', 'chips') }}
+  </section>
+
+  <section class="ssec" id="review">
+    <h2>Review</h2>
+    {{ field('review-enabled', 'review.enabled', 'check') }}
+    {{ field('review-max_rounds', 'review.max_rounds', 'number') }}
+  </section>
+
+  <section class="ssec" id="triage">
+    <h2>Triage</h2>
+    <p class="ssec__lead"><code class="sfield__key">triage</code>{{ info['triage'][1] }}</p>
+    {{ field('triage-model', 'triage.model', 'select', ('jev-latest', 'haiku', 'off')) }}
+    {{ field('triage-fallback', 'triage.fallback', 'select', ('haiku', 'off')) }}
+    {{ field('triage-reject_at', 'triage.reject_at', 'number') }}
+    {{ field('triage-max_rounds', 'triage.max_rounds', 'number') }}
+  </section>
+
+  <section class="ssec" id="smoke-test">
+    <h2>Smoke test</h2>
+    <p class="ssec__lead"><code class="sfield__key">smoke_test</code>{{ info['smoke_test'][1] }} Deixe up, down e url vazios para não usar.</p>
+    {{ field('smoke_test-up', 'smoke_test.up') }}
+    {{ field('smoke_test-down', 'smoke_test.down') }}
+    {{ field('smoke_test-url', 'smoke_test.url') }}
+    {{ field('smoke_test-seed', 'smoke_test.seed') }}
+    {{ field('smoke_test-tester', 'smoke_test.tester', 'check') }}
+    {{ field('smoke_test-max_fixes', 'smoke_test.max_fixes', 'number') }}
+    <h3 class="ssec__sub"><code class="sfield__key">smoke_test.checks</code>{{ info['smoke_test.checks'][1] }}</h3>
+    {{ rows('smoke_test-checks', checks, check_row, {'name': '', 'run': '', 'timeout_s': '900'},
+            ('Nome', 'Comando', 'Timeout (s)'), 'check') }}
+  </section>
+
+  <section class="ssec" id="schedules">
+    <h2>Schedules</h2>
+    <p class="ssec__lead"><code class="sfield__key">schedules</code>{{ info['schedules'][1] }}</p>
+    {{ rows('schedules', schedules, schedule_row, {'name': '', 'kind': 'command', 'every_hours': '24', 'run': '', 'task': ''},
+            ('Nome', 'Tipo', 'A cada (h)', 'Comando', 'Task'), 'schedule') }}
+  </section>
+
+  <section class="ssec" id="agents">
+    <h2>Agents</h2>
+    <p class="ssec__lead"><code class="sfield__key">models</code>{{ info['models'][1] }}</p>
+    <div class="sbox">
+      <div class="sgrid">
+        <div class="srow srow--agents srow--head" aria-hidden="true"><span>Papel</span><span>Modelo</span><span>Esforço</span><span>Fallback</span></div>
+        {% for role, gloss in roles %}
+        {% set changed = form['models-' ~ role ~ '-model'] != defaults['models-' ~ role ~ '-model'] or form['models-' ~ role ~ '-effort'] != defaults['models-' ~ role ~ '-effort'] or form['models-' ~ role ~ '-fallback'] != defaults['models-' ~ role ~ '-fallback'] %}
+        <div class="srow srow--agents{% if changed %} is-changed{% endif %}">
+          <span class="srow__role"><strong>{{ role }}</strong><span class="sfield__help">{{ gloss }}</span>
+            {% if changed %}<span class="sfield__default">default {{ defaults['models-' ~ role ~ '-model'] }} · {{ defaults['models-' ~ role ~ '-effort'] }} · <button type="submit" class="btn btn--link btn--sm" name="reset" value="models-{{ role }}">reset</button></span>{% endif %}</span>
+          <input name="models-{{ role }}-model" value="{{ form['models-' ~ role ~ '-model'] }}" aria-label="Modelo de {{ role }}">
+          <select name="models-{{ role }}-effort" aria-label="Esforço de {{ role }}">{% for e in ('low', 'medium', 'high', 'xhigh', 'max') %}<option{% if e == form['models-' ~ role ~ '-effort'] %} selected{% endif %}>{{ e }}</option>{% endfor %}</select>
+          <input name="models-{{ role }}-fallback" value="{{ form['models-' ~ role ~ '-fallback'] }}" aria-label="Fallback de {{ role }}" placeholder="nenhum">
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <section class="ssec" id="other">
+    <h2>Other</h2>
+    {{ field('retro_after_wave', 'retro_after_wave', 'check') }}
+    {{ field('language', 'language') }}
+  </section>
+
+  <div class="row" style="padding-top: 10px">
+    <button class="btn btn--primary" type="submit">Save</button>
+    <span class="footnote">Validated against the schema before saving. Applies to tasks that start after saving.</span>
+  </div>
+</form>
+<script>
+// Rows: add from the <template>, remove, move; names are renumbered on submit so the order on screen is the order saved.
+(() => {
+  document.querySelectorAll("[data-add]").forEach((btn) => {
+    btn.hidden = false;
+    const grid = document.querySelector(`[data-rows="${btn.dataset.add}"]`);
+    btn.addEventListener("click", () => {
+      const html = grid.querySelector("[data-tpl]").innerHTML.replaceAll("__N__", String(Date.now()));
+      grid.querySelector("[data-list]").insertAdjacentHTML("beforeend", html);
+    });
+  });
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-move], [data-remove]");
+    const row = b && b.closest("[data-row]");
+    if (!row) return;
+    e.preventDefault();
+    if (b.hasAttribute("data-remove")) return row.remove();
+    const other = b.dataset.move < 0 ? row.previousElementSibling : row.nextElementSibling;
+    if (other) b.dataset.move < 0 ? row.parentNode.insertBefore(row, other) : row.parentNode.insertBefore(other, row);
+  });
+  document.querySelector("form.settings").addEventListener("submit", () => {
+    document.querySelectorAll("[data-rows]").forEach((grid) => {
+      const prefix = grid.dataset.rows;
+      grid.querySelectorAll("[data-list] > [data-row]").forEach((row, n) => {
+        row.querySelectorAll("[name]").forEach((el) => {
+          el.name = el.name.replace(new RegExp(`^${prefix}-\\d+-`), `${prefix}-${n}-`);
+        });
+      });
+    });
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

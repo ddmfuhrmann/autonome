@@ -129,7 +129,7 @@
   </div>
   {% endif %}
   <div class="card">
-    <div class="card__head"><h2 class="card__title">Gates</h2><a class="push muted" style="font-size: 12px" href="/ui/p/{{ project }}/config">gate config</a></div>
+    <div class="card__head"><h2 class="card__title">Gates</h2><a class="push muted" style="font-size: 12px" href="/ui/p/{{ project }}/settings">gate config</a></div>
     <div class="card__body">
       <ul class="gates">
         {% for g in (cfg.gates if cfg else []) %}<li><span class="tag tag--gate">{{ g.name }}</span><span class="cmd">{{ g.run }}</span></li>{% endfor %}
