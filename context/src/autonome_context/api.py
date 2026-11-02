@@ -66,10 +66,15 @@ async def get_briefing(request: Request) -> JSONResponse:
     return _json({"text": text})
 
 
+_NO_CONTROL = r"^[^\x00-\x1f\x7f]*$"
+
+
 async def claim_task(request: Request) -> JSONResponse:
     """The runner asks for work. A pending task is moved to running; a released one is returned as is."""
     pool, _ = await services.get()
     async with pool.connection() as conn:
+        if paused := await store.project_pause(conn, request.path_params["project"]):
+            return _json({"task": None, "preflight": None, "smoke_test": None, "paused": paused})
         # A feature whose tasks are all merged is tried in a running environment before anything else.
         if smoke_test := await plans.smoke_test_due(conn, request.path_params["project"]):
             return _json({"task": None, "preflight": None, "smoke_test": smoke_test})
@@ -81,6 +86,27 @@ async def claim_task(request: Request) -> JSONResponse:
     # A wave plan whose turn has come is checked in preflight against the code before its first task plays.
     preflight = plan if task and task["status"] == "running" and plans.needs_preflight(task, plan) else None
     return _json({"task": task, "preflight": preflight, "smoke_test": None})
+
+
+class Pause(BaseModel):
+    by: Annotated[str, StringConstraints(min_length=1, max_length=80, pattern=_NO_CONTROL)]
+    reason: Annotated[str, StringConstraints(max_length=500, pattern=_NO_CONTROL)] | None = None
+
+
+async def post_pause(request: Request) -> JSONResponse:
+    """Anyone may pause a project's queue; resuming is the human's, in the UI or through MCP."""
+    try:
+        p = Pause.model_validate(await request.json())
+    except ValueError as e:  # malformed JSON, or a ValidationError (also a ValueError)
+        detail = e.errors(include_context=False, include_input=False) if isinstance(e, ValidationError) else str(e)
+        return _json({"error": "invalid_pause", "detail": detail}, 422)
+    project = request.path_params["project"]
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        paused = await store.pause_project(conn, project, p.by, p.reason)
+    if paused is None:
+        return _json({"error": f"project {project!r} does not exist"}, 404)
+    return _json({"paused": paused})
 
 
 async def post_preflight(request: Request) -> JSONResponse:
@@ -586,6 +612,7 @@ async def project_state(request: Request) -> JSONResponse:
         plans_ = await store.list_documents(conn, project, type="plan", limit=300)
         waves = await store.list_documents(conn, project, type="wave", limit=50)
         queue = await _queue(conn, project)
+        paused = await store.project_pause(conn, project)
         triage = await _triage_on(conn, project)
         if triage:  # the queue leaves deviations to the classifier; the ones it gave up on still need a human
             queue += [{"kind": "decision", "doc": d} for d in await store.list_documents(conn, project, type="decision", status="proposed")
@@ -605,6 +632,7 @@ async def project_state(request: Request) -> JSONResponse:
                      "conflict": bool(i["doc"]["body"].get("triage_conflict")),
                      "triage_hold": _triage_hold_flag(i["doc"]) if i["kind"] == "held" else None} for i in queue],
         "triage": triage,
+        "paused": paused,
     })
 
 
@@ -619,6 +647,7 @@ def routes() -> list:
         Route("/api/projects/{project}/overview", put_feature_doc, methods=["PUT"]),
         Route("/api/projects/{project}/overview", get_overview),
         Route("/api/projects/{project}/tasks/claim", claim_task, methods=["POST"]),
+        Route("/api/projects/{project}/pause", post_pause, methods=["POST"]),
         Route("/api/tasks/{doc_id:int}/transition", task_transition, methods=["POST"]),
         Route("/api/plans/{doc_id:int}/preflight", post_preflight, methods=["POST"]),
         Route("/api/plans/{doc_id:int}/smoke-test", post_smoke_test, methods=["POST"]),

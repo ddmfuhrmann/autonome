@@ -51,6 +51,41 @@ async def ensure_project(conn: AsyncConnection, slug: str) -> int:
     )
 
 
+# --- pause ---------------------------------------------------------------------------------------
+
+
+async def project_pause(conn: AsyncConnection, slug: str) -> dict | None:
+    """{at, by, reason} while the project's queue is paused, else None."""
+    row = await (await conn.execute(
+        "select paused_at, paused_by, pause_reason from project where slug = %s and paused_at is not null",
+        (slug,))).fetchone()
+    return {"at": row[0], "by": row[1], "reason": row[2]} if row else None
+
+
+async def pause_project(conn: AsyncConnection, slug: str, by: str, reason: str | None) -> dict | None:
+    """Pauses the queue; an already paused project keeps its first pause. None if there is no such project."""
+    row = await (await conn.execute(
+        "update project set paused_at = coalesce(paused_at, now()),"
+        " paused_by = case when paused_at is null then %s else paused_by end,"
+        " pause_reason = case when paused_at is null then %s else pause_reason end"
+        " where slug = %s returning paused_at, paused_by, pause_reason",
+        (by, reason, slug))).fetchone()
+    return {"at": row[0], "by": row[1], "reason": row[2]} if row else None
+
+
+async def resume_project(conn: AsyncConnection, slug: str) -> list[int]:
+    """Clears the pause and puts the project's paused tasks back to pending, in one transaction.
+    Returns the ids of the tasks put back."""
+    async with conn.transaction():
+        await conn.execute(
+            "update project set paused_at = null, paused_by = null, pause_reason = null where slug = %s", (slug,))
+        rows = await (await conn.execute(
+            "update document d set status = 'pending' from project p"
+            " where p.id = d.project_id and p.slug = %s and d.type = 'task' and d.status = 'paused'"
+            " returning d.id", (slug,))).fetchall()
+    return [r[0] for r in rows]
+
+
 # --- feature catalog -----------------------------------------------------------------------------
 
 # Cosine similarity of two feature descriptions from which they count as the same feature.
