@@ -13,11 +13,16 @@ CONTRACT = json.loads((Path(__file__).resolve().parents[2] / "contracts" / "runn
 def test_the_deviation_verdict_body_passes_the_endpoint_model():
     v = TriageVerdict.model_validate(CONTRACT["triage_verdict"]["body"])
     assert v.round == CONTRACT["triage_verdict"]["item"]["round"] >= 1
-    assert (v.repeats_human_choice, v.human_choice_of) == (0.92, 634)
 
 
 def test_the_screening_body_passes_the_endpoint_model():
-    s = Screening.model_validate(CONTRACT["screening"]["body"])
+    Screening.model_validate(CONTRACT["screening"]["body"])
+
+
+def test_the_human_choice_bodies_pass_the_endpoint_models():
+    v = TriageVerdict.model_validate(CONTRACT["triage_verdict_human_choice"]["body"])
+    assert (v.repeats_human_choice, v.human_choice_of) == (0.92, 634)
+    s = Screening.model_validate(CONTRACT["screening_human_choice"]["body"])
     assert (s.repeats_human_choice, s.human_choice_of) == (0.9, 634)
 
 

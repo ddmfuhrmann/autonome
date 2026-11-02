@@ -2,7 +2,25 @@
   "about": "What the runner POSTs to the context for the triage. plugin/runner tests build each body from its input and compare it with `body`; context tests validate each `body` with the endpoint's model and its checks. Inputs are what the runner really gets (a revision's `model` is the Jev that answered, as Jev's API names it), never idealized values. Change both sides and this file together.",
   "triage_verdict": {
     "endpoint": "POST /api/decisions/{id}/triage",
-    "about": "A deviation that repeats a choice the human made on the feature: the runner sends accept (the other flags are not judged), `repeats_human_choice` and the choice it repeats, and the context records it as the human's choice, queuing no undo.",
+    "item": {"decision_id": 713, "round": 1, "state": {"deviation": {"title": "Keep ValueError", "decision": "The plan asks for it."}}},
+    "judgment": {"backend": "jev", "model": "jev-latest", "verdict": "escalate",
+      "answers": {"drops_coverage": 0.17, "contradicts": 0.86, "workaround": 0.55, "required_by_plan": 0.09, "narrower": 0.3, "rule_conflict": 0.91}},
+    "body": {
+      "backend": "jev", "model": "jev-latest",
+      "state": "{\"deviation\":{\"title\":\"Keep ValueError\",\"decision\":\"The plan asks for it.\"}}",
+      "answers": {"drops_coverage": "0.17", "contradicts": "0.86", "workaround": "0.55", "required_by_plan": "0.09", "narrower": "0.3", "rule_conflict": "0.91"},
+      "verdict": "escalate", "round": 1
+    }
+  },
+  "screening": {
+    "endpoint": "POST /api/decisions/{id}/screen",
+    "screening": {"backend": "jev", "model": "jev-latest", "isDeviation": 0.19},
+    "reject_at": 0.7,
+    "body": {"backend": "jev", "model": "jev-latest", "is_deviation": 0.19, "reject_at": 0.7}
+  },
+  "triage_verdict_human_choice": {
+    "endpoint": "POST /api/decisions/{id}/triage",
+    "about": "A deviation that repeats a choice the human made on the feature: the runner sends accept (the other flags are not judged) and the context records it as the human's choice, queuing no undo.",
     "item": {"decision_id": 918, "round": 1, "state": {"deviation": {"title": "Keep Sonnet", "decision": "As D634."}, "human_choices": [{"id": 634, "title": "Sonnet for the reviewer", "decision": "Reviewer on Sonnet.", "status": "accepted"}]}},
     "judgment": {"backend": "jev", "model": "jev-latest", "verdict": "accept", "humanChoice": true,
       "answers": {"drops_coverage": 0.17, "repeats_human_choice": 0.92}},
@@ -13,7 +31,7 @@
       "verdict": "accept", "round": 1, "repeats_human_choice": 0.92, "human_choice_of": 634
     }
   },
-  "screening": {
+  "screening_human_choice": {
     "endpoint": "POST /api/decisions/{id}/screen",
     "state": {"decision": {"title": "Keep Sonnet", "decision": "As D634."}, "human_choices": [{"id": 634, "title": "Sonnet for the reviewer", "decision": "Reviewer on Sonnet.", "status": "accepted"}]},
     "screening": {"backend": "jev", "model": "jev-latest", "isDeviation": 0.89, "repeatsHumanChoice": 0.9, "humanChoiceOf": 634},
