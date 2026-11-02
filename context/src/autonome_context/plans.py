@@ -155,9 +155,11 @@ async def draft(
         return plan_id
 
 
-async def apply_gates(conn: AsyncConnection, indexer: store.Indexer | None, project: str, gates: list[dict]) -> None:
+async def apply_gates(conn: AsyncConnection, indexer: store.Indexer | None, project: str, gates: list[dict],
+                      source: dict) -> None:
     """Adds gates (by name, never replacing one) to the project's gate config. Only called on behalf of
-    a human: the approval of the plan that proposed them. Comments in the YAML do not survive."""
+    a human: the approval of the plan that proposed them. Comments in the YAML do not survive. `source`
+    ({"plan_id", "task_id"}) is kept on the new version, so it says who wrote it."""
     doc = await store.latest_of_type(conn, project, "gate_config")
     cfg = (yaml.safe_load(doc["body"]["yaml"]) if doc else None) or {}
     names = {g.get("name") for g in cfg.get("gates", [])}
@@ -168,7 +170,7 @@ async def apply_gates(conn: AsyncConnection, indexer: store.Indexer | None, proj
     cfg["gates"] = cfg.get("gates", []) + new
     text = yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True)
     GateConfig.from_yaml(text)
-    await store.save_singleton(conn, indexer, project, "gate_config", {"yaml": text})
+    await store.save_singleton(conn, indexer, project, "gate_config", {"yaml": text, "source": source})
 
 
 async def apply_conventions(conn: AsyncConnection, indexer: store.Indexer | None, project: str,
@@ -190,7 +192,8 @@ async def _queue_tasks(
     gate_doc = await store.latest_of_type(conn, plan["project"], "gate_config")
     hold_before_merge, after_merge = await store.review_flags(conn, plan["project"], plan["feature"])
     gates = [g.model_dump(mode="json") for g in body.gates]
-    await apply_gates(conn, indexer, plan["project"], [g for g in gates if not g["with_task"]])
+    await apply_gates(conn, indexer, plan["project"], [g for g in gates if not g["with_task"]],
+                      {"plan_id": plan["id"], "task_id": None})
     await apply_conventions(conn, indexer, plan["project"], body.conventions)
     task_ids: list[int] = []
     for seq, t in enumerate(body.tasks, start=1):

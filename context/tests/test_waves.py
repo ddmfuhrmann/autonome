@@ -142,7 +142,7 @@ def test_proposed_gates_join_the_config_on_approval_or_when_their_task_is_merged
         first, second = await plans.approve(conn, indexer, plan_id)
         on_approval = await gates_of(conn, project)
         task = await store.get_document(conn, second)
-        await plans.apply_gates(conn, indexer, project, task["body"]["adds_gates"])
+        await plans.apply_gates(conn, indexer, project, task["body"]["adds_gates"], {"plan_id": plan_id, "task_id": second})
         return on_approval, await gates_of(conn, project)
 
     on_approval, after_task = run_db(go)
@@ -186,7 +186,8 @@ def test_gates_waiting_for_their_setup_task_are_listed_as_pending(run_db, projec
         first, _ = await plans.approve(conn, indexer, plan_id)
         before = await api.gate_config_body(conn, project)
         await play(conn, first)
-        await plans.apply_gates(conn, indexer, project, (await store.get_document(conn, first))["body"]["adds_gates"])
+        await plans.apply_gates(conn, indexer, project, (await store.get_document(conn, first))["body"]["adds_gates"],
+                                {"plan_id": plan_id, "task_id": first})
         after = await api.gate_config_body(conn, project)
         return first, before, after
 

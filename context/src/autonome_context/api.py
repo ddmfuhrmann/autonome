@@ -143,7 +143,8 @@ async def task_transition(request: Request) -> JSONResponse:
                 await store.add_version(conn, None, doc_id, plans.with_loose_ends(new, ends))
             if body["to"] == "done":
                 # Gates a plan proposed (approved by the human with it) start once their tooling is merged.
-                await plans.apply_gates(conn, indexer, task["project"], task["body"].get("adds_gates", []))
+                await plans.apply_gates(conn, indexer, task["project"], task["body"].get("adds_gates", []),
+                                        {"plan_id": task["body"]["plan_id"], "task_id": doc_id})
                 if await store.finish_plan_if_complete(conn, task["body"]["plan_id"]):
                     await plans.finish_wave_if_complete(conn, task["body"]["plan_id"])
     return _json({"status": body["to"]})

@@ -793,6 +793,17 @@ async def save_singleton(conn: AsyncConnection, indexer: Indexer | None, project
     return await get_document(conn, doc_id)
 
 
+async def gate_config_versions(conn: AsyncConnection, project: str) -> list[dict]:
+    """Every version of the project's gate config, newest first. The body may carry `note` and `source`
+    ("human" or {"plan_id", "task_id"}); versions saved before they existed have neither."""
+    async with conn.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            "select dv.version, dv.created_at, dv.body from document d join project p on p.id = d.project_id"
+            " join document_version dv on dv.document_id = d.id"
+            " where p.slug = %s and d.type = 'gate_config' order by dv.version desc", (project,))
+        return await cur.fetchall()
+
+
 async def record_gate_runs(
     conn: AsyncConnection, project: str, session_id: str, runs: list[dict],
     task_id: int | None = None, config_version: int | None = None,
