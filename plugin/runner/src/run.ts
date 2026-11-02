@@ -140,7 +140,10 @@ changes the rule when the rule is what is wrong. Never weaken a gate quietly.
 - verdict "revise": only when a task would do the wrong thing or something it needs is missing (a task is
   already done, an assumption is false, the order no longer works). Return the whole revised plan in
   \`plan\`, same shape as the original, same goal and out of scope; change only what must change. The
-  human approves it before anything runs.`;
+  human approves it before anything runs.
+
+A task that clearly goes over the task size limit given below (changed lines of code, tests and docs not
+counted) is a reason to revise too: split it into tasks that each fit, keeping the same goal and acceptance.`;
 
 export const PLAN_SCHEMA = {
   type: "object",
@@ -153,12 +156,13 @@ export const PLAN_SCHEMA = {
 } as const;
 
 /** The preflight: a read-only session checks a wave plan against main before its first task runs. */
-export function preflightPrompt(plan: Plan, project: string, gates: GateConfig["config"]["gates"]): string {
+export function preflightPrompt(plan: Plan, project: string, gates: GateConfig["config"]["gates"], maxLines?: number): string {
   const { title, ...rest } = plan.body;
   delete rest.preflight;
   return `Preflight of plan #${plan.id} (feature ${plan.feature ?? "-"}, project ${project}):\n\n` +
     JSON.stringify({ title, ...rest }, null, 2) +
-    `\n\n## Gates it must pass\n${gates.map((g) => `- ${g.name}: \`${g.run}\``).join("\n") || "- (none configured)"}`;
+    `\n\n## Gates it must pass\n${gates.map((g) => `- ${g.name}: \`${g.run}\``).join("\n") || "- (none configured)"}` +
+    (maxLines ? `\n\n## Task size limit\nmax_lines: ${maxLines} changed lines of code per task` : "");
 }
 
 export async function preflight(plan: Plan, opts: RunOptions): Promise<Preflight> {
@@ -170,7 +174,7 @@ export async function preflight(plan: Plan, opts: RunOptions): Promise<Preflight
     role: PREFLIGHT_PROMPT,
     language: languageRule(cfg),
     schema: PLAN_SCHEMA,
-    prompt: preflightPrompt(plan, opts.project, gates),
+    prompt: preflightPrompt(plan, opts.project, gates, cfg.task_size?.max_lines),
     onMessage: live(opts, "preflight", { plan_id: plan.id }),
   });
   return answer;

@@ -93,6 +93,10 @@ task_size: {max_lines: 300}              # changed lines of code per task (min 2
                                          # counted; plans split bigger tasks, the runner records the ones
                                          # that go over
 
+                                         # `task_size` also reaches the plan skill (it splits tasks that
+                                         # would pass the limit) and the preflight (a task that clearly
+                                         # passes it is a reason to revise); the run never blocks on it
+
 review: {enabled: true, max_rounds: 2}   # an independent agent reviews each diff against the plan,
                                          # its edges and the conventions. High findings block and send the
                                          # implementer back up to max_rounds times; medium ones go back once

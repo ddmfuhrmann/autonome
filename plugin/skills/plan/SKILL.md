@@ -123,7 +123,10 @@ to be scanned, never a paragraph:
   lists the files the tool generates and their `.gitignore` entries, and edges still go into
   `acceptance`.
 
-- Small: about 30 minutes of agent work. Split anything bigger.
+- Small: about 30 minutes of agent work. Split anything bigger. Read `task_size.max_lines` from
+  `gate_config_get` (the default applies when it is absent): a task that will probably change more
+  lines of code than that (tests and docs not counted) is split into tasks that each fit, e.g. one per
+  entity or per layer. The runner measures every diff and records the ones that go over.
 - Self-contained `spec`: name the files, endpoints, entities, and behaviour. No "as discussed".
 - `acceptance`: verifiable, preferably by a gate (a test that must exist and pass, a lint rule).
   "Works well" is not a criterion.

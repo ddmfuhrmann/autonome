@@ -177,6 +177,13 @@ test("the preflight sees the gates a plan must pass, with their commands", () =>
   assert.doesNotMatch(text, /"preflight"/);
 });
 
+test("the preflight gets the task size limit of the gate config", () => {
+  const plan = { id: 17, project: "shortlink", status: "approved", feature: "links",
+    body: { title: "Links", tasks: [{ title: "Routes", spec: "x" }] } };
+  assert.match(preflightPrompt(plan, "shortlink", [], 150), /## Task size limit\nmax_lines: 150/);
+  assert.doesNotMatch(preflightPrompt(plan, "shortlink", []), /max_lines/);
+});
+
 test("the runner's summary counts outcomes and totals time and tokens", () => {
   const text = summary([
     { id: 24, title: "SQLite schema", outcome: "merged", review_rounds: 1, duration_s: 312, tokens: 41000 },
