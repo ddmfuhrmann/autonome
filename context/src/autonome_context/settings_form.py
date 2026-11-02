@@ -17,7 +17,7 @@ _UNITS = {"k": 1_000, "m": 1_000_000}
 _ROW_INDEX = re.compile(r"^(gates|schedules|smoke_test-checks)-(\d+)(-.*)?$")
 
 _GATE_FIELDS = ("name", "run", "mode", "fast", "when", "timeout_s")
-_SCHEDULE_FIELDS = ("name", "kind", "every_hours", "run", "task")
+_SCHEDULE_FIELDS = ("name", "kind", "every_hours", "run", "task", "max_tasks")
 _CHECK_FIELDS = ("name", "run", "timeout_s")
 _SMOKE_FIELDS = ("up", "down", "url", "seed", "tester", "max_fixes")
 _BUDGET_FIELDS = ("task_tokens", "task_minutes", "plan_tokens")
@@ -60,7 +60,8 @@ def config_to_form(cfg: GateConfig) -> dict[str, str]:
     for i, sc in enumerate(cfg.schedules):
         form |= {f"schedules-{i}-name": sc.name, f"schedules-{i}-kind": sc.kind,
                  f"schedules-{i}-every_hours": str(sc.every_hours), f"schedules-{i}-run": sc.run or "",
-                 f"schedules-{i}-task": sc.task or ""}
+                 f"schedules-{i}-task": sc.task or "",
+                 f"schedules-{i}-max_tasks": "" if sc.max_tasks is None else str(sc.max_tasks)}
     for role, m in cfg.models.items():
         form |= {f"models-{role}-model": m.model, f"models-{role}-effort": m.effort,
                  f"models-{role}-fallback": m.fallback or ""}
@@ -192,6 +193,8 @@ def _build(form: Mapping[str, str | list[str]], errors: dict[str, str]) -> tuple
                              "task": raw["task"] or None}
         if (h := _number(raw["every_hours"], f"schedules-{i}-every_hours", errors)) is not None:
             s["every_hours"] = h
+        if (m := _number(raw["max_tasks"], f"schedules-{i}-max_tasks", errors)) is not None:
+            s["max_tasks"] = m
         schedules.append(s)
     data["schedules"] = schedules
 

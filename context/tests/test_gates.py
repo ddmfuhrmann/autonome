@@ -78,5 +78,26 @@ def test_merge_defaults_to_fast_forward_and_refuses_other_modes():
 
 
 def test_the_default_models_are_the_product_roles():
-    assert set(DEFAULT_MODELS) == {"implementer", "reviewer", "preflight", "tester", "retro", "handoff", "docs"}
+    assert set(DEFAULT_MODELS) == {"implementer", "reviewer", "preflight", "tester", "retro", "handoff", "docs",
+                                   "simplifier"}
     assert set(GateConfig().models) == set(DEFAULT_MODELS)
+
+
+def test_models_without_the_simplifier_use_haiku_low():
+    cfg = GateConfig.from_yaml("models:\n  docs: {model: haiku, effort: low}\n")
+    assert (cfg.models["simplifier"].model, cfg.models["simplifier"].effort) == ("haiku", "low")
+
+
+def test_simplify_schedule_max_tasks():
+    cfg = GateConfig.from_yaml("schedules:\n  - {name: s, kind: simplify}\n")
+    assert cfg.schedules[0].max_tasks == 3
+    cfg = GateConfig.from_yaml("schedules:\n  - {name: s, kind: simplify, max_tasks: 10}\n")
+    assert cfg.schedules[0].max_tasks == 10
+    for bad in (0, 11):
+        with pytest.raises(ValidationError):
+            GateConfig.from_yaml(f"schedules:\n  - {{name: s, kind: simplify, max_tasks: {bad}}}\n")
+    with pytest.raises(ValidationError, match="only applies to kind simplify"):
+        GateConfig.from_yaml("schedules:\n  - {name: c, kind: command, run: x, max_tasks: 2}\n")
+    # a command schedule dumped to YAML (max_tasks: null) loads again
+    cmd = GateConfig.from_yaml("schedules:\n  - {name: c, kind: command, run: x}\n")
+    assert GateConfig.from_yaml(cmd.to_yaml()) == cmd

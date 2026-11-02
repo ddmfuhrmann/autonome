@@ -229,10 +229,11 @@ export interface ReviewResult {
 
 export interface Schedule {
   name: string;
-  kind: "command" | "doc-drift" | "main-red";
+  kind: "command" | "doc-drift" | "main-red" | "simplify";
   every_hours: number;
   run?: string | null;
   task?: string | null;
+  max_tasks?: number | null;
 }
 
 export interface Feature {

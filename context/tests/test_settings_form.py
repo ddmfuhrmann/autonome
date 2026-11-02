@@ -61,12 +61,23 @@ def test_gate_order_follows_index_not_key_order():
                     "max_fixes": 1, "checks": [{"name": "e2e", "run": "./e2e", "timeout_s": 60}, {"name": "b", "run": "b"}]}},
     {"schedules": [{"name": "drift", "kind": "doc-drift", "every_hours": 12},
                    {"name": "cmd", "kind": "command", "run": "echo", "task": "Fix it"}]},
+    {"schedules": [{"name": "simp", "kind": "simplify", "max_tasks": 5}, {"name": "simp3", "kind": "simplify"}]},
     {"models": {"reviewer": {"model": "opus", "effort": "high", "fallback": "sonnet"}}},
+    {"models": {"simplifier": {"model": "sonnet", "effort": "medium"}}},
     {"retro_after_wave": False},
     {"language": "pt-BR"},
 ])
 def test_section_roundtrip(raw):
     roundtrip(GateConfig.model_validate(raw))
+
+
+def test_max_tasks_errors_land_on_the_form_field():
+    form = {"schedules-2-name": "c", "schedules-2-kind": "command", "schedules-2-run": "x", "schedules-2-max_tasks": "4"}
+    _, errors = form_to_config(form, CATALOG)
+    assert "schedules-2-max_tasks" in errors
+    form = {"schedules-0-name": "s", "schedules-0-kind": "simplify", "schedules-0-max_tasks": "11"}
+    _, errors = form_to_config(form, CATALOG)
+    assert "schedules-0-max_tasks" in errors
 
 
 def test_only_differing_roles_are_written():

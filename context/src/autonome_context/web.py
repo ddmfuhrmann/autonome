@@ -799,7 +799,7 @@ SETTINGS_SECTIONS = ["Gates", "Execution", "Human checkpoints", "Review", "Triag
 
 
 _GATE_ROW = ("name", "run", "mode", "fast", "when", "timeout_s")
-_SCHEDULE_ROW = ("name", "kind", "every_hours", "run", "task")
+_SCHEDULE_ROW = ("name", "kind", "every_hours", "run", "task", "max_tasks")
 _CHECK_ROW = ("name", "run", "timeout_s")
 _ROW_LISTS = {"gates": _GATE_ROW, "schedules": _SCHEDULE_ROW, "smoke_test-checks": _CHECK_ROW}
 _ROW_IDENTITY = ("name", "run", "task", "when")  # a row with none of these filled is the blank one to add

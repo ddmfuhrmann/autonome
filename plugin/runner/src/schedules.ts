@@ -52,6 +52,7 @@ export async function runSchedule(schedule: Schedule, cwd: string, opts: Schedul
     });
     return q.duplicate ? `already queued as #${q.task_id}` : `queued #${q.task_id}`;
   }
+  if (schedule.kind === "simplify") return "simplify is not run yet";
   const stale = drifted(await context.features(opts.project));
   for (const feature of stale) updateDocs(opts.repo, opts.project, ["--feature", feature], opts.log);
   if (stale.length) updateDocs(opts.repo, opts.project, ["--overview"], opts.log);

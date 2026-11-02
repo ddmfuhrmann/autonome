@@ -4,7 +4,7 @@ tests, Semgrep) live in the project's repo; this only says what runs, in which o
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class _Strict(BaseModel):
@@ -46,10 +46,26 @@ class ReviewAfterMerge(_Strict):
 
 class Schedule(_Strict):
     name: str
-    kind: Literal["command", "doc-drift", "main-red"]
+    kind: Literal["command", "doc-drift", "main-red", "simplify"]
     every_hours: int = 24
     run: str | None = Field(default=None, description="for kind=command: non-empty output or failure enqueues a task")
     task: str | None = Field(default=None, description="title of the task to enqueue")
+    max_tasks: int | None = Field(
+        default=None, ge=1, le=10,
+        description="for kind=simplify: most simplification tasks one run enqueues (default 3)")
+
+    @field_validator("max_tasks")
+    @classmethod
+    def _only_for_simplify(cls, v, info):
+        if v is not None and info.data.get("kind") not in (None, "simplify"):
+            raise ValueError("max_tasks only applies to kind simplify")
+        return v
+
+    @model_validator(mode="after")
+    def _default_max_tasks(self):
+        if self.kind == "simplify" and self.max_tasks is None:
+            self.max_tasks = 3
+        return self
 
 
 class Check(_Strict):
@@ -125,6 +141,7 @@ DEFAULT_MODELS: dict[str, RoleModel] = {
     "retro": RoleModel(model="sonnet", effort="medium"),
     "handoff": RoleModel(model="sonnet", effort="low"),
     "docs": RoleModel(model="sonnet", effort="low"),
+    "simplifier": RoleModel(model="haiku", effort="low"),
 }
 
 
@@ -148,8 +165,10 @@ FIELD_HELP: dict[str, tuple[str, str]] = {
     "review_after_merge.features": ("Review after merge", "Merges, then you review later. Never blocks."),
     "schedules": ("Schedules", "Scheduled checks that only queue tasks into a maintenance plan."),
     "schedules.name": ("Name", "Identifies the scheduled check."),
-    "schedules.kind": ("Kind", "command runs a command; doc-drift compares docs and code; main-red watches main."),
+    "schedules.kind": ("Kind", "command runs a command; doc-drift compares docs and code; main-red watches main; "
+                               "simplify reads recently changed code and proposes simplifications."),
     "schedules.every_hours": ("Every (hours)", "Interval between two runs."),
+    "schedules.max_tasks": ("Max tasks", "Kind simplify only: most tasks one run queues, from 1 to 10. Empty: 3."),
     "task_size": ("Task size", "How big one task may be; plans split bigger tasks and the runner records the ones that go over."),
     "task_size.max_lines": ("Max lines", "Changed lines of code per task, tests and docs not counted. "
                                          "Plans split bigger tasks; the runner records the ones that go over."),
@@ -180,6 +199,7 @@ ROLE_GLOSS: dict[str, str] = {
     "retro": "Reads a wave's evidence and proposes conventions.",
     "handoff": "Writes a session's handoff from the facts.",
     "docs": "Rewrites the features' living docs.",
+    "simplifier": "Reads recently changed code and proposes simplification tasks.",
 }
 
 

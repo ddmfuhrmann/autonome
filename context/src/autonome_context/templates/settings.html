@@ -68,10 +68,11 @@ srow srow--{{ prefix if prefix != 'smoke_test-checks' else 'checks' }}{% if (pre
 {% macro schedule_row(i, s) -%}
 <div class="{{ row_class('schedules', i) }}" id="f-schedules-{{ i }}" data-row>
   <input type="text" name="schedules-{{ i }}-name" value="{{ s.name }}" aria-label="Schedule name" placeholder="name">
-  <select name="schedules-{{ i }}-kind" aria-label="Kind">{% for k in ('command', 'doc-drift', 'main-red') %}<option{% if s.kind == k %} selected{% endif %}>{{ k }}</option>{% endfor %}</select>
+  <select name="schedules-{{ i }}-kind" aria-label="Kind">{% for k in ('command', 'doc-drift', 'main-red', 'simplify') %}<option{% if s.kind == k %} selected{% endif %}>{{ k }}</option>{% endfor %}</select>
   <input type="number" name="schedules-{{ i }}-every_hours" value="{{ s.every_hours }}" aria-label="Every (hours)">
   <input type="text" class="mono" name="schedules-{{ i }}-run" value="{{ s.run }}" aria-label="Command" placeholder="command (kind command)">
   <input type="text" name="schedules-{{ i }}-task" value="{{ s.task }}" aria-label="Task title" placeholder="task title">
+  <input type="number" name="schedules-{{ i }}-max_tasks" value="{{ s.max_tasks }}" min="1" max="10" aria-label="Max tasks (kind simplify)" placeholder="3">
   {{ row_tools('schedules', i) }}
   {{ row_errors('schedules', i) }}
 </div>
@@ -232,8 +233,8 @@ srow srow--{{ prefix if prefix != 'smoke_test-checks' else 'checks' }}{% if (pre
   <section class="ssec{{ sec('Schedules') }}" id="schedules">
     <h2>Schedules</h2>
     <p class="ssec__lead"><code class="sfield__key">schedules</code>{{ info['schedules'][1] }}</p>
-    {{ rows('schedules', schedules, schedule_row, {'name': '', 'kind': 'command', 'every_hours': '24', 'run': '', 'task': ''},
-            ('Name', 'Kind', 'Every (h)', 'Command', 'Task'), 'schedule') }}
+    {{ rows('schedules', schedules, schedule_row, {'name': '', 'kind': 'command', 'every_hours': '24', 'run': '', 'task': '', 'max_tasks': ''},
+            ('Name', 'Kind', 'Every (h)', 'Command', 'Task', 'Max tasks'), 'schedule') }}
   </section>
 
   <section class="ssec{{ sec('Agents') }}" id="agents">

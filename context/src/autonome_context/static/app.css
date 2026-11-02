@@ -706,7 +706,7 @@ pre.mermaid { margin: 0; padding: 16px 0; background: none; border-top: 1px soli
 .srow:first-child { border-top: 0; }
 .srow--head { color: var(--faint); font-size: 12px; }
 .srow--gates { grid-template-columns: minmax(100px, .8fr) minmax(200px, 2.4fr) 84px 64px minmax(100px, 1fr) 84px 110px; }
-.srow--schedules { grid-template-columns: minmax(100px, 1fr) 110px 90px minmax(160px, 2fr) minmax(120px, 1.4fr) 110px; }
+.srow--schedules { grid-template-columns: minmax(100px, 1fr) 110px 90px minmax(160px, 2fr) minmax(120px, 1.4fr) 80px 110px; }
 .srow--checks { grid-template-columns: minmax(100px, 1fr) minmax(200px, 3fr) 90px 110px; }
 .srow--agents { grid-template-columns: minmax(200px, 2fr) minmax(100px, 1fr) 110px minmax(100px, 1fr); }
 .srow input[type=text], .srow input[type=number], .srow select, .srow textarea {
