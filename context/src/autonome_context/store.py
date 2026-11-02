@@ -783,10 +783,23 @@ async def latest_of_type(conn: AsyncConnection, project: str, type: str) -> dict
     return docs[0] if docs else None
 
 
-async def save_singleton(conn: AsyncConnection, indexer: Indexer | None, project: str, type: str, body: dict) -> dict:
-    """Creates the project's document of this type or appends a version to it."""
+class StaleVersion(Exception):
+    """The singleton changed since the version the caller based its save on."""
+
+
+async def save_singleton(
+    conn: AsyncConnection, indexer: Indexer | None, project: str, type: str, body: dict,
+    base_version: int | None = None,
+) -> dict:
+    """Creates the project's document of this type or appends a version to it. With `base_version` (0: no
+    document yet), the check and the write share one transaction under a lock on the document, so of two
+    saves from the same version only one writes; the other raises StaleVersion."""
     async with conn.transaction():
+        if base_version is not None:
+            await conn.execute("select pg_advisory_xact_lock(hashtext(%s))", (f"singleton:{project}:{type}",))
         current = await latest_of_type(conn, project, type)
+        if base_version is not None and base_version != (current["version"] if current else 0):
+            raise StaleVersion(f"{type} of {project} is at v{current['version'] if current else 0}")
         if current:
             await add_version(conn, indexer, current["id"], body)
             doc_id = current["id"]

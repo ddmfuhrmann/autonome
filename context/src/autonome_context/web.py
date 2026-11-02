@@ -1037,8 +1037,13 @@ async def settings_page(request: Request) -> Response:
                         body = {"yaml": review[1], "source": "human"}
                         if note.strip():
                             body["note"] = note.strip()
-                        await store.save_singleton(conn, indexer, project, "gate_config", body)
-                        return RedirectResponse(f"/ui/p/{project}/settings", status_code=303)
+                        try:  # the check above is only for the message; this one is atomic with the write
+                            await store.save_singleton(conn, indexer, project, "gate_config", body,
+                                                       base_version=int(base_version or 0))
+                            return RedirectResponse(f"/ui/p/{project}/settings", status_code=303)
+                        except store.StaleVersion:
+                            stale = True
+                            doc = await store.latest_of_type(conn, project, "gate_config")
                     review_ctx = _review_context(doc, review[0], review[1], review[2], note, note_error, stale)
                     return await render(request, "settings_review.html", **review_ctx)
                 review_ctx = _review_context(doc, review[0], review[1], review[2], "", None, False)

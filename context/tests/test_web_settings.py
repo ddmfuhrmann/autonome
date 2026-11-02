@@ -1,6 +1,8 @@
+import asyncio
 import html
 import re
 
+import psycopg
 import psycopg_pool
 import pytest
 import yaml
@@ -453,6 +455,39 @@ def test_save_with_an_old_base_version_saves_nothing_and_reviews_against_the_new
     assert page.status_code == 200 and "mudou enquanto você revisava" in page.text
     assert _hidden(page)["base_version"] == "2" and "e2e" in page.text
     assert _versions(run_db, project) == 2
+
+
+def test_two_saves_from_the_same_base_version_write_one_version(client, project, saved, run_db, indexer, db_url):
+    saved(YAML)
+    url = f"/ui/p/{project}/settings"
+    fields = _hidden(client.post(url, data=_fields() | {"action": "review", "retries-max": "9"})) | {"action": "save"}
+    first = client.post(url, data=fields, follow_redirects=False)
+    second = client.post(url, data=fields | {"retries-max": "9"}, follow_redirects=False)
+    assert first.status_code == 303
+    assert second.status_code == 200 and "mudou enquanto você revisava" in second.text
+    assert _versions(run_db, project) == 2
+
+    async def race():  # both pass any earlier check: only the lock and the version test in the write stop one
+        async def one(text):
+            async with await psycopg.AsyncConnection.connect(db_url) as conn:
+                try:
+                    await store.save_singleton(conn, indexer, project, "gate_config", {"yaml": text}, base_version=2)
+                except store.StaleVersion:
+                    return False
+                return True
+
+        return await asyncio.gather(one("retries: {max: 3}\n"), one("retries: {max: 4}\n"))
+
+    assert sorted(asyncio.run(race())) == [False, True]
+    assert _versions(run_db, project) == 3
+
+
+def test_a_yaml_that_only_changes_a_comment_reviews_as_nothing_changed_with_save_disabled(
+        client, project, saved, run_db):
+    saved(YAML)
+    page = client.post(f"/ui/p/{project}/settings", data={"yaml": "# only a comment\n" + YAML, "action": "review"})
+    assert "nada mudou" in page.text and 'value="save" disabled>' in page.text
+    assert _versions(run_db, project) == 1
 
 
 def test_saving_from_the_yaml_view_keeps_the_comments_and_from_the_form_the_canonical_yaml(
