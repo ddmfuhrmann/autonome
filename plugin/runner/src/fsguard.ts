@@ -93,6 +93,11 @@ export function scopedFileCommands(worktree: string, allowed: string[] = []): Ho
   return {
     matcher: "Bash",
     hooks: [async (input) => {
+      // Before `decide`, which allows commands the rules already know, background or not.
+      if ((input as { tool_input?: { run_in_background?: unknown } }).tool_input?.run_in_background === true) {
+        return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny",
+          permissionDecisionReason: "background commands are not allowed in task sessions: run it in the foreground with a timeout" } };
+      }
       const command = String(((input as { tool_input?: { command?: unknown } }).tool_input?.command) ?? "");
       const verdict = decide(command, worktree, allowed);
       if (verdict === null) return {};

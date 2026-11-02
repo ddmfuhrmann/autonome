@@ -69,6 +69,8 @@ the start of this session has the task, its plan, the conventions for its layers
   \`python\`, \`pytest\` or \`ruff\`. One plain command per Bash call: no subshells, \`;\` chains or
   \`cd\`. Read and search with the Read, Grep and Glob tools, not \`cat\`, \`grep\` or \`find\`. The gate
   config is \`gate_config_get\` in the autonome memory.
+- A command that runs for more than 2 minutes without finishing is investigated, never waited for: run it
+  again with a timeout (e.g. \`-x\` and a per-test timeout) to find what hangs, and fix that.
 - Nobody will answer questions. If something is truly ambiguous, choose the option most consistent
   with the plan and the conventions, and say so in your final message.
 - When done, end your turn with a short summary. The gate hook then runs every gate and may send you
@@ -184,6 +186,8 @@ export function implementerTools(gc: GateConfig): string[] {
 const HARD_DENIALS = [
   ...["commit", "push", "reset", "checkout", "switch", "rebase", "merge", "tag", "branch", "stash", "-C"].map((c) => `Bash(git ${c}:*)`),
 ];
+// A session never waits on a command: Monitor is off, and the fsguard hook denies background Bash.
+const NO_WAITING = ["Monitor"];
 const SECRET_DENIALS = ["Read(~/.autonome/**)", "Edit(~/.autonome/**)", "Bash(cat ~/.autonome:*)"];
 
 export interface ImplementerPermissions {
@@ -202,9 +206,9 @@ export function implementerPermissions(gc: GateConfig, worktree: string): Implem
   const hooks = { PreToolUse: [scopedFileCommands(worktree, bashPrefixes(allowedTools))] };
   if (gc.config.permissions === "auto") {
     return { permissionMode: "auto", permissionPrompts: "none", allowedTools,
-      disallowedTools: [...HARD_DENIALS, ...SECRET_DENIALS], hooks };
+      disallowedTools: [...HARD_DENIALS, ...SECRET_DENIALS, ...NO_WAITING], hooks };
   }
-  return { permissionMode: "dontAsk", allowedTools, disallowedTools: [...HARD_DENIALS, ...SECRET_DENIALS], hooks };
+  return { permissionMode: "dontAsk", allowedTools, disallowedTools: [...HARD_DENIALS, ...SECRET_DENIALS, ...NO_WAITING], hooks };
 }
 
 function now(): string {
@@ -281,6 +285,8 @@ export async function implement(task: Task, worktree: string, base: string, opts
           AUTONOME_TASK_ID: String(task.id),
           AUTONOME_BASE_SHA: base,
           AUTONOME_PROJECT: opts.project,
+          BASH_DEFAULT_TIMEOUT_MS: "120000",
+          BASH_MAX_TIMEOUT_MS: "300000",
           PATH: `${join(PLUGIN_ROOT, "bin")}:${process.env.PATH}`,
         }),
       },

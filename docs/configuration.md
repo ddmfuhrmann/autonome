@@ -165,6 +165,9 @@ Hard limits, the same in both modes (by rule and by the fsguard hook, above the 
 - git history: commit, push, branch switches, reset, stash and the like. Only the runner commits.
 - `~/.autonome`, including `secrets.env`.
 - paths outside the task's worktree.
+- waiting on a command: Bash times out at 2 minutes by default and 5 at most, background Bash is
+  denied by the hook and `Monitor` is off. The prompt tells the implementer to investigate a command
+  that hangs, not wait for it. The gates keep their own `timeout_s`.
 - `bypassPermissions` is never used.
 
 Turn it on only after [measuring it](operations.md#turning-on-auto-permissions).

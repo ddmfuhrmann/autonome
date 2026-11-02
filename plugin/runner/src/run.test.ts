@@ -318,6 +318,22 @@ test("the implementer's query gets what implementerPermissions returns, and the 
     const prompt: string = seen.systemPrompt.append;
     if (mode === "auto") assert.match(prompt, /script or `sed -i`/);
     else assert.match(prompt, /Writing through the shell[\s\S]*is denied/);
+    assert.match(prompt, /more than 2 minutes without finishing is investigated, never waited for/);
+    assert.equal(seen.env.BASH_MAX_TIMEOUT_MS, "300000", mode);
+    assert.equal(seen.env.BASH_DEFAULT_TIMEOUT_MS, "120000", mode);
+  }
+});
+
+test("in every mode Monitor is off and the hook denies background Bash", async () => {
+  for (const mode of ["allowlist", "auto"]) {
+    const perms = implementerPermissions(gcWith(mode), "/wt");
+    assert.ok(perms.disallowedTools.includes("Monitor"), mode);
+    const hook = perms.hooks.PreToolUse[0].hooks[0];
+    const ask = (tool_input: object) => hook({ tool_input } as never, undefined, { signal: new AbortController().signal });
+    const bg = (await ask({ command: "rm -rf build", run_in_background: true })) as any;
+    assert.equal(bg.hookSpecificOutput.permissionDecision, "deny", mode);
+    assert.match(bg.hookSpecificOutput.permissionDecisionReason, /background commands are not allowed/);
+    assert.equal(((await ask({ command: "rm -rf build" })) as any).hookSpecificOutput.permissionDecision, "allow", mode);
   }
 });
 
