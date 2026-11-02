@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 import subprocess
@@ -61,6 +62,28 @@ def test_missing_dist_builds(tmp_path):
     r, log = run(tmp_path)
     assert "build" in log
     assert r.returncode != 0  # the fake build produces no dist/index.js
+
+
+def test_newer_package_json_builds(tmp_path):
+    runner = make_layout(tmp_path)
+    age(runner / "dist" / "index.js", 100)
+    age(runner / "package.json", 200)
+    r, log = run(tmp_path)
+    assert r.stdout.strip() == "ran"
+    assert "build" in log
+
+
+def test_build_leaves_dist_without_a_stale_test_file(tmp_path):
+    build = json.loads((BIN.parents[1] / "runner" / "package.json").read_text())["scripts"]["build"]
+    clean, compile_step = build.split(" && ")
+    assert compile_step == "tsc"
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "velho.test.js").write_text("old\n")
+    (dist / "index.js").write_text("old\n")
+    subprocess.run(clean, shell=True, cwd=tmp_path, check=True)  # the step before tsc rewrites dist
+    assert not (dist / "velho.test.js").exists()
+    assert not dist.exists()
 
 
 def test_newer_lockfile_builds(tmp_path):

@@ -38,6 +38,22 @@ def test_a_paused_project_hands_out_nothing(client, project, run_db, pending_tas
     assert status(run_db, task) == "pending"
 
 
+def test_a_paused_project_with_a_smoke_test_due_hands_out_neither(client, project, run_db, indexer):
+    from test_smoke_test import with_smoke_test
+
+    async def finished(conn):
+        plan_id = await with_smoke_test(conn, indexer, project)
+        await conn.commit()
+        return plan_id, await plans.smoke_test_due(conn, project)
+
+    plan_id, due = run_db(finished)
+    assert due["id"] == plan_id  # without the pause, the claim would hand it out
+    pause(client, project)
+    claim = client.post(f"/api/projects/{project}/tasks/claim").json()
+    assert claim["task"] is None and claim["smoke_test"] is None
+    assert claim["paused"]["by"] == "tester" and claim["paused"]["reason"] == "stop"
+
+
 def test_pausing_twice_keeps_the_first_pause(client, project, run_db, pending_task):
     pending_task(project)
     first = pause(client, project, by="first", reason="one").json()["paused"]

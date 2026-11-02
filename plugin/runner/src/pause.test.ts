@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, test } from "node:test";
 import { ContextError, type Run } from "./context.js";
 import { git } from "./git.js";
+import { UsageLimitError } from "./limits.js";
 import { RESUME_PROMPT, run } from "./run.js";
 import { changes } from "./watch.js";
 
@@ -50,6 +51,8 @@ interface Setup {
   /** Turns the reviewer on, with this fake in its place. */
   review?: () => unknown;
   maxTasks?: number;
+  /** How the fake session ends, as the result's subtype (default: success). */
+  stop?: string;
 }
 
 /** Runs the real loop against a fake context and a fake Agent SDK. */
@@ -87,7 +90,7 @@ async function play(repo: string, s: Setup) {
       yield { type: "system", subtype: "init", session_id: "s-new" };
       s.session?.(args.options);
       yield { type: "assistant", message: { usage: { input_tokens: 1, output_tokens: 1 }, content: [] } };
-      yield { type: "result", subtype: q.interrupted ? "error_during_execution" : "success", total_cost_usd: 0 };
+      yield { type: "result", subtype: q.interrupted ? "error_during_execution" : s.stop ?? "success", total_cost_usd: 0 };
     })();
     return Object.assign(gen, { interrupt: async () => { q.interrupted++; } });
   }) as never;
@@ -214,6 +217,46 @@ test("watch says who paused the queue and which task stopped", () => {
   const state = (over: object) => ({ tasks: [{ id: 9, title: "t", status: "running" }], plans: [], waves: [], waiting: [], ...over });
   const lines = changes(state({}), state({ tasks: [{ id: 9, title: "t", status: "paused" }], paused: { at: "", by: "jev", reason: "undo #921" } }));
   assert.deepEqual(lines, ["info #9 paused", "needs-you queue paused by jev: undo #921"]);
+});
+
+test("the usage limit goes back to pending with its run, and the next claim starts from that WIP", async () => {
+  const repo = makeRepo();
+  const first = await play(repo, {
+    claims: [{ task: taskWith(), preflight: null, smoke_test: null }],
+    session: (o) => writeFileSync(join(o.cwd, "b.txt"), "b\n"),
+    stop: "You've hit your session limit · resets 3:40pm" });
+  assert.ok(first.error instanceof UsageLimitError);
+  assert.deepEqual(first.transitions.map((t) => t.to), ["pending"]);
+  const limited = first.transitions[0].run!;
+  assert.equal(limited.outcome, "usage_limit");
+  assert.ok(limited.wip_sha);
+  assert.equal(git(repo, "rev-parse", limited.branch), limited.wip_sha);
+
+  delete process.env.AUTONOME_CONTEXT_WAIT_S; // play sets these for one run; the next run waits for its context afresh
+  delete process.env.AUTONOME_CONTEXT_URL;
+  let files: string[] = [];
+  const second = await play(repo, {
+    claims: [{ task: { ...taskWith([limited]), status: "pending" }, preflight: null, smoke_test: null }],
+    paused: () => true,
+    session: (o) => { files = readdirSync(o.cwd); } });
+  assert.ok(files.includes("b.txt")); // the WIP is applied when the session starts
+  assert.match(second.queries[0].prompt, /A previous attempt stopped: .*session limit/);
+  assert.ok(second.log.some((l) => l.includes("starts from the WIP of an earlier attempt")));
+});
+
+// Guards the behaviour, not the `outcome !== "paused"` check in runTask: that check is redundant today, because a
+// paused run either reuses or re-adds its worktree (`fresh` is false) or has no branch (the rev-parse fails).
+test("a paused run with a wip_sha does not start from the WIP", async () => {
+  const repo = makeRepo();
+  const branch = "autonome/task-9-old";
+  git(repo, "branch", branch, "main");
+  const base = git(repo, "rev-parse", "main");
+  const last: Run = { at: "", session_id: "s-old", branch, worktree: join(dirname(repo), ".autonome-worktrees", "autonome-task-9-gone"),
+    base, outcome: "paused", wip_sha: base };
+  const { queries, log } = await play(repo, {
+    claims: [{ task: taskWith([last]), preflight: null, smoke_test: null }], paused: () => true });
+  assert.ok(!log.some((l) => l.includes("WIP of an earlier attempt")));
+  assert.doesNotMatch(queries[0].prompt, /A previous attempt stopped/);
 });
 
 test("a context error in the pause lookup for the log still pauses the task with its session and worktree", async () => {
