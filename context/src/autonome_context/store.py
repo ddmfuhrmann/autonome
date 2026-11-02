@@ -94,6 +94,24 @@ async def resume_project(conn: AsyncConnection, slug: str) -> list[int] | None:
     return [r[0] for r in rows]
 
 
+# --- runner status -------------------------------------------------------------------------------
+
+
+async def set_runner_status(conn: AsyncConnection, slug: str, triage_key: bool) -> bool:
+    """Records what the runner found and when. False if there is no such project."""
+    row = await (await conn.execute(
+        "update project set triage_key = %s, runner_seen_at = now() where slug = %s returning id",
+        (triage_key, slug))).fetchone()
+    return row is not None
+
+
+async def runner_status(conn: AsyncConnection, slug: str) -> dict:
+    """{triage_key, seen_at}; both None until the runner reports (or if there is no such project)."""
+    row = await (await conn.execute(
+        "select triage_key, runner_seen_at from project where slug = %s", (slug,))).fetchone()
+    return {"triage_key": row[0], "seen_at": row[1]} if row else {"triage_key": None, "seen_at": None}
+
+
 # --- feature catalog -----------------------------------------------------------------------------
 
 # Cosine similarity of two feature descriptions from which they count as the same feature.

@@ -48,5 +48,10 @@
       "answers": {"drops_acceptance": "0.08", "adds_out_of_scope": "0.08", "changes_design": "0.13"},
       "verdict": "accept"
     }
+  },
+  "runner_status": {
+    "endpoint": "POST /api/projects/{project}/runner-status",
+    "about": "Sent at the start of a run: only whether the Jev key was found, never the key.",
+    "body": {"triage_key": true}
   }
 }

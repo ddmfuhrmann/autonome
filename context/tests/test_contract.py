@@ -5,7 +5,7 @@ side drops or renames fails a gate instead of answering 422 in a live run."""
 import json
 from pathlib import Path
 
-from autonome_context.api import _JEV, RevisionVerdict, Screening, TriageVerdict
+from autonome_context.api import _JEV, RevisionVerdict, RunnerStatus, Screening, TriageVerdict
 
 CONTRACT = json.loads((Path(__file__).resolve().parents[2] / "contracts" / "runner-context.json").read_text())
 
@@ -24,6 +24,11 @@ def test_the_human_choice_bodies_pass_the_endpoint_models():
     assert (v.repeats_human_choice, v.human_choice_of) == (0.92, 634)
     s = Screening.model_validate(CONTRACT["screening_human_choice"]["body"])
     assert (s.repeats_human_choice, s.human_choice_of) == (0.9, 634)
+
+
+def test_the_runner_status_body_passes_the_endpoint_model():
+    s = RunnerStatus.model_validate(CONTRACT["runner_status"]["body"])
+    assert s.triage_key is True
 
 
 def test_the_revision_verdict_body_passes_the_endpoint_model():

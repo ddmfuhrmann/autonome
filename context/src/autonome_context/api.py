@@ -4,7 +4,7 @@ import json
 import re
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, StringConstraints, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StringConstraints, ValidationError
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
@@ -107,6 +107,27 @@ async def post_pause(request: Request) -> JSONResponse:
     if paused is None:
         return _json({"error": f"project {project!r} does not exist"}, 404)
     return _json({"paused": paused})
+
+
+class RunnerStatus(BaseModel):
+    """Only a boolean: the Jev key itself never reaches the context."""
+    model_config = ConfigDict(extra="forbid")
+    triage_key: StrictBool
+
+
+async def post_runner_status(request: Request) -> JSONResponse:
+    try:
+        s = RunnerStatus.model_validate(await request.json())
+    except ValueError as e:  # malformed JSON, or a ValidationError (also a ValueError)
+        detail = e.errors(include_context=False, include_input=False) if isinstance(e, ValidationError) else str(e)
+        return _json({"error": "invalid_runner_status", "detail": detail}, 422)
+    project = request.path_params["project"]
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        found = await store.set_runner_status(conn, project, s.triage_key)
+    if not found:
+        return _json({"error": f"project {project!r} does not exist"}, 404)
+    return _json({"ok": True})
 
 
 async def post_preflight(request: Request) -> JSONResponse:
@@ -698,6 +719,7 @@ def routes() -> list:
         Route("/api/projects/{project}/overview", get_overview),
         Route("/api/projects/{project}/tasks/claim", claim_task, methods=["POST"]),
         Route("/api/projects/{project}/pause", post_pause, methods=["POST"]),
+        Route("/api/projects/{project}/runner-status", post_runner_status, methods=["POST"]),
         Route("/api/tasks/{doc_id:int}/transition", task_transition, methods=["POST"]),
         Route("/api/plans/{doc_id:int}/preflight", post_preflight, methods=["POST"]),
         Route("/api/plans/{doc_id:int}/smoke-test", post_smoke_test, methods=["POST"]),
