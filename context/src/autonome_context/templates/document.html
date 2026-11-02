@@ -23,6 +23,12 @@
 </header>
 <div class="twocol">
   <article>
+    {% if doc.type == 'decision' and doc.body.human_choice %}
+    <section>
+      <h2>Human's choice</h2>
+      <blockquote>{{ doc.body.human_choice.quote }}</blockquote>
+    </section>
+    {% endif %}
     {% with body = doc.body %}{% include "_body.html" %}{% endwith %}
   </article>
   <aside>

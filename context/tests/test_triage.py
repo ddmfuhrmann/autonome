@@ -19,10 +19,11 @@ def verdict(v, round=1):
 def deviation(run_db, project, indexer):
     from autonome_context.handoff import Decision
 
-    async def go(conn, deviation=True):
+    async def go(conn, deviation=True, quote=None):
         await add_feature(conn, project, "links")
         await store.put_handoff(conn, indexer, make_handoff(project, feature="links", decisions=[
-            Decision(title="Dict instead of a response model", rationale="faster", deviation=deviation)]), None)
+            Decision(title="Dict instead of a response model", rationale="faster", deviation=deviation,
+                     human_choice={"quote": quote} if quote else None)]), None)
         await conn.commit()
         [d] = await store.list_documents(conn, project, type="decision")
         return d["id"]
@@ -553,6 +554,43 @@ def test_a_deviation_is_not_screened(client, project, run_db, indexer, deviation
     enable(run_db, indexer, project)
     doc_id = deviation()
     assert client.post(f"/api/decisions/{doc_id}/screen", json=screen_body(0.9)).status_code == 403
+
+
+def test_a_human_choice_is_not_listed_for_screening(client, project, run_db, indexer, deviation):
+    enable(run_db, indexer, project)
+    doc_id = deviation(deviation=False, quote="1, go with it")
+    assert run_db(lambda c: store.get_document(c, doc_id))["status"] == "accepted"
+    assert screen_list(client, project) == []
+
+
+def test_a_deviation_with_human_choice_is_stored_accepted_and_not_listed(client, project, run_db, indexer, deviation):
+    enable(run_db, indexer, project)
+    doc_id = deviation(deviation=True, quote="yes, do X")
+    assert run_db(lambda c: store.get_document(c, doc_id))["status"] == "accepted"
+    assert pending(client, project) == [] and screen_list(client, project) == []
+
+
+@pytest.mark.parametrize("dev", [False, True])
+def test_screen_and_triage_refuse_a_human_choice_and_change_nothing(client, project, run_db, indexer, deviation, dev):
+    enable(run_db, indexer, project)
+    doc_id = deviation(deviation=dev, quote="yes, do X")
+    assert client.post(f"/api/decisions/{doc_id}/screen", json=screen_body(0.9)).status_code == 403
+    assert client.post(f"/api/decisions/{doc_id}/triage", json=verdict("reject")).status_code == 403
+    d = run_db(lambda c: store.get_document(c, doc_id))
+    assert d["version"] == 1 and d["status"] == "accepted"
+
+
+def test_a_decision_without_human_choice_is_still_screened(client, project, run_db, indexer, deviation):
+    enable(run_db, indexer, project)
+    doc_id = deviation(deviation=False)
+    assert [i["decision_id"] for i in screen_list(client, project)] == [doc_id]
+
+
+def test_the_decision_page_shows_the_escaped_quote(client, project, run_db, indexer, deviation):
+    doc_id = deviation(deviation=False, quote="1 <b>go</b>")
+    html = client.get(f"/ui/p/{project}/documents/{doc_id}").text
+    assert "Human's choice" in html or "Human&#39;s choice" in html
+    assert "1 &lt;b&gt;go&lt;/b&gt;" in html and "<b>go</b>" not in html
 
 
 def test_the_queue_has_no_reopened_deviations_with_triage_on(client, project, run_db, indexer, deviation):

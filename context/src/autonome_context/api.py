@@ -298,6 +298,8 @@ async def post_triage(request: Request) -> JSONResponse:
             cfg = (await gate_config_body(conn, d["project"]))["config"]
             if not cfg.get("triage") or cfg["triage"]["model"] == "off":
                 return _json({"error": "triage is off for this project"}, 403)
+            if d["body"].get("human_choice"):
+                return _json({"error": "a human's choice is not triaged"}, 403)
             if d["status"] != "proposed" or not d["body"].get("deviation"):
                 return _json({"error": "only a proposed deviation is triaged"}, 403)
             # A repeated human choice is accepted as such, whatever the other questions said: no undo.
@@ -523,9 +525,9 @@ async def get_triage(request: Request) -> JSONResponse:
                                                oldest_first=True)
         for d in decisions:
             if (not d["body"].get("deviation") or d["body"].get("triage_exhausted") or d["body"].get("triage_conflict")
-                    or d["body"].get("undo_of_human_reject")):
+                    or d["body"].get("undo_of_human_reject") or d["body"].get("human_choice")):
                 continue
-            task = await _decision_task(conn, d["id"])
+            task =await _decision_task(conn, d["id"])
             round_ = await _triage_round(conn, task)
             if any(e.get("round") == round_ for e in d["body"].get("triage_history", [])):
                 continue
@@ -564,7 +566,7 @@ async def _screen_pending(conn, project: str) -> list[dict]:
     for d in await store.list_documents(conn, project, type="decision", status="accepted", limit=None,
                                         oldest_first=True):
         if (d["body"].get("deviation") or d["body"].get("screening") or d["body"].get("undo_of_human_reject")
-                or d["created_at"] <= since):
+                or d["body"].get("human_choice") or d["created_at"] <= since):
             continue
         out.append({"decision_id": d["id"], "state": await _triage_state(conn, d, await _decision_task(conn, d["id"]))})
         if len(out) == 50:
@@ -600,6 +602,8 @@ async def post_screen(request: Request) -> JSONResponse:
             cfg = (await gate_config_body(conn, d["project"]))["config"]
             if not cfg.get("triage") or cfg["triage"]["model"] == "off":
                 return _json({"error": "triage is off for this project"}, 403)
+            if d["body"].get("human_choice"):
+                return _json({"error": "a human's choice is not screened"}, 403)
             if d["body"].get("screening"):
                 return _json({"error": "already screened"}, 409)
             if d["status"] != "accepted" or d["body"].get("deviation"):

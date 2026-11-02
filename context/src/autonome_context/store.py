@@ -590,8 +590,9 @@ async def put_handoff(
                 body={"title": d.title, "decision": d.rationale, "deviation": d.deviation,
                       **({"human_choice": d.human_choice.model_dump()} if d.human_choice else {})},
                 # A choice within the plan is a fact of what was built: in effect. A deviation waits for
-                # the human, whose rejection turns into a task to undo it.
-                feature=h.feature, layers=h.layers, status="proposed" if d.deviation else "accepted",
+                # the human, whose rejection turns into a task to undo it. The human's own choice is in effect.
+                feature=h.feature, layers=h.layers,
+                status="proposed" if d.deviation and not d.human_choice else "accepted",
             )
             await link(conn, doc_id, decision_id, "records")
         if raw_transcript:
