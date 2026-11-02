@@ -965,6 +965,8 @@ async def queue_resume(request: Request) -> Response:
     pool, _ = await services.get()
     async with pool.connection() as conn:
         resumed = await store.resume_project(conn, project)
+    if resumed is None:
+        return Response("not found", status_code=404)
     notice = "the queue is running" + (f"; {len(resumed)} paused task{'s' if len(resumed) > 1 else ''} back to pending" if resumed else "")
     return RedirectResponse(f"/ui/p/{project}/queue?{urlencode({'done': notice})}", status_code=303)
 

@@ -1,6 +1,10 @@
 """Pausing and resuming from the MCP tools and the UI."""
 
+import asyncio
+
 import pytest
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
 
 from autonome_context import rules, store
 
@@ -26,6 +30,29 @@ def test_the_agent_pauses_the_queue_with_a_reason(server, project, run_db, pendi
     result, _ = call(server, "queue_pause", {"project": project, "reason": "wrong branch"}, None)
     assert result["paused"]["by"] == "agent:mcp" and result["paused"]["reason"] == "wrong branch"
     assert pause_state(run_db, project)["by"] == "agent:mcp"
+
+
+def test_pausing_a_project_that_does_not_exist_is_an_error(server):
+    result, _ = call(server, "queue_pause", {"project": "no-such-project", "reason": "x"}, None)
+    assert "error" in result and "no-such-project" in result["error"]
+
+
+def call_rejected(url, tool, args):
+    """Calls a tool and returns (is_error, text): the schema's refusal comes back as an error result."""
+    async def go():
+        async with streamable_http_client(url) as (read, write, *_):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.call_tool(tool, args)
+                return result.is_error, result.content[0].text
+    return asyncio.run(go())
+
+
+@pytest.mark.parametrize("reason", ["x" * 501, "bad\x00reason"], ids=["too long", "control character"])
+def test_the_schema_refuses_an_invalid_reason(server, project, run_db, pending_task, reason):
+    pending_task(project)
+    is_error, _ = call_rejected(server, "queue_pause", {"project": project, "reason": reason})
+    assert is_error and pause_state(run_db, project) is None
 
 
 @pytest.mark.parametrize("answer, human", [(None, "unavailable"), ("decline", "declined"), ("cancel", "declined")])
@@ -77,6 +104,11 @@ def test_resuming_in_the_ui_puts_paused_tasks_back_to_pending(client, project, r
     r = client.post(f"/ui/p/{project}/queue/resume", follow_redirects=False)
     assert r.status_code == 303
     assert pause_state(run_db, project) is None and status(run_db, paused_task) == "pending"
+
+
+def test_resuming_a_project_that_does_not_exist_in_the_ui_is_a_404(client):
+    r = client.post("/ui/p/no-such-project/queue/resume", follow_redirects=False)
+    assert r.status_code == 404
 
 
 def test_a_paused_task_page_says_paused_and_offers_abandon(client, project, run_db, paused_task):

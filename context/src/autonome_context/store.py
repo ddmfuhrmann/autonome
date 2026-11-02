@@ -73,12 +73,15 @@ async def pause_project(conn: AsyncConnection, slug: str, by: str, reason: str |
     return {"at": row[0], "by": row[1], "reason": row[2]} if row else None
 
 
-async def resume_project(conn: AsyncConnection, slug: str) -> list[int]:
+async def resume_project(conn: AsyncConnection, slug: str) -> list[int] | None:
     """Clears the pause and puts the project's paused tasks back to pending, in one transaction.
-    Returns the ids of the tasks put back."""
+    Returns the ids of the tasks put back, or None if there is no such project."""
     async with conn.transaction():
-        await conn.execute(
-            "update project set paused_at = null, paused_by = null, pause_reason = null where slug = %s", (slug,))
+        found = await (await conn.execute(
+            "update project set paused_at = null, paused_by = null, pause_reason = null where slug = %s"
+            " returning id", (slug,))).fetchone()
+        if not found:
+            return None
         rows = await (await conn.execute(
             "update document d set status = 'pending' from project p"
             " where p.id = d.project_id and p.slug = %s and d.type = 'task' and d.status = 'paused'"
