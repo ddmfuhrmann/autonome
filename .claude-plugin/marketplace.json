@@ -5,7 +5,7 @@
     {
       "name": "autonome",
       "source": "./plugin",
-      "version": "0.25.0",
+      "version": "0.25.2",
       "description": "An autonomous agent team for software projects, with a shared project memory."
     }
   ]
