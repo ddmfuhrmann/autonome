@@ -22,7 +22,7 @@ plugin/runner/  the runner (TypeScript, Claude Agent SDK): one session + worktre
 - **Redact before storing or embedding**: secrets, CPF/CNPJ, e-mails. Raw transcripts are kept
   redacted and gzipped, never indexed.
 - **Append-only**: documents change by new versions. Migrations are immutable; fix forward.
-- **Human-only transitions** (approve a plan or wave, approve a feature an agent proposed, release a hold, resume a paused queue, judge an after-merge review, edit
+- **Human-only transitions** (approve a plan or wave, release a hold, resume a paused queue, judge an after-merge review, edit
   conventions or gate config) belong to the human: in the UI, or for approval in a dialog the context
   shows the human through MCP elicitation, which the agent cannot answer. No agent may make them, and
   an unanswered or unsupported dialog leaves things as they were. The one exception is the preflight's

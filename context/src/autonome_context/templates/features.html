@@ -13,7 +13,7 @@
   {% for f in list %}{% set p = latest_plan.get(f.slug) %}{% set doc = docs.get(f.slug) %}
   <a class="entry" style="--cols: minmax(0, 1fr) 72px 72px 72px 110px 72px" href="/ui/p/{{ project }}/features/{{ f.slug }}">
     <span class="entry__main">
-      <span class="entry__title">{{ f.slug }}{% if f.status == 'proposed' %} <span class="tag">proposed, to review</span>{% endif %}</span>
+      <span class="entry__title">{{ f.slug }}</span>
       {% set summary = ((doc.body.get('product') or {}).get('what_it_does') or doc.body.get('overview')) if doc else none %}
       {% if f.description %}<span class="entry__meta">{{ f.description|truncate(140) }}</span>{% endif %}
       <span class="entry__meta">{% if summary and summary is string %}{{ summary|striptags|replace('**', '')|replace('`', '')|truncate(110) }}{% elif f.documented %}living doc v{{ doc.version if doc else '' }}{% else %}no living doc yet · written after the next delivery{% endif %}

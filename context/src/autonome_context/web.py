@@ -1033,20 +1033,7 @@ async def feature_page(request: Request) -> Response:
                     if d["type"] in ("plan", "handoff", "decision", "task")]
         entry = next((c for c in await store.catalog(conn, project) if c["slug"] == feature), {})
     return await render(request, "feature.html", feature=feature, doc=doc, timeline=timeline,
-                        description=entry.get("description"), paths=entry.get("paths") or [],
-                        proposed=entry.get("status") == "proposed")
-
-
-async def feature_approve(request: Request) -> Response:
-    """Approve a feature an agent proposed: only here, never through an agent tool."""
-    project, feature = request.path_params["project"], request.path_params["feature"]
-    pool, _ = await services.get()
-    async with pool.connection() as conn:
-        approved = await store.approve_feature(conn, project, feature)
-    if not approved:
-        return Response("not found", status_code=404)
-    return RedirectResponse(f"/ui/p/{project}/features/{feature}?{urlencode({'done': 'the feature is approved'})}",
-                            status_code=303)
+                        description=entry.get("description"), paths=entry.get("paths") or [])
 
 
 async def triage_page(request: Request) -> Response:
@@ -1109,7 +1096,6 @@ def routes() -> list:
         Route("/ui/p/{project}/insights", insights_page),
         Route("/ui/p/{project}/triage", triage_page),
         Route("/ui/p/{project}/features/{feature}", feature_page),
-        Route("/ui/p/{project}/features/{feature}/approve", feature_approve, methods=["POST"]),
         Route("/ui/p/{project}/documents/{doc_id:int}/transition", transition, methods=["POST"]),
         Route("/ui/p/{project}/documents/{doc_id:int}/after-merge-review", after_merge, methods=["POST"]),
         Route("/ui/p/{project}/conventions", conventions_page, methods=["GET", "POST"]),

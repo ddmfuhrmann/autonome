@@ -46,18 +46,17 @@ def status(run_db, doc_id):
     return run_db(go)
 
 
-def test_the_ui_approves_a_proposed_feature_and_only_by_post(client, project, run_db, indexer):
+def test_a_new_feature_shows_in_the_ui_with_no_approval_step(client, project, run_db, indexer):
     async def make(conn):
         await store.resolve_feature(conn, indexer.embedder, project, "wallet", "balance of the wallet ledger")
         await conn.commit()
 
     run_db(make)
     url = f"/ui/p/{project}/features/wallet"
-    assert "Approve feature" in client.get(url).text
-    assert client.get(url + "/approve").status_code in (404, 405)
-    assert client.post(url + "/approve", follow_redirects=False).status_code == 303
-    assert "Approve feature" not in client.get(url).text
-    assert client.post(url + "/approve").status_code == 404
+    listing = client.get(f"/ui/p/{project}/features").text
+    assert "wallet" in listing and "proposed" not in listing
+    assert "Approve" not in client.get(url).text
+    assert client.post(url + "/approve").status_code in (404, 405)
 
 
 def test_a_retry_answers_with_the_confirmed_status(client, project, blocked_task, run_db):

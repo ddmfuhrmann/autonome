@@ -34,24 +34,17 @@ def test_a_known_slug_is_returned_as_it_is_and_keeps_its_description(run_db, pro
 
     again, catalog = run_db(go)
     assert again == {"slug": "wallet", "created": False, "similar_to": None}
-    assert catalog == [{"slug": "wallet", "description": "balance of the wallet ledger", "paths": ["src/wallet/"],
-                        "status": "proposed"}]
+    assert catalog == [{"slug": "wallet", "description": "balance of the wallet ledger", "paths": ["src/wallet/"]}]
 
 
-def test_a_new_feature_is_proposed_until_the_human_approves_it(run_db, project):
+def test_a_new_feature_enters_the_catalog_with_no_human_step(run_db, project):
     async def go(conn):
-        await store.resolve_feature(conn, EMBEDDER, project, "wallet", "balance of the wallet ledger")
-        await store.resolve_feature(conn, EMBEDDER, project, "signup", "registration by e-mail", approved=True)
-        before = {f["slug"]: f["status"] for f in await store.catalog(conn, project)}
-        first = await store.approve_feature(conn, project, "wallet")
-        again = await store.approve_feature(conn, project, "wallet")
-        after = {f["slug"]: f["status"] for f in await store.catalog(conn, project)}
-        return before, first, again, after
+        made = await store.resolve_feature(conn, EMBEDDER, project, "wallet", "balance of the wallet ledger")
+        return made, await store.catalog(conn, project)
 
-    before, first, again, after = run_db(go)
-    assert before == {"wallet": "proposed", "signup": "active"}
-    assert (first, again) == (True, False)
-    assert after == {"wallet": "active", "signup": "active"}
+    made, catalog = run_db(go)
+    assert made == {"slug": "wallet", "created": True, "similar_to": None}
+    assert [f["slug"] for f in catalog] == ["wallet"]
 
 
 def test_the_slug_is_normalized_and_one_with_nothing_left_is_refused(run_db, project):
@@ -199,28 +192,6 @@ def test_plan_draft_with_a_catalog_slug_works_as_before_and_a_revision_skips_the
     assert again == plan_id and new != plan_id
     assert [f["slug"] for f in catalog] == ["signup", "wallet"]
     assert catalog[0]["paths"] == ["src/signup/"]
-
-
-def test_callers_create_a_new_feature_as_proposed(run_db, project, indexer):
-    async def go(conn):
-        via_for = await store.feature_for(conn, indexer, project, "wallet", "balance of the wallet ledger")
-        await plans.draft(conn, indexer, project, "signup", [], _plan(),
-                          feature_description="registration with e-mail and password")
-        await store.put_handoff(conn, indexer, make_handoff(
-            project, feature="search-index", feature_description="full-text index over documents"), None)
-        return via_for, {f["slug"]: f["status"] for f in await store.catalog(conn, project)}
-
-    via_for, statuses = run_db(go)
-    assert via_for == "wallet"
-    assert statuses == {"wallet": "proposed", "signup": "proposed", "search-index": "proposed"}
-
-
-def test_the_maintenance_feature_made_by_enqueue_task_is_active(run_db, project, indexer):
-    async def go(conn):
-        await store.enqueue_task(conn, indexer, project, title="Fix main", spec="red", source="schedule:main-red")
-        return {f["slug"]: f["status"] for f in await store.catalog(conn, project)}
-
-    assert run_db(go) == {"maintenance": "active"}
 
 
 def test_features_get_lists_only_the_features_of_the_project(run_db, project, indexer):
