@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Settings · primeira configuração{% endblock %}
+{% block main %}
+<header class="page-head">
+  <div class="page-head__text"><h1>Primeira configuração</h1>
+    <p class="subtitle">Este projeto ainda não tem gates. Escolha o stack, desmarque o que não quer e revise antes de salvar a v1.</p></div>
+</header>
+
+{% for key, preset in presets.items() %}
+<form class="section" method="post" action="/ui/p/{{ project }}/settings">
+  <h2>{{ preset.label }}</h2>
+  <input type="hidden" name="action" value="setup">
+  {% for g in preset.gates %}
+  <label class="row"><input type="checkbox" name="keep-{{ g.name }}" value="1" checked>
+    <code>{{ g.name }}</code> <span class="footnote">{{ g.run }}</span></label>
+  {% endfor %}
+  <div class="row" style="padding-top: 10px">
+    <button class="btn btn--primary" type="submit" name="preset" value="{{ key }}">Usar {{ preset.label }}</button>
+  </div>
+</form>
+{% endfor %}
+
+<form class="section" method="post" action="/ui/p/{{ project }}/settings">
+  <h2>Começar vazio</h2>
+  <p class="muted">Sem gates; você adiciona os seus depois na página Settings.</p>
+  <input type="hidden" name="action" value="setup">
+  <button class="btn btn--ghost" type="submit" name="preset" value="{{ empty }}">Começar vazio</button>
+</form>
+{% endblock %}

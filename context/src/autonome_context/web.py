@@ -24,8 +24,11 @@ from starlette.templating import Jinja2Templates
 
 from . import evaluation, insights, plans, rules, services, settings_form, store
 from .chunking import DEFAULT_STRATEGY, STRATEGIES
-from .gates import (DEFAULT_MODELS, EXAMPLE, FIELD_HELP, ROLE_GLOSS, Budget, Check, Gate, GateConfig, HoldBeforeMerge,
+from .gates import (DEFAULT_MODELS, FIELD_HELP, ROLE_GLOSS, Budget, Check, Gate, GateConfig, HoldBeforeMerge,
                     Retries, Review, ReviewAfterMerge, RoleModel, Schedule, SmokeTest, Triage)
+from .presets import PRESETS, preset_config
+
+SETUP_EMPTY = "empty"  # the setup choice that starts with no gates
 
 log = logging.getLogger(__name__)
 _HERE = Path(__file__).parent
@@ -950,7 +953,7 @@ def _review_context(doc: dict | None, new_cfg: GateConfig, text: str, origin: st
                                      f"v{doc['version']}" if doc else "defaults", "rascunho", lineterm=""))
     return {"changes": changes, "diff": diff, "text": text, "origin": origin, "note": note,
             "note_error": note_error, "stale": stale, "base_version": doc["version"] if doc else 0,
-            "nothing_changed": not changes and not diff, "doc": doc}
+            "nothing_changed": bool(doc) and not changes and not diff, "doc": doc}
 
 
 async def settings_page(request: Request) -> Response:
@@ -972,6 +975,19 @@ async def settings_page(request: Request) -> Response:
         if request.method == "POST":
             data = await request.form()
             action = str(data.get("action", ""))
+            if action == "setup":
+                if doc:  # the first setup only: a project with a config goes on in the form
+                    return RedirectResponse(f"/ui/p/{project}/settings", status_code=303)
+                name = str(data.get("preset", ""))
+                if name == SETUP_EMPTY:
+                    setup_cfg = GateConfig()
+                elif name in PRESETS:
+                    setup_cfg = preset_config(name, {k.removeprefix("keep-") for k in data if k.startswith("keep-")})
+                else:
+                    return Response(f"Preset desconhecido: {name or '(vazio)'}. Nada foi salvo.", status_code=400)
+                review = (setup_cfg, _canonical(setup_cfg), "form")
+                return await render(request, "settings_review.html",
+                                    **_review_context(None, *review, "", None, False))
             if "yaml" in data:
                 text, view = str(data["yaml"]), "yaml"
                 parsed, error, error_line, checks = _parse_yaml(text, set(catalog))
@@ -1000,7 +1016,7 @@ async def settings_page(request: Request) -> Response:
                 current = doc["version"] if doc else 0
                 if action == "save":
                     note_error = _note_error(note)
-                    stale = base_version != str(current)
+                    stale = (base_version or "0") != str(current)  # empty: the first setup, from no version
                     if not note_error and not stale:
                         body = {"yaml": review[1], "source": "human"}
                         if note.strip():
@@ -1020,8 +1036,10 @@ async def settings_page(request: Request) -> Response:
             saved_cfg = None
             if posted is None and draft_cfg is None:
                 view, error = "yaml", error or str(e)
+    if not doc:
+        return await render(request, "settings_setup.html", presets=PRESETS, empty=SETUP_EMPTY)
     if text is None:
-        text = doc["body"]["yaml"] if doc else EXAMPLE
+        text = doc["body"]["yaml"]
     ctx: dict = {"doc": doc, "view": view, "text": text, "error": error, "error_line": error_line,
                  "notice": notice, "pending": pending, "origin": _version_origin(doc["body"]) if doc else None,
                  "sections": SETTINGS_SECTIONS, "errors": {}, "problems": [], "bad_sections": [],

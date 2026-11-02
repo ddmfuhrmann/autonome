@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from autonome_context.gates import DEFAULT_MODELS, EXAMPLE, GateConfig
+from autonome_context.gates import DEFAULT_MODELS, GateConfig
 
 FULL = """\
 gates:
@@ -30,10 +30,6 @@ def test_the_new_keys_round_trip_through_yaml_without_losing_a_field():
     assert cfg.retro_after_wave is False and cfg.smoke_test.max_fixes == 3
     assert cfg.models["implementer"].model == "opus"
     assert GateConfig.from_yaml(cfg.to_yaml()) == cfg
-
-
-def test_the_example_is_a_valid_config():
-    GateConfig.from_yaml(EXAMPLE)
 
 
 # The old names are split ("en" "core") so the vocabulary gate, which greps for them, stays green.

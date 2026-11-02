@@ -204,36 +204,3 @@ class GateConfig(_Strict):
 
     def to_yaml(self) -> str:
         return yaml.safe_dump(self.model_dump(mode="json"), sort_keys=False, allow_unicode=True)
-
-
-EXAMPLE = """\
-# Gates run from the repo root, cheapest first. mode fix: run and carry on; block: must pass.
-gates:
-  - {name: format, run: ./mvnw -q spotless:apply, mode: fix, fast: true}
-  - {name: lint, run: ./mvnw -q checkstyle:check pmd:check, fast: true}
-  - {name: test, run: ./mvnw -q verify}
-  - {name: secrets, run: gitleaks detect --no-banner}
-interactive: false
-allowed_commands: [./mvnw]
-retries: {max: 3, stop_on_repeat: true}
-budget: {task_tokens: 400000, task_minutes: 30, plan_tokens: 3000000}
-hold_before_merge: {features: []}     # stop before merge for the human (blocks the queue)
-review_after_merge: {features: []}    # merge, then the human reviews forward (never blocks)
-schedules: []
-review: {enabled: true, max_rounds: 2}
-# language: pt-BR           # what agents write for people; code and commits follow the project
-# permissions: allowlist   # or auto: a classifier judges each command of the implementer
-# models: {implementer: {model: sonnet, effort: medium, fallback: haiku}}   # per role; see DEFAULT_MODELS
-# triage:                    # a classifier judges deviation decisions (the Jev key stays in the runner's environment)
-#   model: jev-latest        # jev-latest | haiku | off
-#   fallback: haiku          # haiku | off
-#   reject_at: 0.7
-#   max_rounds: 2
-# smoke_test:                # try each finished feature in a running environment (fakes, never real services)
-#   up: docker compose -f infra/compose.yml up -d --wait
-#   down: docker compose -f infra/compose.yml down
-#   url: http://127.0.0.1:8081
-#   checks: [{name: e2e, run: ./scripts/e2e.sh}]
-#   tester: true
-#   max_fixes: 2
-"""

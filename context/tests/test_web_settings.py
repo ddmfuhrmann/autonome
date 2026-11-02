@@ -8,6 +8,7 @@ from starlette.testclient import TestClient
 
 from autonome_context import plans, services, settings_form, store
 from autonome_context.gates import GateConfig
+from autonome_context.presets import PRESETS
 from autonome_context.plans import PlanBody, ProposedGate, TaskSpec
 from autonome_context.server import build_app
 
@@ -121,14 +122,67 @@ def test_the_yaml_view_shows_the_saved_text(client, project, saved):
     assert 'name="yaml"' in page and "permissions: auto" in page and "<h2>Gates</h2>" not in page
 
 
-def test_a_project_without_a_saved_config_shows_the_defaults(client, project, run_db):
+@pytest.fixture
+def bare(run_db, project):
     async def go(conn):
         await store.ensure_project(conn, project)
         await conn.commit()
 
     run_db(go)
+
+
+def test_a_project_without_a_saved_config_shows_the_four_presets_and_their_gates(client, project, bare):
     page = client.get(f"/ui/p/{project}/settings")
-    assert page.status_code == 200 and "not saved yet" in page.text
+    assert page.status_code == 200 and "Primeira configuração" in page.text
+    for preset in PRESETS.values():
+        assert f"<h2>{preset.label}</h2>" in page.text
+        for g in preset.gates:
+            assert f'name="keep-{g["name"]}"' in page.text
+    assert len(PRESETS) == 4 and "Começar vazio" in page.text
+
+
+def test_setup_with_a_gate_unchecked_saves_v1_without_it_from_the_human(client, project, bare, run_db):
+    url = f"/ui/p/{project}/settings"
+    keep = {f"keep-{g['name']}": "1" for g in PRESETS["python"].gates if g["name"] != "mypy"}
+    review = client.post(url, data={"action": "setup", "preset": "python"} | keep)
+    assert review.status_code == 200 and "Revisar e salvar" in review.text and _versions(run_db, project) == 0
+    done = client.post(url, data=_hidden(review) | {"action": "save", "note": ""}, follow_redirects=False)
+    assert done.status_code == 303
+    latest = _latest(run_db, project)
+    assert latest["version"] == 1 and latest["body"]["source"] == "human"
+    names = [g.name for g in GateConfig.from_yaml(latest["body"]["yaml"]).gates]
+    assert names == ["ruff-format", "ruff-check", "pytest"]
+
+
+def test_a_config_saved_after_the_setup_is_not_overwritten(client, project, bare, run_db, indexer):
+    url = f"/ui/p/{project}/settings"
+    review = client.post(url, data={"action": "setup", "preset": "go", "keep-gofmt": "1"})
+    fields = _hidden(review) | {"base_version": ""}
+
+    async def go(conn):
+        await plans.apply_gates(conn, indexer, project, [{"name": "e2e", "run": "make e2e"}],
+                                {"plan_id": 5, "task_id": 2})
+        await conn.commit()
+
+    run_db(go)
+    page = client.post(url, data=fields | {"action": "save", "note": ""}, follow_redirects=False)
+    assert page.status_code == 200 and "mudou enquanto você revisava" in page.text
+    assert _hidden(page)["base_version"] == "1" and _versions(run_db, project) == 1
+
+
+def test_an_unknown_preset_is_a_400_and_saves_nothing(client, project, bare, run_db):
+    page = client.post(f"/ui/p/{project}/settings", data={"action": "setup", "preset": "cobol"})
+    assert page.status_code == 400 and "cobol" in page.text and _versions(run_db, project) == 0
+
+
+def test_starting_empty_saves_a_v1_without_gates(client, project, bare, run_db):
+    url = f"/ui/p/{project}/settings"
+    review = client.post(url, data={"action": "setup", "preset": "empty"})
+    assert review.status_code == 200
+    done = client.post(url, data=_hidden(review) | {"action": "save", "note": ""}, follow_redirects=False)
+    assert done.status_code == 303
+    latest = _latest(run_db, project)
+    assert latest["version"] == 1 and GateConfig.from_yaml(latest["body"]["yaml"]).gates == []
 
 
 def test_config_redirects_permanently_to_settings_and_the_nav_says_settings(client, project, saved):
@@ -164,7 +218,8 @@ def _fields(yaml_text: str = YAML) -> dict[str, str]:
 
 def _versions(run_db, project) -> int:
     async def go(conn):
-        return (await store.latest_of_type(conn, project, "gate_config"))["version"]
+        doc = await store.latest_of_type(conn, project, "gate_config")
+        return doc["version"] if doc else 0
 
     return run_db(go)
 
