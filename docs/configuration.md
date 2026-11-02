@@ -129,6 +129,7 @@ models:
   retro:       {model: sonnet, effort: medium}   # learns from a finished wave
   handoff:     {model: sonnet, effort: low}      # writes each session's handoff
   docs:        {model: sonnet, effort: low}      # keeps the living docs
+  simplifier:  {model: sonnet, effort: medium}   # proposes simplifications in the `simplify` schedule
 # Any role may add `fallback: <model>`: the model the session switches to when its own is overloaded
 # or unavailable (Agent SDK `fallbackModel`, `claude -p --fallback-model`). It does not help with the
 # account's usage limit, which hands the task back to pending. Ignored when equal to the model.
@@ -157,10 +158,23 @@ schedules:
   - {name: deps, kind: command, every_hours: 24, run: ./scripts/outdated.sh, task: Update dependencies}
   - {name: red-main, kind: main-red, every_hours: 6}
   - {name: docs, kind: doc-drift, every_hours: 24}
+  - {name: simplify, kind: simplify, every_hours: 168, max_tasks: 3}   # a read-only agent proposes simplifications
 ```
 
 A worked example for a FastAPI service, smoke test included, is in
 [plugin/README.md](../plugin/README.md#the-smoke-test).
+
+### The `simplify` schedule
+
+`kind: simplify` runs the `simplifier`, an agent that only reads (Read, Grep and Glob; `~/.autonome`
+stays denied). It never edits code: it proposes, and the runner queues each proposal as a task in
+the maintenance plan, with the evidence, like the other kinds.
+
+- **What it reads**: the code files that changed on main since the last round. With no earlier
+  round, only what changed in the last 7 days, never the whole repository.
+- **How many**: at most `max_tasks` tasks per round (default 3). A title already queued is skipped.
+- **On failure**: an invalid answer or a failed session queues nothing and logs an error.
+- **Model**: the `simplifier` role in `models`.
 
 ### Editing in Settings
 

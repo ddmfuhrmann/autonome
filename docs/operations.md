@@ -115,6 +115,11 @@ run: abandon or re-plan them too).
 Fix and undo tasks land in the **maintenance plan**, which you approve once; after that new ones
 run without asking.
 
+Schedules of `kind: simplify` add to it too: a read-only agent looks at the code that changed since
+the last round and queues up to `max_tasks` simplification tasks, each with the evidence. It never
+edits code; the task does, through the runner. If it queues nothing, check the runner's log for
+`simplify failed`.
+
 ## The run stops by itself
 
 | `run` says | What happened | Do |
