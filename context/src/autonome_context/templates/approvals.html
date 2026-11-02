@@ -8,6 +8,7 @@
 {%- elif item.kind == 'held' %} · preflight {{ 'proposed a revision' if d.body.preflight and d.body.preflight.plan else 'held it' }}
 {%- elif item.kind == 'smoke_test' %} · smoke_test failed
 {%- elif item.kind == 'hold_before_merge' %} · gates passed{% if item.last and item.last.review %}, reviewer {{ item.last.review.verdict }}{% endif %}
+{%- elif item.kind == 'paused' %} · queue paused
 {%- elif item.kind == 'blocked' %}{% set run = (d.body.runs or [none])[-1] %}{% if run and (run.reason or run.outcome) %} · {{ (run.reason or run.outcome).split('\n')[0]|truncate(90) }}{% endif %}
 {%- elif item.kind == 'decision' and d.body.triage_conflict %} · rule conflict
 {%- elif item.kind == 'after_merge' %} · {{ 'loose ends at merge' if (d.body.after_merge_review or {}).loose_ends else 'merged' }}
@@ -26,6 +27,9 @@
         {% if item.last and item.last.review %}Reviewer: {{ item.last.review.verdict }}{% if item.last.review.findings %}, {{ item.last.review.findings|length }} finding{{ 's' if item.last.review.findings|length > 1 }}{% endif %}.{% endif %}</div></div>
       {% if item.last and item.last.diff %}{{ ui.diff(item.last.diff, open_files=1) }}
       {% elif item.last and item.last.diff_stat %}<pre class="code">{{ item.last.diff_stat }}</pre>{% endif %}
+    {% elif item.kind == 'paused' %}{% set run = (d.body.runs or [none])[-1] %}
+      <div class="callout callout--hold"><div><strong>Paused with the queue.</strong> Its session{% if run and run.worktree %} and worktree <span class="mono">{{ run.worktree }}</span>{% endif %} are kept; Resume continues it in the same session, Abandon drops it.</div></div>
+      <div class="decision__actions">{{ ui.resume_button(project, 'Resume the queue') }}</div>
     {% elif item.kind == 'blocked' %}
       {% set run = (d.body.runs or [none])[-1] %}
       {% if run and run.reason %}<div class="callout callout--block"><div class="prose">{{ run.reason|truncate(800)|md }}</div></div>{% endif %}
@@ -111,6 +115,7 @@
   ('g-held', 'Plans held after preflight', items|selectattr('kind', 'equalto', 'held')|list, 'is-warn', 'plans held after preflight'),
   ('g-smoke-test', 'Plans blocked at the smoke_test', items|selectattr('kind', 'equalto', 'smoke_test')|list, 'is-stop', 'plans blocked at the smoke_test'),
   ('g-hold-before-merge', 'Held before merge', items|selectattr('kind', 'equalto', 'hold_before_merge')|list, 'is-warn', 'tasks held before merge'),
+  ('g-paused', 'Paused tasks', items|selectattr('kind', 'equalto', 'paused')|list, 'is-warn', 'paused tasks'),
   ('g-blocked', 'Blocked tasks', items|selectattr('kind', 'equalto', 'blocked')|list, 'is-stop', 'blocked tasks'),
   ('g-after-merge', 'Review after merge', items|selectattr('kind', 'equalto', 'after_merge')|list, '', 'after_merge'),
   ('g-decision', 'Proposed decisions', items|selectattr('kind', 'equalto', 'decision')|list, '', 'proposed decisions'),
@@ -131,7 +136,7 @@
 </nav>
 
 {% set empty = [] %}
-{% for id, title, list, cls, name in groups %}{% if list %}{{ group(id, title, list, cls) }}{% elif not kind and loop.index <= 6 %}{% set _ = empty.append(name) %}{% endif %}{% endfor %}
+{% for id, title, list, cls, name in groups %}{% if list %}{{ group(id, title, list, cls) }}{% elif not kind and loop.index <= 7 %}{% set _ = empty.append(name) %}{% endif %}{% endfor %}
 {% if not items %}<p class="empty">Nothing waiting on you.</p>{% endif %}
 {% if empty and items %}<p class="footnote">Nothing waiting in: {{ empty|join(', ') }}.</p>{% endif %}
 

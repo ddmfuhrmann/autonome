@@ -18,6 +18,7 @@
     {% elif side.waiting %}<p class="footnote"><a class="accent" href="/ui/p/{{ project }}/approvals">{{ side.waiting }} waiting on you</a></p>{% endif %}
   </div>
 </header>
+<div id="queue-pause" data-live>{% if side.paused %}{{ ui.pause_banner(project, side.paused) }}{% else %}{{ ui.pause_form(project) }}{% endif %}</div>
 
 <section aria-labelledby="now-h" id="now" data-live>
   <h2 id="now-h" class="{{ 'is-accent' if running }}">Running now</h2>
@@ -87,6 +88,22 @@
       <span class="entry__main"><span class="entry__title">{{ t.body.title }}</span>
         <span class="entry__meta">{{ t|ref }}{% if t.feature %} · {{ t.feature }}{% endif %} · gates passed{{ ', review clean' if run and run.review and run.review.verdict == 'pass' }}; needs your eyes on the diff · {{ t.updated_at|ago }}</span></span>
       {{ ui.st('hold_before_merge') }}
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if columns.paused %}
+<section aria-labelledby="paused-h">
+  <h2 id="paused-h" class="is-warn">Paused <span class="n">{{ totals.paused }}</span></h2>
+  <div class="entries">
+    {% for t in columns.paused %}{% set run = (t.body.runs or [none])[-1] %}
+    <a class="entry" style="--cols: 32px minmax(0, 1fr) auto" href="/ui/p/{{ project }}/documents/{{ t.id }}">
+      <span class="entry__n">—</span>
+      <span class="entry__main"><span class="entry__title">{{ t.body.title }}</span>
+        <span class="entry__meta">{{ t|ref }}{% if t.feature %} · {{ t.feature }}{% endif %} · session and worktree kept · {{ t.updated_at|ago }}</span></span>
+      {{ ui.st('paused') }}
     </a>
     {% endfor %}
   </div>

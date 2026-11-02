@@ -24,6 +24,10 @@
 {% if doc.status == 'on_hold' and last %}
 <div class="callout callout--hold"><div><strong>Held before merge:</strong> gates passed{{ ' and the reviewer approved' if last.review and last.review.verdict == 'pass' }}. Read the diff below before releasing it.</div></div>
 {% endif %}
+{% if doc.status == 'paused' %}
+<div class="callout callout--hold"><div><strong>Paused with the queue.</strong> The session{% if last and last.worktree %} and the worktree <span class="mono">{{ last.worktree }}</span>{% endif %} are kept. {% if side.paused %}Resume the queue to continue in the same session, or abandon the task.{% else %}The queue was resumed; the runner continues it in the same session.{% endif %}</div>
+  {% if side.paused %}{{ ui.resume_button(project) }}{% endif %}</div>
+{% endif %}
 {{ ui.decision(project, doc, actions) }}
 
 <nav class="tabs" aria-label="Task sections">
@@ -66,6 +70,7 @@
       <div class="tl__body">
         <div class="tl__head"><strong>Run {{ n }}</strong>{{ ui.st(run.outcome or 'done', sm=true) }}
           <span class="tl__time">{{ run.at|when }}{% if run.tokens %} · {{ run.tokens|tokens }} tokens{% endif %}{% if run.cost_usd %} · {{ run.cost_usd|money }}{% endif %}</span></div>
+        {% if run.worktree and run.outcome == 'paused' %}<p class="muted" style="font-size: 13px">Worktree <span class="mono">{{ run.worktree }}</span></p>{% endif %}
         {% if run.reason %}<div class="callout callout--{{ 'block' if run.outcome in ('blocked', 'error', 'merge-failed') else 'hold' }}"><div class="prose">{{ run.reason|md }}</div></div>{% endif %}
         {% if run.diff_stat %}<pre class="code">{{ run.diff_stat }}</pre>{% endif %}
       </div></li>

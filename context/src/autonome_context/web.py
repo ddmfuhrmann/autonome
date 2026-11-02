@@ -218,12 +218,12 @@ for _name, _fn in {"ref": ref, "label": label, "ago": ago, "when": when, "clock"
 
 QUEUE_KINDS = {
     "plans": "Waves & plans", "held": "Held by preflight", "smoke_test": "Smoke test", "hold_before_merge": "Hold before merge",
-    "blocked": "Blocked tasks", "after_merge": "Review after merge", "decision": "Decisions", "convention": "Conventions",
+    "paused": "Paused tasks", "blocked": "Blocked tasks", "after_merge": "Review after merge", "decision": "Decisions", "convention": "Conventions",
 }
 
 
 # What holds up the queue. Decisions and conventions are reviewed when the human likes.
-BLOCKING = {"plans", "held", "smoke_test", "hold_before_merge", "blocked"}
+BLOCKING = {"plans", "held", "smoke_test", "hold_before_merge", "paused", "blocked"}
 
 
 async def _queue(conn, project: str) -> list[dict]:
@@ -232,6 +232,7 @@ async def _queue(conn, project: str) -> list[dict]:
     items = [{"kind": "hold_before_merge", "doc": d} for d in await docs("task", "on_hold")]
     items += [{"kind": "held", "doc": d} for d in await docs("plan", "held")]
     items += [{"kind": "smoke_test", "doc": d} for d in await docs("plan", "blocked")]
+    items += [{"kind": "paused", "doc": d} for d in await docs("task", "paused")]
     items += [{"kind": "blocked", "doc": d} for d in await docs("task", "blocked")]
     items += [{"kind": "plans", "doc": d} for d in await docs("wave", "draft")]
     items += [{"kind": "plans", "doc": d} for d in await docs("plan", "draft") if not await plans.wave_of(conn, d)]
@@ -283,6 +284,7 @@ async def _side(conn, project: str) -> dict:
         (project,))).fetchone()
     return {"waiting": len(waiting), "to_review": sum(i["kind"] == "after_merge" for i in queue), "running": status["running"],
             "on_hold": status["on_hold"], "pending": status["pending"], "wave": waves[0] if waves else None,
+            "paused": await store.project_pause(conn, project),
             "handoffs": handoffs, "last_handoff": last_handoff, "last_activity": last_activity}
 
 
@@ -316,6 +318,8 @@ EFFECTS = {
     ("task", "on_hold", "pending"): "Back to pending: a new session plays it again.",
     ("task", "blocked", "pending"): "Back to pending: a new session plays it again.",
     ("task", "blocked", "abandoned"): "The task is dropped; tasks that depend on it never start.",
+    ("task", "paused", "abandoned"): "The task is dropped and its kept session and worktree are not used again; "
+                                     "tasks that depend on it never start.",
     ("task", "pending", "abandoned"): "The task is dropped; tasks that depend on it never start.",
     ("convention", "proposed", "active"): "Injected into every agent session that touches its layers.",
     ("convention", "proposed", "rejected"): "Dropped; retro will not propose it again from the same evidence.",
@@ -943,7 +947,29 @@ async def convention_edit(request: Request) -> Response:
     return RedirectResponse(f"/ui/p/{project}/conventions", status_code=303)
 
 
-QUEUE_COLUMNS = ["pending", "running", "on_hold", "released", "blocked", "done"]
+async def queue_pause(request: Request) -> Response:
+    """Pause the project's queue from the UI; the runner stops the task in progress and keeps it."""
+    project = request.path_params["project"]
+    reason = " ".join(str((await request.form()).get("reason") or "").split())[:500]
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        paused = await store.pause_project(conn, project, "human:ui", reason or None)
+    if paused is None:
+        return Response("not found", status_code=404)
+    return RedirectResponse(f"/ui/p/{project}/queue?{urlencode({'done': 'the queue is paused'})}", status_code=303)
+
+
+async def queue_resume(request: Request) -> Response:
+    """Resume the queue: only here or in a dialog the human answers; paused tasks go back to pending."""
+    project = request.path_params["project"]
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        resumed = await store.resume_project(conn, project)
+    notice = "the queue is running" + (f"; {len(resumed)} paused task{'s' if len(resumed) > 1 else ''} back to pending" if resumed else "")
+    return RedirectResponse(f"/ui/p/{project}/queue?{urlencode({'done': notice})}", status_code=303)
+
+
+QUEUE_COLUMNS = ["pending", "running", "on_hold", "released", "paused", "blocked", "done"]
 COLUMN_LIMIT = {"pending": 12, "done": 12}
 
 
@@ -1061,6 +1087,8 @@ def routes() -> list:
         Route("/ui/p/{project}/config", config_page, methods=["GET", "POST"]),
         Route("/ui/p/{project}/approvals", approvals_page),
         Route("/ui/p/{project}/queue", queue_page),
+        Route("/ui/p/{project}/queue/pause", queue_pause, methods=["POST"]),
+        Route("/ui/p/{project}/queue/resume", queue_resume, methods=["POST"]),
         Route("/ui/p/{project}/waves", waves_page),
         Route("/ui/p/{project}/features", features_page),
         Route("/ui/p/{project}/insights", insights_page),

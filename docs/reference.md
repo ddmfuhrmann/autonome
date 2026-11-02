@@ -48,8 +48,10 @@ going another way is a deviation. A preflight revision keeps the plan's design.
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `approvals_list` | `project` | what waits on the human, most blocking first: id, kind (`blocked`, `held`, `smoke_test`, `hold_before_merge`, `plans`, `after_merge`, `decision`, `convention`), `blocks`, `detail` (what to decide it on), `actions` (action, label, effect), url; with the triage on, deviation `decision`s are not listed (the runner's classifier judges them) |
+| `approvals_list` | `project` | what waits on the human, most blocking first: id, kind (`paused`, `blocked`, `held`, `smoke_test`, `hold_before_merge`, `plans`, `after_merge`, `decision`, `convention`), `blocks`, `detail` (what to decide it on), `actions` (action, label, effect), url; with the triage on, deviation `decision`s are not listed (the runner's classifier judges them) |
 | `approval_resolve` | `project`, `doc_id`, `action` (one of the item's), `reason?` (an after-merge fix), `note?` (the agent's reasoning, shown as such) | asks the human in a dialog; `{status, human: approved}` or `{human: declined\|unavailable}` with nothing changed |
+| `queue_pause` | `project`, `reason?` | pauses the queue as `agent:mcp`: the runner takes no new task and stops the one in progress, keeping its session and worktree; `{paused: {at, by, reason}, resume_at}` |
+| `queue_resume` | `project` | asks the human in a dialog the agent cannot answer; approved: `{status: running, resumed_tasks}` (paused tasks go back to `pending`); declined or unavailable: `{status: paused, human, resume_at}` with nothing changed. The UI's Resume button does the same; a paused task can also be abandoned there |
 
 ### Backlog
 

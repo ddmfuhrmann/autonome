@@ -187,6 +187,45 @@ async def wave_approve(project: str, wave_id: int, ctx: Context) -> dict:
     return await _approve(ctx, project, wave_id, "wave")
 
 
+@mcp.tool()
+async def queue_pause(
+    project: str,
+    reason: Annotated[str, Field(max_length=500, pattern=api._NO_CONTROL,
+                                 description="why the queue is paused, shown to the human")] = "",
+) -> dict:
+    """Pause the project's queue: the runner takes no new task and stops the one in progress, keeping its
+    session and worktree. Anyone may pause; only the human resumes (queue_resume or the UI)."""
+    reason = reason.strip()
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        paused = await store.pause_project(conn, project, "agent:mcp", reason or None)
+    if paused is None:
+        return {"error": f"project {project!r} does not exist"}
+    return {"paused": api.jsonable(paused), "resume_at": f"{services.settings.public_url}/ui/p/{project}/queue"}
+
+
+@mcp.tool()
+async def queue_resume(project: str, ctx: Context) -> dict:
+    """Ask the human, right in their session, to resume the project's paused queue. The question goes to
+    the person through their client (MCP elicitation); the agent cannot answer it. If they decline, or
+    the client cannot ask, the queue stays paused for the UI."""
+    link = f"{services.settings.public_url}/ui/p/{project}/queue"
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        paused = await store.project_pause(conn, project)
+    if paused is None:
+        return {"status": "running", "note": "the queue is not paused"}
+    why = f" ({paused['reason']})" if paused["reason"] else ""
+    answer = await _ask_human(ctx, f"Resume the queue of {project}? It was paused by {paused['by']}{why}. "
+                                   "Paused tasks go back to pending and continue in the same session.", link)
+    if answer != "approved":
+        return {"status": "paused", "human": answer, "resume_at": link,
+                "note": "Nothing changed. The queue stays paused; the human can resume it in the UI."}
+    async with pool.connection() as conn:
+        task_ids = await store.resume_project(conn, project)
+    return {"status": "running", "human": "approved", "resumed_tasks": task_ids}
+
+
 def _cut(text, n: int = 1500) -> str:
     text = str(text or "")
     return text if len(text) <= n else text[:n] + "…"
@@ -196,6 +235,9 @@ async def _detail(conn, kind: str, doc: dict) -> str:
     """What the human needs to decide an item, read from the stored document."""
     b = doc["body"]
     last = (b.get("runs") or [{}])[-1]
+    if kind == "paused":
+        return "\n".join(filter(None, ["Paused with the queue; resume it with queue_resume or in the UI.",
+                                       f"Spec: {_cut(b.get('spec'), 600)}", f"Worktree: {last.get('worktree', '')}"]))
     if kind in ("blocked", "hold_before_merge"):
         return "\n".join(filter(None, [f"Plan #{b.get('plan_id')}" if b.get("plan_id") else "",
                                          f"Spec: {_cut(b.get('spec'), 600)}", f"Branch: {last.get('branch', '')}",

@@ -40,6 +40,10 @@
     </div>
   </nav>
   <div class="side__foot" id="side-foot" data-live role="status">
+    {% if side.paused %}
+    <span class="is-stop">Paused by {{ side.paused.by }}{% if side.paused.reason %} · {{ side.paused.reason }}{% endif %}</span>
+    {{ ui.resume_button(project) }}
+    {% endif %}
     {% if side.running %}
     <span class="is-live">{{ ui.eq() }} Running{% if side.wave %} {{ side.wave|ref }}{% endif %}</span>
     <span>{{ side.running }} running · {{ side.on_hold }} on hold · {{ side.waiting }} waiting on you</span>

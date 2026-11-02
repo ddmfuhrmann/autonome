@@ -932,6 +932,48 @@
       }
     },
     {
+      "name": "queue_pause",
+      "description": "Pause the project's queue: the runner takes no new task and stops the one in progress, keeping its\nsession and worktree. Anyone may pause; only the human resumes (queue_resume or the UI).",
+      "inputSchema": {
+        "properties": {
+          "project": {
+            "title": "Project",
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "description": "why the queue is paused, shown to the human",
+            "maxLength": 500,
+            "pattern": "^[^\\x00-\\x1f\\x7f]*$",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project"
+        ],
+        "type": "object",
+        "title": "queue_pauseArguments"
+      }
+    },
+    {
+      "name": "queue_resume",
+      "description": "Ask the human, right in their session, to resume the project's paused queue. The question goes to\nthe person through their client (MCP elicitation); the agent cannot answer it. If they decline, or\nthe client cannot ask, the queue stays paused for the UI.",
+      "inputSchema": {
+        "properties": {
+          "project": {
+            "title": "Project",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project"
+        ],
+        "type": "object",
+        "title": "queue_resumeArguments"
+      }
+    },
+    {
       "name": "history_get",
       "description": "What went off plan before on the same subject (the feature and the closest related ones): plan\nitems changed or skipped, deviations, decisions taken against the plan and how the human judged them,\npreflight revisions, reviewer blocks, fixes from smoke tests, after-merge reviews and rejected decisions, blocked\ntasks and friction. Read it before planning, and turn each pattern into acceptance, out of scope, a\nconvention or a question.",
       "inputSchema": {

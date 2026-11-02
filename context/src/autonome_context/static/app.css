@@ -199,7 +199,7 @@ a.entry:hover .entry__title, .entry a.entry__title:hover { color: var(--accent);
 .st--sm { font-size: 12px; }
 .st--running, .st--approved, .st--active, .st--accepted, .st--revised, .st--released { color: var(--accent); }
 .st--done, .st--merged, .st--passed, .st--final, .st--ready, .st--kept, .st--pass { color: var(--ok); }
-.st--hold-before-merge, .st--on_hold, .st--held, .st--proposed, .st--preflighting, .st--revise, .st--retry { color: var(--warn); }
+.st--hold-before-merge, .st--on_hold, .st--paused, .st--held, .st--proposed, .st--preflighting, .st--revise, .st--retry { color: var(--warn); }
 .st--blocked, .st--failed, .st--rejected, .st--error, .st--merge-failed, .st--fail { color: var(--stop); }
 .st--draft, .st--pending, .st--superseded, .st--skipped, .st--archived { color: var(--muted); }
 .st--abandoned { color: var(--faint); text-decoration: line-through; text-decoration-thickness: 1px; }

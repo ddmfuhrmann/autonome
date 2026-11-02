@@ -94,6 +94,23 @@
 <ul class="checklist">{% for a in items %}<li>{{ a|mdi }}</li>{% endfor %}</ul>
 {% endmacro %}
 
+{# The queue's pause: who, when and why, with Resume (the human's); without a pause, the Pause form. #}
+{% macro resume_button(project, text='Resume') %}
+<form method="post" action="/ui/p/{{ project }}/queue/resume"><button class="btn btn--approve" type="submit">{{ text }}</button></form>
+{% endmacro %}
+
+{% macro pause_banner(project, paused) %}
+<div class="callout callout--hold" role="status"><div><strong>Queue paused</strong> by {{ paused.by }} · {{ paused.at|when }}{% if paused.reason %} · {{ paused.reason }}{% endif %}.
+  The runner takes no new task; paused tasks continue in the same session after Resume.</div>{{ resume_button(project) }}</div>
+{% endmacro %}
+
+{% macro pause_form(project) %}
+<form class="btn-group" method="post" action="/ui/p/{{ project }}/queue/pause">
+  <input type="text" name="reason" maxlength="500" placeholder="Why pause? (optional)" aria-label="Reason to pause the queue">
+  <button class="btn" type="submit">Pause</button>
+</form>
+{% endmacro %}
+
 {# Only destructive choices left (e.g. abandon a running plan): a quiet button in the page head. #}
 {% macro head_danger(project, doc, actions) %}
 {% if actions and not actions|rejectattr('style', 'equalto', 'danger')|list %}

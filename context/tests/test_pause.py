@@ -4,7 +4,8 @@ from autonome_context import plans, rules, store
 from autonome_context.plans import PlanBody, TaskSpec
 
 from conftest import add_feature
-from test_web import client, status  # noqa: F401  (the client fixture)
+from test_approval import call, server  # noqa: F401  (the MCP server fixture and client)
+from test_web import FETCH, client, status  # noqa: F401  (the client fixture)
 
 
 @pytest.fixture
