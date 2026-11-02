@@ -587,7 +587,8 @@ async def put_handoff(
             decision_id = await create_document(
                 conn, indexer,
                 project=h.project, type="decision",
-                body={"title": d.title, "decision": d.rationale, "deviation": d.deviation},
+                body={"title": d.title, "decision": d.rationale, "deviation": d.deviation,
+                      **({"human_choice": d.human_choice.model_dump()} if d.human_choice else {})},
                 # A choice within the plan is a fact of what was built: in effect. A deviation waits for
                 # the human, whose rejection turns into a task to undo it.
                 feature=h.feature, layers=h.layers, status="proposed" if d.deviation else "accepted",

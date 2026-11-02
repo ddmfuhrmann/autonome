@@ -25,6 +25,11 @@ Rules:
   other than the one its `design` chose counts) or a
   convention: those are judged by the runner's triage when the project has it on, else they wait
   for the human's review; the others are recorded as decisions in effect.
+- human_choice: set `human_choice: {"quote": "..."}` on a decision only when the transcript shows a
+  message from the human choosing that option (answering a question with it, approving the proposal,
+  asking for it explicitly). `quote` is the human's own words, at most 300 characters. The agent
+  proposing and the human not answering is not a choice. A runner session (no human in it) never
+  sets it. Leave it out otherwise.
 - friction: where the agent got stuck, went in circles, lacked a convention, misread the plan, or needed
   the human to correct it. Be specific; this is how the process improves. Count, don't generalise:
   "3 of 14 Bash calls were denied (bare pytest, a subshell, grep)", never "Bash was denied for the whole
@@ -52,7 +57,7 @@ Answer with ONLY one JSON object, no prose, no code fence, in exactly this shape
   "plan_adherence": [{"item": "string", "status": "done|partial|skipped|changed", "note": "string"}],
   "gates": [{"name": "string", "passed": true, "retries": 0, "root_cause": "string"}],
   "deviations": ["string"],
-  "decisions": [{"title": "string", "rationale": "string", "deviation": false}],
+  "decisions": [{"title": "string", "rationale": "string", "deviation": false, "human_choice": {"quote": "string, optional"}}],
   "friction": ["string"],
   "adherence_score": 0.0
 }

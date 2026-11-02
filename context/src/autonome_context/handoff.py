@@ -16,6 +16,13 @@ class GateResult(BaseModel):
     root_cause: str = ""
 
 
+class HumanChoice(BaseModel):
+    """The human's own words choosing a decision in the conversation."""
+
+    quote: str = Field(min_length=1, max_length=300, pattern=r"^[^\x00-\x1f\x7f]+$",
+                       description="what the human said, verbatim, up to 300 characters")
+
+
 class Decision(BaseModel):
     """A choice the plan and the task did not already make: an alternative weighed, an ambiguity
     resolved. Restating the spec is not a decision."""
@@ -25,6 +32,8 @@ class Decision(BaseModel):
     deviation: bool = Field(
         default=False, description="true when the choice departs from the plan or a convention; only these "
                                    "wait for the human's review")
+    human_choice: HumanChoice | None = Field(
+        default=None, description="set when the human chose this option in the conversation, with their quote")
 
 
 class Handoff(BaseModel):
