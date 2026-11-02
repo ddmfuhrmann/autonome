@@ -30,7 +30,7 @@ def test_decision_without_human_choice_has_no_field(run_db, project, indexer):
     assert "human_choice" not in d["body"]
 
 
-@pytest.mark.parametrize("quote", ["", "x" * 301, "a\x00b"])
+@pytest.mark.parametrize("quote", ["", "x" * 301, "a\x00b", "a\nb", "abc\n", "a\tb", "a\x7fb"])
 def test_invalid_quote_is_refused(quote):
     with pytest.raises(ValidationError):
         _decision(quote)
