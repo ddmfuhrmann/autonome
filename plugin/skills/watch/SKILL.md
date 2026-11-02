@@ -40,6 +40,12 @@ only wakes up on a new line, so following a run costs nothing while nothing happ
    `note` with your reasoning). The user confirms in a dialog you cannot answer; a decline leaves the
    item waiting. Never resolve anything the user did not agree to in the chat first.
 
+5. **Something wrong about to merge?** If you see a task heading the wrong way (a bad plan, a task
+   that should not merge), pause the queue with `queue_pause` (`project`, `reason`) and bring it to
+   the user: the runner stops taking tasks and interrupts the one in progress, keeping its session and
+   worktree. Never resume it yourself: `queue_resume` asks the user in a dialog you cannot answer.
+   A paused task shows as `paused` in `approvals_list`, with resume and abandon.
+
 Stop the monitor when the user asks, or when the run is over and nothing waits.
 
 `autonome watch --project <slug> --once` prints the summary and what waits, and exits: use it for a

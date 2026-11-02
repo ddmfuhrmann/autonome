@@ -30,6 +30,10 @@ this session: each task gets its own fresh session, so start it in the backgroun
    reviews, decisions, conventions) and ask whether to go through them now or later. If something was
    resolved and approved work remains, offer to run it again.
 
+To stop the runner touching the project, pause the queue (UI, or `queue_pause`): it takes no new task and
+interrupts the one in progress, keeping its session and worktree. Only the user resumes it (UI, or
+`queue_resume` with a dialog).
+
 Plans of a wave run in their order. Before a feature that depends on others starts, the runner
 runs a preflight of its plan against main: it either adds notes for the implementers or holds the plan
 with a proposed revision on the Approvals page.

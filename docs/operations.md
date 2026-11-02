@@ -111,6 +111,24 @@ run without asking.
 | `autonome doctor found problems; not starting` | see "Before a run" | |
 | `nothing to run` | no approved task is ready | approve a plan, or check Approvals for what blocks |
 
+## Pausing the queue
+
+Pause when something wrong is about to merge or you need the runner to stop touching the project
+(a bad plan, a task heading the wrong way). Anyone can pause: the UI's Pause button, or an agent
+with `queue_pause`. Only a human resumes.
+
+- **Nothing new starts.** The runner takes no task while the queue is paused (`--watch` waits).
+- **The task in progress is interrupted**, not killed: its status becomes `paused`, and its
+  worktree and branch are kept, along with the session. A pause that comes before the merge stops
+  it from merging.
+- **Resume** in the UI (Resume button) or with `queue_resume`, which asks you in a dialog the agent
+  cannot answer. Paused tasks go back to `pending` and continue in the same session.
+- **Or abandon** the paused task in the UI, if it should not continue.
+- **The resume only works on the same machine**: the session and the worktree live in the runner's
+  machine. Elsewhere (or if the worktree is gone) the task starts a new session on its branch.
+
+A paused task shows in Approvals as "waiting on you" (`paused`), with Resume and Abandon.
+
 ## Cleaning up
 
 Blocked and abandoned tasks leave their branch, and an interrupted run can leave a worktree:
