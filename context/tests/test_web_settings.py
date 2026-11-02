@@ -113,6 +113,50 @@ def test_a_report_older_than_a_day_says_the_runner_was_not_seen_since(client, pr
     assert "não visto desde" in text and re.search(r'não visto desde <time datetime="[^"]+Z"', text)
 
 
+def test_a_missing_key_reported_over_a_day_ago_says_not_seen_since_not_faltando(client, project, saved, run_db):
+    saved(TRIAGE_ON)
+    report_key(run_db, project, False, days_ago=2)
+    text = client.get(f"/ui/p/{project}/settings").text
+    assert "não visto desde" in text and "faltando" not in text
+
+
+def test_a_report_time_with_a_null_key_says_desconhecida(client, project, saved, run_db):
+    saved(TRIAGE_ON)
+
+    async def go(conn):
+        await store.set_runner_status(conn, project, True)
+        await conn.execute("update project set triage_key = null where slug = %s", (project,))
+        await conn.commit()
+
+    run_db(go)
+    text = client.get(f"/ui/p/{project}/settings").text
+    assert "desconhecida" in text and "encontrada" not in text
+
+
+def test_a_second_report_moves_the_seen_time_forward(client, project, saved, run_db):
+    saved(TRIAGE_ON)
+    url = f"/api/projects/{project}/runner-status"
+    assert client.post(url, json={"triage_key": True}).status_code == 200
+    first = run_db(lambda conn: store.runner_status(conn, project))["seen_at"]
+    assert client.post(url, json={"triage_key": True}).status_code == 200
+    second = run_db(lambda conn: store.runner_status(conn, project))["seen_at"]
+    assert first is not None and second >= first
+
+
+@pytest.mark.parametrize("model, on", [("jev-latest", True), ("off", False)])
+def test_key_status_and_triage_on_agree_on_when_triage_is_on(client, project, saved, run_db, model, on):
+    from autonome_context import web
+
+    saved(YAML + f"triage: {{model: {model}}}\n")
+
+    async def go(conn):
+        cfg = await web._gate_config(conn, project)
+        return await web._triage_on(conn, project), web._key_status(cfg, {"triage_key": True, "seen_at": None})
+
+    triage_on, status = run_db(go)
+    assert triage_on is on and (status is not None) is on
+
+
 def test_triage_off_shows_no_key_status(client, project, saved, run_db):
     saved(YAML)
     report_key(run_db, project, False)
@@ -220,7 +264,16 @@ def test_a_config_saved_after_the_setup_is_not_overwritten(client, project, bare
 
 def test_an_unknown_preset_is_a_400_and_saves_nothing(client, project, bare, run_db):
     page = client.post(f"/ui/p/{project}/settings", data={"action": "setup", "preset": "cobol"})
-    assert page.status_code == 400 and "cobol" in page.text and _versions(run_db, project) == 0
+    assert page.status_code == 400 and "Unknown preset: cobol. Nothing was saved." in page.text and _versions(run_db, project) == 0
+    assert "Primeira configuração" in page.text  # the setup page itself, with the presets to choose again
+
+
+def test_setup_with_a_saved_config_redirects_and_keeps_the_version(client, project, saved, run_db):
+    saved(YAML)
+    r = client.post(f"/ui/p/{project}/settings", data={"action": "setup", "preset": "python"},
+                    follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == f"/ui/p/{project}/settings"
+    assert _versions(run_db, project) == 1
 
 
 def test_starting_empty_saves_a_v1_without_gates(client, project, bare, run_db):
@@ -584,6 +637,25 @@ def test_a_version_shows_its_yaml_and_the_diff_against_another(client, project, 
     assert "retries: {max: 9}" in default.text and "-retries: {max: 5}" in default.text
     first = client.get(f"/ui/p/{project}/settings/versions/1?against=2")
     assert "-retries: {max: 9}" in first.text and "+retries: {max: 5}" in first.text
+
+
+def test_against_must_be_a_number_and_zero_means_no_other_version(client, project, saved, run_db, indexer):
+    saved(YAML)
+    _add_version(run_db, indexer, project, YAML.replace("max: 5", "max: 9"), source="human")
+    base = f"/ui/p/{project}/settings/versions/2"
+    assert client.get(f"{base}?against=abc").status_code == 404
+    zero = client.get(f"{base}?against=0")  # 0 is "against nothing", like v1: the whole text as added lines
+    assert zero.status_code == 200 and "vazio" in zero.text and "+retries: {max: 9}" in zero.text
+    assert "-retries: {max: 5}" not in zero.text
+
+
+def test_the_version_origin_names_the_plan_and_you(client, project, saved, run_db, indexer):
+    saved(YAML)
+    _add_version(run_db, indexer, project, YAML.replace("max: 5", "max: 9"), source={"plan_id": 7, "task_id": 2})
+    page = client.get(f"/ui/p/{project}/settings/versions/2")
+    assert "plano #7" in page.text
+    assert "task #2" not in page.text  # the origin names the plan only; the source's task_id is not shown
+    assert "você" in client.get(f"/ui/p/{project}/settings/versions/1").text
 
 
 def test_restore_then_save_appends_a_version_with_the_old_content_and_keeps_the_others(

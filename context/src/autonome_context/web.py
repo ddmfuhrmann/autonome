@@ -272,9 +272,12 @@ def revision_triage_line(triage: dict | None) -> str:
 templates.env.filters["revision_triage"] = revision_triage_line
 
 
-async def _triage_on(conn, project: str) -> bool:
-    cfg = await _gate_config(conn, project)
+def _triage_enabled(cfg: GateConfig | None) -> bool:
     return bool(cfg and cfg.triage and cfg.triage.model != "off")
+
+
+async def _triage_on(conn, project: str) -> bool:
+    return _triage_enabled(await _gate_config(conn, project))
 
 
 async def _side(conn, project: str) -> dict:
@@ -962,7 +965,7 @@ RUNNER_STALE_AFTER = timedelta(hours=24)
 def _key_status(cfg: GateConfig | None, runner: dict) -> dict | None:
     """What the Triage section says about the Jev key: None with triage off, else
     {state: found | missing | unknown | stale, seen_at}."""
-    if not (cfg and cfg.triage and cfg.triage.model != "off"):
+    if not _triage_enabled(cfg):
         return None
     seen = _when(runner["seen_at"]) if runner["seen_at"] else None
     if seen is None or runner["triage_key"] is None:
@@ -1000,7 +1003,10 @@ async def settings_page(request: Request) -> Response:
                 elif name in PRESETS:
                     setup_cfg = preset_config(name, {k.removeprefix("keep-") for k in data if k.startswith("keep-")})
                 else:
-                    return Response(f"Preset desconhecido: {name or '(vazio)'}. Nada foi salvo.", status_code=400)
+                    page = await render(request, "settings_setup.html", presets=PRESETS, empty=SETUP_EMPTY,
+                                        error=f"Unknown preset: {name or '(empty)'}. Nothing was saved.")
+                    page.status_code = 400
+                    return page
                 review = (setup_cfg, _canonical(setup_cfg), "form")
                 return await render(request, "settings_review.html",
                                     **_review_context(None, *review, "", None, False))

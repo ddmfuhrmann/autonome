@@ -6,6 +6,8 @@
     <p class="subtitle">Este projeto ainda não tem gates. Escolha o stack, desmarque o que não quer e revise antes de salvar a v1.</p></div>
 </header>
 
+{% if error %}<p class="notice notice--error" role="alert">{{ error }}</p>{% endif %}
+
 {% for key, preset in presets.items() %}
 <form class="section" method="post" action="/ui/p/{{ project }}/settings">
   <h2>{{ preset.label }}</h2>
