@@ -62,6 +62,11 @@ async def project_pause(conn: AsyncConnection, slug: str) -> dict | None:
     return {"at": row[0], "by": row[1], "reason": row[2]} if row else None
 
 
+async def project_exists(conn: AsyncConnection, slug: str) -> bool:
+    row = await (await conn.execute("select 1 from project where slug = %s", (slug,))).fetchone()
+    return row is not None
+
+
 async def pause_project(conn: AsyncConnection, slug: str, by: str, reason: str | None) -> dict | None:
     """Pauses the queue; an already paused project keeps its first pause. None if there is no such project."""
     row = await (await conn.execute(

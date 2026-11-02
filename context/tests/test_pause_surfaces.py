@@ -111,6 +111,11 @@ def test_resuming_a_project_that_does_not_exist_in_the_ui_is_a_404(client):
     assert r.status_code == 404
 
 
+def test_resuming_a_project_that_does_not_exist_in_mcp_is_an_error(server):
+    result, asked = call(server, "queue_resume", {"project": "no-such-project"}, "accept")
+    assert "error" in result and "no-such-project" in result["error"] and asked == []
+
+
 def test_a_paused_task_page_says_paused_and_offers_abandon(client, project, run_db, paused_task):
     page = client.get(f"/ui/p/{project}/documents/{paused_task}").text
     assert "Paused" in page and "Abandon" in page

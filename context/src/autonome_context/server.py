@@ -213,6 +213,9 @@ async def queue_resume(project: str, ctx: Context) -> dict:
     pool, _ = await services.get()
     async with pool.connection() as conn:
         paused = await store.project_pause(conn, project)
+        exists = paused is not None or await store.project_exists(conn, project)
+    if not exists:
+        return {"error": f"project {project!r} does not exist"}
     if paused is None:
         return {"status": "running", "note": "the queue is not paused"}
     why = f" ({paused['reason']})" if paused["reason"] else ""
