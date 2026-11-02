@@ -195,7 +195,12 @@ conventions and gates instead.
 - **A repeated human choice is yours too**: before judging, the triage asks
   (`repeats_human_choice`) whether the decision only repeats a choice you already made on the same
   feature, even in other words. If it does, it is accepted as your choice, with no judging and no
-  undo. The undo task says who rejected: "The human rejected…" or "The triage (jev) rejected…".
+  undo. The question rides in the same call as the screening and the judging, and is asked only
+  when the feature has decisions you judged (the ten latest, same project and same feature; another
+  project's never count). The runner sends the score as `repeats_human_choice` and the decision it
+  repeats as `human_choice_of`; the context accepts it as your choice only if that score reaches
+  `reject_at` and `human_choice_of` is one of those decisions, else it ignores the claim and the
+  verdict stands. The undo task says who rejected: "The human rejected…" or "The triage (jev) rejected…".
 - **On failure**: Jev down or no key → the fallback judges; if that fails too (or is `off`) nothing
   is recorded, the decision stays proposed and is tried again at the next run. A failed triage never
   breaks storing a handoff.

@@ -8,26 +8,19 @@ import { revisionBody, screeningBody, verdictBody } from "./triage-run.js";
 
 const CONTRACT = JSON.parse(readFileSync(new URL("../../../contracts/runner-context.json", import.meta.url), "utf8"));
 
-test("the deviation verdict body matches the contract, with the round as the context counts it", () => {
+test("the deviation verdict body matches the contract: the repeat and the choice it repeats, the round as the context counts it", () => {
   const c = CONTRACT.triage_verdict;
   assert.deepEqual(verdictBody(c.item, c.judgment), c.body);
-  assert.ok(!("human_choice_of" in c.body), "no human choices in the state, no repeat sent");
+  assert.equal(c.body.repeats_human_choice, 0.92);
+  assert.equal(c.body.human_choice_of, 634);
   assert.ok(c.item.round >= 1, "the context counts rounds from 1");
 });
 
-test("the screening body matches the contract", () => {
+test("the screening body matches the contract, the repeat included", () => {
   const c = CONTRACT.screening;
   assert.deepEqual(screeningBody(c.screening, c.reject_at), c.body);
-});
-
-test("the human-choice verdict body matches the contract: accept, the repeat and the choice it repeats", () => {
-  const c = CONTRACT.triage_verdict_human_choice;
-  assert.deepEqual(verdictBody(c.item, c.judgment), c.body);
-});
-
-test("the human-choice screening body matches the contract", () => {
-  const c = CONTRACT.screening_human_choice;
-  assert.deepEqual(screeningBody(c.screening, c.reject_at), c.body);
+  assert.equal(c.body.repeats_human_choice, 0.9);
+  assert.equal(c.body.human_choice_of, 634);
 });
 
 test("the revision verdict body matches the contract, state included", () => {

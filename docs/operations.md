@@ -100,6 +100,8 @@ run: abandon or re-plan them too).
   queued). With it on, the classifier judges them and they leave this list: read the verdicts on the
   **Triage** page (who judged, the answers, what happened next). One whose rounds ran out stays
   proposed, off the queue, and shows in insights: align through a convention, a plan or a gate.
+  One that only repeats a choice you already made on the same feature (`repeats_human_choice`) is
+  accepted as your choice, with no undo task; the Triage page shows it as accepted as the human's choice.
   A deviation that followed one rule against another (the task asked for one thing, a convention or
   a gate for another) is **escalated**: it stays proposed and stays in this list, labelled *rule
   conflict*, without blocking. No undo task is queued; fix the rule, then accept or reject it. A

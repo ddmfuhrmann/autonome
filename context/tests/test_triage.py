@@ -632,6 +632,25 @@ def test_a_repeat_without_a_human_choice_of_the_feature_is_ignored(client, proje
     assert r.status_code == 200 and r.json() == {"status": "rejected"}
 
 
+def test_a_human_choice_of_another_project_on_the_same_feature_is_not_one(client, project, run_db, indexer, deviation):
+    enable(run_db, indexer, project)
+    screened = deviation(deviation=False)
+    dev = deviation_two(run_db, indexer, project)
+    mine = human_judged(run_db, indexer, project, "Mine", "links")
+    foreign = human_judged(run_db, indexer, f"{project}-other", "Foreign", "links")
+    # the state lists only this project's choice, though the feature slug is the same
+    [item] = pending(client, project)
+    assert [c["id"] for c in item["state"]["human_choices"]] == [mine]
+    # and a repeat claimed against the other project's decision is ignored, screening and verdict alike
+    r = client.post(f"/api/decisions/{screened}/screen", json=repeat_body(human_choice_of=foreign))
+    assert r.status_code == 200 and r.json() == {"status": "proposed", "deviation": True}
+    r = client.post(f"/api/decisions/{dev}/triage", json={**verdict("reject"), "repeats_human_choice": 0.9,
+                                                           "human_choice_of": foreign})
+    assert r.status_code == 200 and r.json() == {"status": "rejected"}
+    for doc_id in (screened, dev):
+        assert "accepted_as_human_choice" not in run_db(lambda c: store.get_document(c, doc_id))["body"]
+
+
 def test_a_screening_below_the_repeat_limit_reopens_as_before(client, project, run_db, indexer, deviation):
     enable(run_db, indexer, project)
     doc_id = deviation(deviation=False)
