@@ -2,6 +2,7 @@
 // - rm, mkdir, mv, cp, chmod and touch run when every path they name is inside the task's worktree;
 // - bash, sh and python3 run a script the rules already allow (a gate's command);
 // - find runs anywhere without -delete or -exec (reading a jar's metadata in ~/.gradle);
+// - git grep runs without -O, which opens a pager command;
 // - VAR=value or env in front of an allowed command is judged by the command itself.
 // Anything else is left to the permission rules, which deny what they do not list.
 import { existsSync, realpathSync } from "node:fs";
@@ -50,9 +51,10 @@ const INTERPRETERS = new Set(["bash", "sh", "python3"]);
 
 /** "allow", or why the command is denied, or null to leave it to the permission rules. */
 export function decide(command: string, worktree: string, allowed: string[] = []): "allow" | string | null {
+  const cmd = stripEnv(command);
+  if (/^git\s+grep(\s|$)/.test(cmd)) return gitGrep(cmd);
   // Chained, piped, redirected or substituted: the permission rules decide (and deny).
   if (/[;&|`<>\n]|\$\(/.test(command)) return null;
-  const cmd = stripEnv(command);
   const [name, ...args] = words(cmd);
   if (SCOPED.has(name)) return judge(cmd, worktree) ?? "allow";
   if (name === "find") return FIND_WRITES.test(` ${cmd}`) ? "find: -delete and -exec are not allowed; read only" : "allow";
@@ -65,6 +67,27 @@ export function decide(command: string, worktree: string, allowed: string[] = []
   // VAR=value in front of a command the rules already allow.
   if (cmd !== command.trim() && allowed.some((p) => cmd === p || cmd.startsWith(`${p} `))) return "allow";
   return null;
+}
+
+/** `git grep` reads; only -O (--open-files-in-pager, which git accepts abbreviated) runs a command. */
+function gitGrep(cmd: string): "allow" | string {
+  // Nothing is expanded inside single quotes, so a pattern like 'a|b' is fine; "..." still expands $ and `.
+  // A backslash can hide a quote from this scan (\'), so it is not allowed at all.
+  if (cmd.includes("\\")) return "git grep: backslashes are not allowed";
+  const unquoted = cmd.replace(/"[^"]*"|'[^']*'/g, (m) => (m[0] === "'" ? "''" : m));
+  if (/[;&|`<>\n]|\$/.test(unquoted)) return "git grep: one command at a time, without ;, &&, |, $, backticks or redirection";
+  for (const w of words(cmd).slice(2)) {
+    if (w === "--") break;
+    if (w.startsWith("--")) {
+      const name = w.slice(2).split("=")[0];
+      if (name && "open-files-in-pager".startsWith(name)) return "git grep -O runs a command";
+      // --no-index (abbreviated too) reads files outside the repository, e.g. ~/.autonome.
+      if (name && "no-index".startsWith(name)) return "git grep --no-index reads outside the worktree";
+    } else if (w.startsWith("-") && w.includes("O")) {
+      return "git grep -O runs a command";
+    }
+  }
+  return "allow";
 }
 
 /** null when the command may run; otherwise why not. Only judges the scoped commands. */

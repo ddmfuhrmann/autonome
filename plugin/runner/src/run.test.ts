@@ -298,6 +298,19 @@ test("in every mode the options' hook denies a file command outside the worktree
   }
 });
 
+test("in every mode the options' hook lets git grep read but never run a command with -O", async () => {
+  for (const mode of ["allowlist", "auto"]) {
+    const hook = implementerPermissions(gcWith(mode), "/wt").hooks.PreToolUse[0].hooks[0];
+    const ask = async (command: string) =>
+      ((await hook({ tool_input: { command } } as never, undefined, { signal: new AbortController().signal })) as any).hookSpecificOutput.permissionDecision;
+    assert.equal(await ask("git grep -n -iwE 'a|b' -- src"), "allow", mode);
+    for (const c of ["git grep -Ovim x", "git grep -nO x", "git grep -iOvim x", "git grep --open-files-in-pager=sh x",
+      "git grep --open=sh x", "git grep --op=sh x", "git grep x; rm -rf /", 'git grep x -- "$HOME"']) {
+      assert.equal(await ask(c), "deny", `${mode}: ${c}`);
+    }
+  }
+});
+
 test("the implementer's query gets what implementerPermissions returns, and the prompt follows the mode", async () => {
   for (const mode of ["allowlist", "auto"]) {
     const gc = gcWith(mode);

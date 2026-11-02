@@ -42,6 +42,25 @@ test("the hook allows, denies, and leaves other commands to the permission rules
   assert.equal(((await ask("rm -rf ..")) as any).hookSpecificOutput.permissionDecision, "deny");
 });
 
+test("git grep is allowed without -O, also abbreviated or grouped; chaining and double-quoted expansion are denied", () => {
+  const wt = "/wt";
+  for (const c of ["git grep foo", "git grep -n -iwE 'a|b' -- src", "git grep -e x -- -O", "git grep \"a b\" 'c;d'"]) {
+    assert.equal(decide(c, wt), "allow", c);
+  }
+  for (const c of ["git grep -O x", "git grep -nO x", "git grep --open-files-in-pager x", "git grep --op=sh x"]) {
+    assert.equal(decide(c, wt), "git grep -O runs a command", c);
+  }
+  for (const c of ["git grep x | cat", "git grep \"a|$HOME\"", "git grep x > out"]) {
+    assert.match(decide(c, wt)!, /one command at a time/, c);
+  }
+  assert.equal(decide("git grep --only-matching x", wt), "allow");
+  assert.match(decide("git grep x \\'; rm -rf / ;'", wt)!, /backslashes/);
+  assert.match(decide("git grep x \\\"; rm -rf / ;\"", wt)!, /backslashes/);
+  for (const c of ["git grep --no-index x -- ~/.autonome", "git grep --no-index -e x /etc", "git grep --no-ind x"]) {
+    assert.match(decide(c, wt)!, /no-index/, c);
+  }
+});
+
 test("env prefixes, gate scripts through an interpreter and read-only find are allowed; the rest is left to the rules", () => {
   const allowed = bashPrefixes(["Read", "Bash(./gradlew:*)", "Bash(scripts/check-migrations.sh:*)", "Bash(git status:*)"]);
   assert.deepEqual(allowed, ["./gradlew", "scripts/check-migrations.sh", "git status"]);
