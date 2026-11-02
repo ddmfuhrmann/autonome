@@ -241,6 +241,8 @@ async def _detail(conn, kind: str, doc: dict) -> str:
     if kind == "paused":
         return "\n".join(filter(None, ["Paused with the queue; resume it with queue_resume or in the UI.",
                                        f"Spec: {_cut(b.get('spec'), 600)}", f"Worktree: {last.get('worktree', '')}"]))
+    if kind == "in_pr":
+        return f"Merge the pull request on GitHub: {store.task_pr(doc)[0] or ''}\nSpec: {_cut(b.get('spec'), 600)}"
     if kind in ("blocked", "hold_before_merge"):
         return "\n".join(filter(None, [f"Plan #{b.get('plan_id')}" if b.get("plan_id") else "",
                                          f"Spec: {_cut(b.get('spec'), 600)}", f"Branch: {last.get('branch', '')}",

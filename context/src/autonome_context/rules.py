@@ -32,6 +32,10 @@ TRANSITIONS: dict[tuple[str, str, str], set[str]] = {
     ("task", "running", "on_hold"): {"runner"},
     ("task", "running", "pending"): {"runner"},  # interrupted run, try again later
     ("task", "running", "paused"): {"runner"},  # the queue was paused; the session and worktree are kept
+    ("task", "running", "in_pr"): {"runner"},  # the branch was pushed and a pull request opened (run carries pr_url, pr_mode)
+    ("task", "in_pr", "done"): {"runner"},  # the pull request was merged (run carries merged_sha)
+    ("task", "in_pr", "blocked"): {"runner"},  # the pull request was closed without merging
+    ("task", "in_pr", "pending"): {"human"},
     # paused -> pending happens only in store.resume_project (it sets the status itself, not through here)
     ("task", "paused", "abandoned"): {"human"},
     ("task", "on_hold", "released"): {"human"},

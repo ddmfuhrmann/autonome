@@ -912,6 +912,12 @@ async def conventions_for(conn: AsyncConnection, project: str, layers: list[str]
 # --- tasks ---------------------------------------------------------------------------------------
 
 
+def task_pr(task: dict) -> tuple[str | None, str | None]:
+    """(pr_url, pr_mode) of the run that opened the task's pull request, else (None, None)."""
+    run = next((r for r in reversed(task["body"].get("runs") or []) if r.get("pr_url")), {})
+    return run.get("pr_url"), run.get("pr_mode")
+
+
 async def next_task(conn: AsyncConnection, project: str) -> dict | None:
     """Released tasks first (they only need merging), then the oldest pending task of an approved
     plan whose dependencies (tasks, and in a wave the plans it waits for) are done. Locks the row so

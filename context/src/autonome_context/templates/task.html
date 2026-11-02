@@ -24,6 +24,11 @@
 {% if doc.status == 'on_hold' and last %}
 <div class="callout callout--hold"><div><strong>Held before merge:</strong> gates passed{{ ' and the reviewer approved' if last.review and last.review.verdict == 'pass' }}. Read the diff below before releasing it.</div></div>
 {% endif %}
+{% set pr = runs|selectattr('pr_url')|list|last %}
+{% if pr and doc.status == 'in_pr' %}
+<div class="callout callout--hold"><div><strong>Pull request open:</strong> {{ 'GitHub merges it when CI passes.' if pr.pr_mode == 'auto' else 'merge it on GitHub; the runner picks it up from there.' }}
+  <a class="accent" href="{{ pr.pr_url }}" target="_blank" rel="noopener noreferrer">{{ pr.pr_url }}</a></div></div>
+{% endif %}
 {% if doc.status == 'paused' %}
 <div class="callout callout--hold"><div><strong>Paused with the queue.</strong> The session{% if last and last.worktree %} and the worktree <span class="mono">{{ last.worktree }}</span>{% endif %} are kept. {% if side.paused %}Resume the queue to continue in the same session, or abandon the task.{% else %}The queue was resumed; the runner continues it in the same session.{% endif %}</div>
   {% if side.paused %}{{ ui.resume_button(project) }}{% endif %}</div>

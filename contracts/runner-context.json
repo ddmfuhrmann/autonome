@@ -49,6 +49,12 @@
       "verdict": "accept"
     }
   },
+  "task_in_pr": {
+    "endpoint": "POST /api/tasks/{id}/transition",
+    "about": "Sent when the runner has pushed the task's branch and opened a pull request (merge.mode: pr). pr_url is a github.com URL; pr_mode is merge.pr.",
+    "item": {"pr_url": "https://github.com/acme/app/pull/42", "pr_mode": "manual", "branch": "autonome/task-7"},
+    "body": {"to": "in_pr", "run": {"outcome": "pr_opened", "pr_url": "https://github.com/acme/app/pull/42", "pr_mode": "manual", "branch": "autonome/task-7"}}
+  },
   "runner_status": {
     "endpoint": "POST /api/projects/{project}/runner-status",
     "about": "Sent at the start of a run: only whether the Jev key was found, never the key.",

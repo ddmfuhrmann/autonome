@@ -94,6 +94,22 @@
 </section>
 {% endif %}
 
+{% if columns.in_pr %}
+<section aria-labelledby="in-pr-h">
+  <h2 id="in-pr-h">In a pull request <span class="n">{{ totals.in_pr }}</span></h2>
+  <div class="entries">
+    {% for t in columns.in_pr %}{% set pr = t.body.runs|default([])|selectattr('pr_url')|list|last %}
+    <div class="entry" style="--cols: 32px minmax(0, 1fr) auto">
+      <span class="entry__n">↗</span>
+      <span class="entry__main"><a class="entry__title" href="/ui/p/{{ project }}/documents/{{ t.id }}">{{ t.body.title }}</a>
+        <span class="entry__meta">{{ t|ref }}{% if t.feature %} · {{ t.feature }}{% endif %}{% if pr %} · {{ 'GitHub merges when CI passes' if pr.pr_mode == 'auto' else 'waiting on you to merge' }} · <a class="accent" href="{{ pr.pr_url }}" target="_blank" rel="noopener noreferrer">Pull request</a>{% endif %} · {{ t.updated_at|ago }}</span></span>
+      {{ ui.st('in_pr') }}
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
 {% if columns.paused %}
 <section aria-labelledby="paused-h">
   <h2 id="paused-h" class="is-warn">Paused <span class="n">{{ totals.paused }}</span></h2>

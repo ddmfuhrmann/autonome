@@ -144,13 +144,29 @@ async def post_preflight(request: Request) -> JSONResponse:
     return _json({"plan_status": "held" if outcome == "held" else "approved"})
 
 
+class PrOpened(BaseModel):
+    """The run that moves a task to in_pr: where the pull request is and who merges it."""
+    model_config = ConfigDict(extra="allow")
+    pr_url: Annotated[str, StringConstraints(max_length=500, pattern=r"^https://github\.com/[^\s\"'<>]+$")]
+    pr_mode: Literal["manual", "auto"]
+
+
 async def task_transition(request: Request) -> JSONResponse:
     """Runner-side moves only; human moves exist in the UI, never here."""
     body = await request.json()
     doc_id = int(request.path_params["doc_id"])
+    if body.get("to") == "in_pr":
+        try:
+            PrOpened.model_validate(body.get("run") or {})
+        except ValidationError as e:
+            return _json({"error": "invalid_pr", "detail": e.errors(include_context=False, include_input=False)}, 422)
     pool, indexer = await services.get()
     async with pool.connection() as conn:
         async with conn.transaction():
+            current = await store.get_document(conn, doc_id)
+            if current and current["status"] == "in_pr" and body.get("to") == "done" \
+                    and not (body.get("run") or {}).get("merged_sha"):
+                return _json({"error": "invalid_pr", "detail": "a merged pull request needs run.merged_sha"}, 422)
             try:
                 task = await rules.transition(conn, doc_id, body["to"], "runner")
             except rules.Forbidden as e:
@@ -696,7 +712,8 @@ async def project_state(request: Request) -> JSONResponse:
     return _json({
         "tasks": [{"id": t["id"], "title": t["body"]["title"], "status": t["status"], "feature": t["feature"],
                    "plan_id": t["body"].get("plan_id"), "reason": (last(t).get("reason") or "")[:300],
-                   "after_merge": (t["body"].get("after_merge_review") or {}).get("status")} for t in tasks],
+                   "after_merge": (t["body"].get("after_merge_review") or {}).get("status"),
+                   **(dict(zip(("pr_url", "pr_mode"), store.task_pr(t))) if t["status"] == "in_pr" else {})} for t in tasks],
         "plans": [{"id": p["id"], "title": p["body"].get("title"), "status": p["status"], "feature": p["feature"]}
                   for p in plans_],
         "waves": [{"id": w["id"], "title": w["body"].get("title"), "status": w["status"]} for w in waves],
@@ -705,6 +722,7 @@ async def project_state(request: Request) -> JSONResponse:
                      "deviation": bool(i["doc"]["body"].get("deviation")),
                      "exhausted": bool(i["doc"]["body"].get("triage_exhausted")),
                      "conflict": bool(i["doc"]["body"].get("triage_conflict")),
+                     "pr_url": store.task_pr(i["doc"])[0] if i["kind"] == "in_pr" else None,
                      "triage_hold": _triage_hold_flag(i["doc"]) if i["kind"] == "held" else None} for i in queue],
         "triage": triage,
         "paused": paused,

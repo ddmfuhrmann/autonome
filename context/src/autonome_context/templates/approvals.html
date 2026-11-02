@@ -8,6 +8,7 @@
 {%- elif item.kind == 'held' %} · preflight {{ 'proposed a revision' if d.body.preflight and d.body.preflight.plan else 'held it' }}
 {%- elif item.kind == 'smoke_test' %} · smoke_test failed
 {%- elif item.kind == 'hold_before_merge' %} · gates passed{% if item.last and item.last.review %}, reviewer {{ item.last.review.verdict }}{% endif %}
+{%- elif item.kind == 'in_pr' %} · pull request open
 {%- elif item.kind == 'paused' %} · queue paused
 {%- elif item.kind == 'blocked' %}{% set run = (d.body.runs or [none])[-1] %}{% if run and (run.reason or run.outcome) %} · {{ (run.reason or run.outcome).split('\n')[0]|truncate(90) }}{% endif %}
 {%- elif item.kind == 'decision' and d.body.triage_conflict %} · rule conflict
@@ -27,6 +28,8 @@
         {% if item.last and item.last.review %}Reviewer: {{ item.last.review.verdict }}{% if item.last.review.findings %}, {{ item.last.review.findings|length }} finding{{ 's' if item.last.review.findings|length > 1 }}{% endif %}.{% endif %}</div></div>
       {% if item.last and item.last.diff %}{{ ui.diff(item.last.diff, open_files=1) }}
       {% elif item.last and item.last.diff_stat %}<pre class="code">{{ item.last.diff_stat }}</pre>{% endif %}
+    {% elif item.kind == 'in_pr' %}{% set pr = (d.body.runs or [])|selectattr('pr_url')|list|last %}
+      <div class="callout callout--hold"><div><strong>Waiting for you to merge the pull request.</strong>{% if pr %} <a class="accent" href="{{ pr.pr_url }}" target="_blank" rel="noopener noreferrer">{{ pr.pr_url }}</a>{% endif %}</div></div>
     {% elif item.kind == 'paused' %}{% set run = (d.body.runs or [none])[-1] %}
       <div class="callout callout--hold"><div><strong>Paused with the queue.</strong> Its session{% if run and run.worktree %} and worktree <span class="mono">{{ run.worktree }}</span>{% endif %} are kept; Resume continues it in the same session, Abandon drops it.</div></div>
       <div class="decision__actions">{{ ui.resume_button(project, 'Resume the queue') }}</div>

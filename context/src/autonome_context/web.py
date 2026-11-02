@@ -94,7 +94,7 @@ templates.env.filters["table_cols"] = _table_cols
 DOC_TYPES = ["handoff", "plan", "task", "decision", "convention", "gate_config", "design", "feature_doc", "wave", "backlog"]
 MODES = ["vector", "hybrid", "fts"]
 REF_PREFIX = {"task": "T", "plan": "P", "wave": "W", "decision": "D", "handoff": "H", "convention": "C"}
-STATUS_LABELS = {"on_hold": "On hold", "merge-failed": "Merge failed", "fts": "Full-text"}
+STATUS_LABELS = {"on_hold": "On hold", "in_pr": "In PR", "merge-failed": "Merge failed", "fts": "Full-text"}
 SEVERITY = {"high": "blocker", "medium": "major", "low": "minor"}
 
 
@@ -224,12 +224,12 @@ for _name, _fn in {"ref": ref, "label": label, "ago": ago, "when": when, "clock"
 
 QUEUE_KINDS = {
     "plans": "Waves & plans", "held": "Held by preflight", "smoke_test": "Smoke test", "hold_before_merge": "Hold before merge",
-    "paused": "Paused tasks", "blocked": "Blocked tasks", "after_merge": "Review after merge", "decision": "Decisions", "convention": "Conventions",
+    "in_pr": "Pull requests", "paused": "Paused tasks", "blocked": "Blocked tasks", "after_merge": "Review after merge", "decision": "Decisions", "convention": "Conventions",
 }
 
 
 # What holds up the queue. Decisions and conventions are reviewed when the human likes.
-BLOCKING = {"plans", "held", "smoke_test", "hold_before_merge", "paused", "blocked"}
+BLOCKING = {"plans", "held", "smoke_test", "hold_before_merge", "in_pr", "paused", "blocked"}
 
 
 async def _queue(conn, project: str) -> list[dict]:
@@ -238,6 +238,7 @@ async def _queue(conn, project: str) -> list[dict]:
     items = [{"kind": "hold_before_merge", "doc": d} for d in await docs("task", "on_hold")]
     items += [{"kind": "held", "doc": d} for d in await docs("plan", "held")]
     items += [{"kind": "smoke_test", "doc": d} for d in await docs("plan", "blocked")]
+    items += [{"kind": "in_pr", "doc": d} for d in await docs("task", "in_pr") if store.task_pr(d)[1] != "auto"]  # auto: GitHub merges
     items += [{"kind": "paused", "doc": d} for d in await docs("task", "paused")]
     items += [{"kind": "blocked", "doc": d} for d in await docs("task", "blocked")]
     items += [{"kind": "plans", "doc": d} for d in await docs("wave", "draft")]
@@ -326,6 +327,7 @@ EFFECTS = {
     ("task", "on_hold", "released"): "The runner merges the branch into main next.",
     ("task", "on_hold", "pending"): "Back to pending: a new session plays it again.",
     ("task", "blocked", "pending"): "Back to pending: a new session plays it again.",
+    ("task", "in_pr", "pending"): "Back to pending: a new session plays it again; the pull request stays on GitHub.",
     ("task", "blocked", "abandoned"): "The task is dropped; tasks that depend on it never start.",
     ("task", "paused", "abandoned"): "The task is dropped and its kept session and worktree are not used again; "
                                      "tasks that depend on it never start.",
@@ -1413,7 +1415,7 @@ async def queue_resume(request: Request) -> Response:
     return RedirectResponse(f"/ui/p/{project}/queue?{urlencode({'done': notice})}", status_code=303)
 
 
-QUEUE_COLUMNS = ["pending", "running", "on_hold", "released", "paused", "blocked", "done"]
+QUEUE_COLUMNS = ["pending", "running", "on_hold", "released", "in_pr", "paused", "blocked", "done"]
 COLUMN_LIMIT = {"pending": 12, "done": 12}
 
 
