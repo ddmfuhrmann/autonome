@@ -2,6 +2,7 @@
 the shape of `Gate`; the first word of each `run` is the stack's own tool, because it becomes the
 implementer's permission."""
 
+import copy
 from dataclasses import dataclass
 
 from autonome_context.gates import GateConfig
@@ -60,6 +61,6 @@ def preset_config(name: str, keep: set[str]) -> GateConfig:
     KeyError for an unknown preset."""
     preset = PRESETS[name]
     return GateConfig.model_validate({
-        "gates": [g for g in preset.gates if g["name"] in keep],
+        "gates": copy.deepcopy([g for g in preset.gates if g["name"] in keep]),
         "allowed_commands": list(preset.allowed_commands),
     })
