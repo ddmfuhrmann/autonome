@@ -8,6 +8,7 @@ import { AUTONOME_HOME, PLUGIN_ROOT, updateDocs } from "./run.js";
 import { context, type Schedule, type Feature } from "./context.js";
 import { mainCheckout } from "./git.js";
 import { sessionEnv } from "./secrets.js";
+import { runSimplify } from "./simplify.js";
 
 export interface ScheduleOptions {
   project: string;
@@ -52,7 +53,9 @@ export async function runSchedule(schedule: Schedule, cwd: string, opts: Schedul
     });
     return q.duplicate ? `already queued as #${q.task_id}` : `queued #${q.task_id}`;
   }
-  if (schedule.kind === "simplify") return "simplify is not run yet";
+  if (schedule.kind === "simplify") {
+    return runSimplify(schedule, cwd, { project: opts.project, log: opts.log, stateDir: join(AUTONOME_HOME, "state") });
+  }
   const stale = drifted(await context.features(opts.project));
   for (const feature of stale) updateDocs(opts.repo, opts.project, ["--feature", feature], opts.log);
   if (stale.length) updateDocs(opts.repo, opts.project, ["--overview"], opts.log);

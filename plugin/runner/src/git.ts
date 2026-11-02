@@ -18,6 +18,11 @@ export function tryGit(cwd: string, ...args: string[]): { ok: boolean; out: stri
 
 const NOT_CODE = [/(^|\/)test_[^/]*\.py$/, /_test\.py$/, /\.test\.ts$/, /(^|\/)tests?\//, /\.md$/, /^docs\//];
 
+/** Whether a path is code: tests and docs are not. */
+export function isCodeFile(file: string): boolean {
+  return !NOT_CODE.some((re) => re.test(file));
+}
+
 /** Changed lines of code since `base`: tests, docs and binary files are not counted. Throws when git fails. */
 export function codeLines(worktree: string, base: string): number {
   const numstat = git(worktree, "diff", "--numstat", "--no-renames", `${base}...HEAD`);

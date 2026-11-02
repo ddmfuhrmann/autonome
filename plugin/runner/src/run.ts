@@ -194,7 +194,7 @@ const HARD_DENIALS = [
 ];
 // A session never waits on a command: Monitor is off, and the fsguard hook denies background Bash.
 const NO_WAITING = ["Monitor"];
-const SECRET_DENIALS = ["Read(~/.autonome/**)", "Edit(~/.autonome/**)", "Bash(cat ~/.autonome:*)"];
+export const SECRET_DENIALS = ["Read(~/.autonome/**)", "Edit(~/.autonome/**)", "Bash(cat ~/.autonome:*)"];
 
 export interface ImplementerPermissions {
   permissionMode: "dontAsk" | "auto";
