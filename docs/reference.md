@@ -129,7 +129,7 @@ connection errors.
 ## UI
 
 `/ui` lists projects; `/ui/p/{project}/…` has Queue, Approvals, Waves, Features, Insights, Search,
-Documents, Lab, Conventions, Config and Triage (read-only verdicts, with who judged and what
+Documents, Lab, Conventions, Settings (`/ui/p/{project}/config` redirects there) and Triage (read-only verdicts, with who judged and what
 happened next). Human decisions post to
 `/ui/p/{project}/documents/{id}/transition` and `/…/after-merge-review`; with `X-Requested-With: fetch` they
 answer JSON, otherwise they redirect with a notice.

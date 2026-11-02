@@ -28,7 +28,7 @@ How the memory behind all this works is in [memory.md](memory.md).
 ## 1. Set a project up
 
 1. Start the context (`docker compose up -d --wait`) and install the plugin (see the README).
-2. Open the project's Config page and save a gate config. **Saving one is what activates the
+2. Open the project's Settings page and save a gate config. **Saving one is what activates the
    project**: until then the plugin's hooks stay silent there (no briefing, no handoff, nothing
    spent). An approved plan that brings gates also activates it.
 3. The project's slug is its repo folder name. When they differ, set `AUTONOME_PROJECT` (or pass
@@ -141,6 +141,26 @@ schedules:
 
 A worked example for a FastAPI service, smoke test included, is in
 [plugin/README.md](../plugin/README.md#the-smoke-test).
+
+### Editing in Settings
+
+Settings (`/ui/p/<project>/settings`) is the only place to edit the gate config, and only a human
+does it: no agent can. The old address `/ui/p/<project>/config` redirects there.
+
+- **Form**: one section per part of the config (Gates, Execution, Human checkpoints, Review, Triage,
+  Smoke test, Schedules and so on). Errors show on the field that has them. Each submit validates
+  the draft; nothing is saved yet.
+- **YAML view** (`?view=yaml`): the same config as text, for the keys the form does not make easy.
+- **Review**: before anything is saved you see what changes, in words and as a diff, and which of
+  the two will be written. Saving from the form writes the config in a canonical layout, so
+  **comments and the order of keys in your YAML are lost**. Saving from the YAML view writes
+  your text as it is, comments included.
+- **Versions** (`/ui/p/<project>/settings/versions`): every save is a new version; none is
+  overwritten. Open one to see it and its diff against the previous or the current version. A
+  version the current schema no longer reads (old keys) is listed and can still be opened.
+- **Restore**: copies an old version into a new one. Its review lists the gates that approved
+  plans brought in after that version and that would go away, with a "keep" button for each. Nothing
+  is overwritten or mixed without showing it first.
 
 ### What a plan adds
 

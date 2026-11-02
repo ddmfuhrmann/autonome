@@ -9,7 +9,7 @@ server; the plugin's hooks and the runner through an HTTP API; the human through
 ```mermaid
 flowchart LR
   subgraph you["You"]
-    ui["Web UI<br/>approvals, queue, waves, config"]
+    ui["Web UI<br/>approvals, queue, waves, settings"]
   end
   subgraph claude["Claude Code"]
     plan["plan session"]
