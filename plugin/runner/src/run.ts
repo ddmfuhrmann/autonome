@@ -189,7 +189,7 @@ export function implementerTools(gc: GateConfig): string[] {
 }
 
 /** Hard limits that hold in every permissions mode, whatever the classifier thinks. */
-const HARD_DENIALS = [
+export const HARD_DENIALS = [
   ...["commit", "push", "reset", "checkout", "switch", "rebase", "merge", "tag", "branch", "stash", "-C"].map((c) => `Bash(git ${c}:*)`),
 ];
 // A session never waits on a command: Monitor is off, and the fsguard hook denies background Bash.
@@ -868,14 +868,15 @@ export function summary(played: Played[]): string {
 }
 
 async function smokeTestPlan(plan: Plan, opts: RunOptions): Promise<void> {
-  const config = (await context.gateConfig(opts.project)).config;
+  const gc = await context.gateConfig(opts.project);
+  const config = gc.config;
   const cfg = config.smoke_test;
   if (!cfg) return;
   opts.log(`plan #${plan.id} ${plan.body.title}: every task merged; smoke test`);
   stage(opts, { plan_id: plan.id }, "smoke test");
   const r = await smokeTest(plan, cfg, mainCheckout(opts.repo) ?? opts.repo,
     { ...roleModel(config, "tester", opts), language: languageRule(config) }, opts.log,
-    live(opts, "tester", { plan_id: plan.id }));
+    live(opts, "tester", { plan_id: plan.id }), { gc });
   const { outcome } = await context.smokeTest(plan.id, r);
   opts.log(outcome === "done" ? `  passed; the feature is done`
     : outcome === "fixing" ? `  failed; ${r.fixes.length} fix task(s) queued`

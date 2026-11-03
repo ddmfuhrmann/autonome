@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import type { Plan } from "./context.js";
+import type { GateConfig, Plan } from "./context.js";
 import { conventionTitles, enforceConventions, findingsForRetry } from "./review.js";
-import { smokeTest } from "./smoke-test.js";
+import { smokeTest, testerPermissions, testerPrompt } from "./smoke-test.js";
 
 const plan: Plan = { id: 7, project: "p", status: "approved", feature: "links", body: { title: "Links", tasks: [] } };
 const base = { url: "http://127.0.0.1:1", seed: null, tester: false, max_fixes: 2 };
@@ -70,4 +71,97 @@ test("a missing finding against an active convention blocks, whatever severity t
   assert.deepEqual(out.map((f) => [f.severity, f.convention]), [
     ["high", "Response models and string errors"], ["medium", undefined], ["low", "Tests assert behaviour"]]);
   assert.match(out[0].issue, /blocking: required by the convention "Response models and string errors"/);
+});
+
+const gcWith = (permissions?: string) => ({ version: 1, config: { permissions } }) as unknown as GateConfig;
+
+function repo(): string {
+  const dir = mkdtempSync(join(tmpdir(), "smoke-repo-"));
+  const run = (...a: string[]) => execFileSync("git", a, { cwd: dir, stdio: "ignore" });
+  run("init", "-q", "-b", "main");
+  writeFileSync(join(dir, "f"), "x");
+  run("add", ".");
+  run("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init");
+  return dir;
+}
+
+const answer = { passed: true, report: "ok", fixes: [] };
+const withTester = { ...base, tester: true, up: "true", down: "true", checks: [] };
+
+test("in auto the tester cannot edit, commit or read ~/.autonome, by rule", () => {
+  const p = testerPermissions(gcWith("auto"), "/wt");
+  assert.equal(p.permissionMode, "auto");
+  assert.equal(p.permissionPrompts, "none");
+  for (const d of ["Edit", "Write", "NotebookEdit", "Bash(git commit:*)", "Bash(git push:*)", "Read(~/.autonome/**)", "Bash(cat ~/.autonome:*)"]) {
+    assert.ok(p.disallowedTools.includes(d), d);
+  }
+  assert.equal(p.hooks?.PreToolUse?.[0].matcher, "Bash");
+});
+
+test("in allowlist the tester has Read, Grep, Glob and curl, and the same denials", () => {
+  for (const mode of ["allowlist", undefined]) {
+    const p = testerPermissions(gcWith(mode), "/wt");
+    assert.equal(p.permissionMode, "dontAsk");
+    assert.deepEqual(p.allowedTools, ["Read", "Grep", "Glob", "Bash(curl:*)"]);
+    assert.ok(p.disallowedTools.includes("Write"));
+    assert.ok(p.disallowedTools.includes("Bash(git commit:*)"));
+  }
+});
+
+test("the tester runs in a throwaway worktree of main, removed afterwards even when the session throws", async () => {
+  for (const throws of [false, true]) {
+    const dir = repo();
+    let seen: any;
+    const fake = (async function* (args: { options: unknown }) {
+      seen = args.options;
+      assert.ok(existsSync(join(seen.cwd, "f")));
+      if (throws) throw new Error("boom");
+      yield { type: "result", subtype: "success", total_cost_usd: 0, structured_output: answer };
+    }) as never;
+    const r = await smokeTest(plan, withTester, dir, undefined, () => {}, undefined, { gc: gcWith("auto"), query: fake });
+    assert.notEqual(seen.cwd, dir);
+    assert.equal(seen.permissionMode, "auto");
+    assert.equal(existsSync(seen.cwd), false);
+    assert.doesNotMatch(execFileSync("git", ["worktree", "list"], { cwd: dir, encoding: "utf8" }), /autonome-tester/);
+    assert.equal(r.passed, !throws);
+  }
+});
+
+test("the tester's prompt says what each mode can and cannot do", () => {
+  assert.match(testerPrompt("allowlist"), /only plain `curl`, one request per call, no pipes/);
+  assert.match(testerPrompt("allowlist"), /Read, Grep and Glob/);
+  assert.match(testerPrompt("auto"), /classifier decides/);
+  assert.match(testerPrompt("auto"), /do not edit files, do not run the project's build or tests/);
+  assert.doesNotMatch(testerPrompt("auto"), /\{\{TOOLS\}\}/);
+});
+
+test("a tester worktree that cannot be created throws instead of failing the feature, and the environment is torn down", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "smoke-nogit-"));
+  const fake = (async function* () { throw new Error("must not run"); }) as never;
+  await assert.rejects(
+    smokeTest(plan, { ...withTester, up: "true", down: "echo down > state" }, dir, undefined, () => {}, undefined,
+      { gc: gcWith("auto"), query: fake }),
+    /could not create the tester's worktree/);
+  assert.equal(readFileSync(join(dir, "state"), "utf8"), "down\n");
+});
+
+test("in every mode the tester's hook denies file commands outside its worktree and leaves curl to the rules", async () => {
+  for (const mode of ["allowlist", "auto"]) {
+    const hook = testerPermissions(gcWith(mode), "/wt").hooks!.PreToolUse![0].hooks[0];
+    const ask = async (command: string) =>
+      ((await hook({ tool_input: { command } } as never, undefined, { signal: new AbortController().signal })) as any)
+        .hookSpecificOutput?.permissionDecision;
+    assert.equal(await ask("rm /etc/x"), "deny", mode);
+    assert.equal(await ask("cp /etc/passwd /wt/x"), "deny", mode);
+    assert.equal(await ask("curl -s http://127.0.0.1:1/health"), undefined, mode);
+  }
+});
+
+test("in every mode the tester's session denies ~/.autonome by rule", () => {
+  for (const mode of ["allowlist", "auto"]) {
+    const p = testerPermissions(gcWith(mode), "/wt");
+    for (const d of ["Read(~/.autonome/**)", "Edit(~/.autonome/**)", "Bash(cat ~/.autonome:*)"]) {
+      assert.ok(p.disallowedTools.includes(d), `${mode}: ${d}`);
+    }
+  }
 });

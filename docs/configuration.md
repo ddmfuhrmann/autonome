@@ -79,7 +79,7 @@ allowed_commands: []      # commands (first word) a run session may run besides 
                           # -delete or -exec; VAR=value or env before an allowed command; bash,
                           # sh or python3 running a gate's script. Chained commands are denied
 
-permissions: allowlist    # how the implementer's sessions are allowed to act: `allowlist` (default,
+permissions: allowlist    # how the implementer's sessions (and the smoke test's tester) act: `allowlist` (default,
                           # only the commands above) or `auto` (the Agent SDK's classifier judges each
                           # call, so the session may run a script for a mechanical change). Opt-in per
                           # project; see "Permissions" below
@@ -209,9 +209,16 @@ Plans can propose `gates` (with `with_task`, the task that sets their tooling up
 
 ### Permissions
 
-`permissions` sets how the implementer's sessions act. Only the implementer is affected; the
-reviewer, preflight, retro, handoff and docs sessions stay read-only, and so do your interactive
+`permissions` sets how the implementer's sessions act, and the smoke test's tester follows it too.
+The reviewer, preflight, retro, handoff and docs sessions stay read-only, and so do your interactive
 sessions.
+
+The tester never edits files, in either mode, and runs in a throwaway worktree of `main` that is
+removed afterwards (the environment's `up`, `down`, `seed` and checks still run in your checkout):
+
+- `allowlist`: only `Read`, `Grep`, `Glob` and plain `curl`.
+- `auto`: the classifier decides; the prompt tells the tester to test the running app, not to build
+  or run the project's tests.
 
 - `allowlist` (default): `dontAsk` with an allowlist (read and edit files, the gates' own commands,
   `allowed_commands`, read-only git). Anything else is denied.

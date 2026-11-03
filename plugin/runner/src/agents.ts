@@ -1,5 +1,5 @@
 // Read-only agents the runner consults: they look, never change the code, and answer as JSON.
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
 import { CONTEXT_URL, type Effort } from "./context.js";
 import { sessionEnv } from "./secrets.js";
 
@@ -24,6 +24,14 @@ export interface Consult {
   maxTurns?: number;
   /** The project's language rule (`languageRule`), appended to the role. */
   language?: string;
+  /** Replaces the default read-only permissions (and `tools`) of the session. */
+  permissions?: {
+    permissionMode: "dontAsk" | "auto";
+    permissionPrompts?: "none";
+    allowedTools: string[];
+    disallowedTools: string[];
+    hooks?: Options["hooks"];
+  };
   /** Every SDK message, for the live view. */
   onMessage?: (msg: unknown) => void;
   /** Tests replace the SDK's `query` with a fake. */
@@ -41,8 +49,7 @@ export async function consult<T>(c: Consult): Promise<{ answer: T; cost: number 
       model: c.model,
       effort: c.effort,
       ...(c.fallback && c.fallback !== c.model ? { fallbackModel: c.fallback } : {}),
-      permissionMode: "dontAsk",
-      allowedTools: [...READ_ONLY, ...(c.tools ?? [])],
+      ...(c.permissions ?? { permissionMode: "dontAsk", allowedTools: [...READ_ONLY, ...(c.tools ?? [])] }),
       mcpServers: { autonome: { type: "http", url: `${CONTEXT_URL}/mcp` } },
       settingSources: ["project"],
       systemPrompt: { type: "preset", preset: "claude_code", append: [c.role, c.language].filter(Boolean).join("\n\n") },
