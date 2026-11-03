@@ -103,6 +103,7 @@ connection errors.
 | `POST /api/plans/{id}/preflight` | `{verdict: ready\|revise, notes, plan?}` → `{plan_status}` |
 | `POST /api/plans/{id}/smoke-test` | `{passed, report, checks, fixes}` → `{outcome: done\|fixing\|blocked}` |
 | `POST /api/events` | what running sessions are doing: `{project, events: [{task_id?, plan_id?, role, kind, text, at?}]}`; redacted, the newest 2,000 kept per task or plan |
+| `POST /api/tasks/{id}/staff-revision` | runner records the staff's revision of a running task's spec: `{revised: {title, spec, acceptance}, diagnosis, model, answers, verdict}`; `accept` swaps the spec and keeps the original in `staff_revision`, `hold` only records the proposal; 403 unless the task is running and `triage.model` is `jev-latest`, 422 for empty, control-character or over-20000-character fields |
 | `GET /api/tasks/{id}/events?after=` | a task's live events, oldest first |
 | `GET /api/projects/{project}/state` | a snapshot for watchers: tasks (status, last reason, after-merge review), plans, waves, and what waits (`blocks` true or false) |
 | `GET /api/projects/{project}/waves/without-retro` | finished waves the retro has not looked at |

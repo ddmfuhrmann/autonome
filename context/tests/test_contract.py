@@ -5,7 +5,7 @@ side drops or renames fails a gate instead of answering 422 in a live run."""
 import json
 from pathlib import Path
 
-from autonome_context.api import _JEV, AlreadySatisfied, PrOpened, RevisionVerdict, RunnerStatus, Screening, TriageVerdict
+from autonome_context.api import _JEV, AlreadySatisfied, PrOpened, RevisionVerdict, RunnerStatus, Screening, StaffRevision, TriageVerdict
 from autonome_context.plans import SmokeTestResult
 
 CONTRACT = json.loads((Path(__file__).resolve().parents[2] / "contracts" / "runner-context.json").read_text())
@@ -45,6 +45,11 @@ def test_the_already_satisfied_body_passes_the_endpoint_model():
     run = AlreadySatisfied.model_validate(body["run"])
     assert run.satisfied_by == CONTRACT["task_already_satisfied"]["item"]["satisfied_by"]
     assert _JEV.fullmatch(run.satisfied_triage.model)
+
+
+def test_the_staff_revision_body_passes_the_endpoint_model():
+    r = StaffRevision.model_validate(CONTRACT["task_staff_revision"]["body"])
+    assert r.verdict == "accept"
 
 
 def test_the_smoke_test_body_with_untested_passes_the_endpoint_model():

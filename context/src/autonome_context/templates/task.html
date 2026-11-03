@@ -28,6 +28,23 @@
 {% if sat and doc.status == 'done' %}
 <div class="callout"><div><strong>Already satisfied by <span class="mono">{{ sat.satisfied_by }}</span></strong>: closed without a merge, the Jev accepted the proof.</div></div>
 {% endif %}
+{% set sr = b.staff_revision %}
+{% if sr %}
+<section class="callout{{ ' callout--hold' if sr.verdict == 'hold' }}" aria-label="Staff revision"><div>
+  <h2>Staff revision</h2>
+  <p><strong>{{ 'Accepted: the spec below is the revised one.' if sr.verdict == 'accept' else 'Held: the staff proposed a revision the Jev did not accept; the spec is unchanged.' }}</strong>
+    <span class="faint">· {{ sr.model }}</span></p>
+  <p><strong>Diagnosis:</strong></p><pre>{{ sr.diagnosis }}</pre>
+  {% if sr.answers %}<p class="faint">{% for k, v in sr.answers.items() %}{{ k }} {{ v }}{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
+  <h3>Original</h3>
+  <p>{{ sr.original.title }}</p><pre>{{ sr.original.spec }}</pre>
+  <ul>{% for a in sr.original.acceptance %}<li>{{ a }}</li>{% endfor %}</ul>
+  {% set rev = sr.revised if sr.verdict == 'hold' else b %}
+  <h3>{{ 'Proposed' if sr.verdict == 'hold' else 'Revised' }}</h3>
+  <p>{{ rev.title }}</p><pre>{{ rev.spec }}</pre>
+  <ul>{% for a in rev.acceptance %}<li>{{ a }}</li>{% endfor %}</ul>
+</div></section>
+{% endif %}
 {% set pr = runs|selectattr('pr_url')|list|last %}
 {% if pr and doc.status == 'in_pr' %}
 <div class="callout callout--hold"><div><strong>Pull request open:</strong> {{ 'GitHub merges it when CI passes.' if pr.pr_mode == 'auto' else 'merge it on GitHub; the runner picks it up from there.' }}

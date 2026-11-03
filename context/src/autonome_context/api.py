@@ -2,6 +2,7 @@
 
 import json
 import re
+from datetime import datetime, timezone
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StringConstraints, ValidationError
@@ -237,6 +238,61 @@ async def task_transition(request: Request) -> JSONResponse:
                 if await store.finish_plan_if_complete(conn, task["body"]["plan_id"]):
                     await plans.finish_wave_if_complete(conn, task["body"]["plan_id"])
     return _json({"status": body["to"]})
+
+
+_LINE = r"^[^\x00-\x1f\x7f]+$"
+_TEXT = r"^[^\x00-\x08\x0b\x0c\x0e-\x1f\x7f]+$"  # multi-line: tab, newline and carriage return are allowed
+
+
+class RevisedSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: Annotated[str, StringConstraints(min_length=1, max_length=20000, pattern=_LINE)]
+    spec: Annotated[str, StringConstraints(min_length=1, max_length=20000, pattern=_TEXT)]
+    acceptance: list[Annotated[str, StringConstraints(min_length=1, max_length=20000, pattern=_TEXT)]]
+
+
+class StaffRevision(BaseModel):
+    """The staff's revision of a running task's spec, with the Jev's verdict on whether it changes scope."""
+    model_config = ConfigDict(extra="forbid")
+    revised: RevisedSpec
+    diagnosis: Annotated[str, StringConstraints(min_length=1, max_length=20000, pattern=_TEXT)]
+    model: Annotated[str, StringConstraints(pattern=r"^jev-(latest|\d+(\.\d+)*)$")]
+    answers: dict[Annotated[str, StringConstraints(min_length=1, max_length=80)],
+                  Annotated[str, StringConstraints(min_length=1, max_length=32, pattern=r"^[A-Za-z0-9_.-]+$")]]
+    verdict: Literal["accept", "hold"]
+
+
+async def post_staff_revision(request: Request) -> JSONResponse:
+    """`accept` swaps the running task's spec for the revised one; `hold` only records the proposal."""
+    try:
+        r = StaffRevision.model_validate(await request.json())
+    except ValueError as e:  # malformed JSON, or a ValidationError (also a ValueError)
+        detail = e.errors(include_context=False, include_input=False) if isinstance(e, ValidationError) else str(e)
+        return _json({"error": "invalid_staff_revision", "detail": detail}, 422)
+    doc_id = int(request.path_params["doc_id"])
+    pool, indexer = await services.get()
+    async with pool.connection() as conn:
+        async with conn.transaction():
+            await conn.execute("select 1 from document where id = %s for update", (doc_id,))
+            task = await store.get_document(conn, doc_id)
+            if not task or task["type"] != "task":
+                return _json({"error": f"task {doc_id} does not exist"}, 404)
+            cfg = (await gate_config_body(conn, task["project"]))["config"]
+            if not cfg.get("triage") or cfg["triage"]["model"] != "jev-latest":
+                return _json({"error": "the staff's revision needs the triage on jev-latest"}, 403)
+            if task["status"] != "running":
+                return _json({"error": "only a running task has its spec revised"}, 403)
+            b = task["body"]
+            original = {"title": b["title"], "spec": b["spec"], "acceptance": b.get("acceptance", [])}
+            revision = {"original": original, "diagnosis": r.diagnosis, "model": r.model, "answers": r.answers,
+                        "verdict": r.verdict, "at": datetime.now(timezone.utc).isoformat()}
+            new = {**b, "staff_revision": revision}
+            if r.verdict == "accept":
+                new.update(r.revised.model_dump())
+            else:
+                revision["revised"] = r.revised.model_dump()  # what the staff proposed, for the human
+            await store.add_version(conn, indexer, doc_id, new)
+    return _json({"status": "running", "verdict": r.verdict})
 
 
 async def feature_dossier(request: Request) -> JSONResponse:
@@ -807,6 +863,7 @@ def routes() -> list:
         Route("/api/projects/{project}/gate-config", get_gate_config),
         Route("/api/events", post_events, methods=["POST"]),
         Route("/api/tasks/{doc_id:int}/events", get_events),
+        Route("/api/tasks/{doc_id:int}/staff-revision", post_staff_revision, methods=["POST"]),
         Route("/api/gate-runs", post_gate_runs, methods=["POST"]),
         Route("/api/gate-runs", get_gate_runs),
         Route("/api/spend", post_spend, methods=["POST"]),
