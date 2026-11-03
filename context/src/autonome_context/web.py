@@ -26,9 +26,6 @@ from . import evaluation, insights, plans, rules, services, settings_form, setti
 from .chunking import DEFAULT_STRATEGY, STRATEGIES
 from .gates import (DEFAULT_MODELS, FIELD_HELP, ROLE_GLOSS, Budget, Check, Gate, GateConfig, HoldBeforeMerge,
                     Merge, Retries, Review, ReviewAfterMerge, RoleModel, Schedule, SmokeTest, TaskSize, Triage)
-from .presets import PRESETS, preset_config
-
-SETUP_EMPTY = "empty"  # the setup choice that starts with no gates
 
 log = logging.getLogger(__name__)
 _HERE = Path(__file__).parent
@@ -1003,20 +1000,13 @@ async def settings_page(request: Request) -> Response:
         if request.method == "POST":
             data = await request.form()
             action = str(data.get("action", ""))
-            if action == "setup":
-                if doc:  # the first setup only: a project with a config goes on in the form
+            if action == "setup":  # gone: the first config comes from /autonome:init
+                return Response("Unknown action: setup. Nothing was saved.", status_code=400)
+            if action == "start_empty":
+                if doc:  # the first config only: a project with one goes on in the form
                     return RedirectResponse(f"/ui/p/{project}/settings", status_code=303)
-                name = str(data.get("preset", ""))
-                if name == SETUP_EMPTY:
-                    setup_cfg = GateConfig()
-                elif name in PRESETS:
-                    setup_cfg = preset_config(name, {k.removeprefix("keep-") for k in data if k.startswith("keep-")})
-                else:
-                    page = await render(request, "settings_setup.html", presets=PRESETS, empty=SETUP_EMPTY,
-                                        error=f"Unknown preset: {name or '(empty)'}. Nothing was saved.")
-                    page.status_code = 400
-                    return page
-                review = (setup_cfg, _canonical(setup_cfg), "form")
+                empty_cfg = GateConfig()
+                review = (empty_cfg, _canonical(empty_cfg), "form")
                 return await render(request, "settings_review.html",
                                     **_review_context(None, *review, "", None, False))
             if "yaml" in data:
@@ -1074,8 +1064,7 @@ async def settings_page(request: Request) -> Response:
             if posted is None and draft_cfg is None:
                 view, error = "yaml", error or str(e)
     if not doc:
-        return await render(request, "settings_setup.html", presets=PRESETS, empty=SETUP_EMPTY,
-                            has_proposal=has_proposal)
+        return await render(request, "settings_none.html", has_proposal=has_proposal)
     if text is None:
         text = doc["body"]["yaml"]
     ctx: dict = {"doc": doc, "view": view, "text": text, "error": error, "error_line": error_line,

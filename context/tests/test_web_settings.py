@@ -11,7 +11,6 @@ from starlette.testclient import TestClient
 
 from autonome_context import plans, services, settings_form, settings_proposal, store
 from autonome_context.gates import GateConfig
-from autonome_context.presets import PRESETS
 from autonome_context.plans import PlanBody, ProposedGate, TaskSpec
 from autonome_context.server import build_app
 
@@ -224,32 +223,16 @@ def bare(run_db, project):
     run_db(go)
 
 
-def test_a_project_without_a_saved_config_shows_the_four_presets_and_their_gates(client, project, bare):
+def test_a_project_without_a_saved_config_points_to_the_init_and_offers_start_empty(client, project, bare):
     page = client.get(f"/ui/p/{project}/settings")
-    assert page.status_code == 200 and "First setup" in page.text
-    for preset in PRESETS.values():
-        assert f"<h2>{preset.label}</h2>" in page.text
-        for g in preset.gates:
-            assert f'name="keep-{g["name"]}"' in page.text
-    assert len(PRESETS) == 4 and "Start empty" in page.text
+    assert page.status_code == 200 and "No settings yet." in page.text
+    assert "<code>/autonome:init</code>" in page.text and "Start empty" in page.text
+    assert 'name="keep-' not in page.text
 
 
-def test_setup_with_a_gate_unchecked_saves_v1_without_it_from_the_human(client, project, bare, run_db):
+def test_a_config_saved_after_the_start_is_not_overwritten(client, project, bare, run_db, indexer):
     url = f"/ui/p/{project}/settings"
-    keep = {f"keep-{g['name']}": "1" for g in PRESETS["python"].gates if g["name"] != "mypy"}
-    review = client.post(url, data={"action": "setup", "preset": "python"} | keep)
-    assert review.status_code == 200 and "Review &amp; save" in review.text and _versions(run_db, project) == 0
-    done = client.post(url, data=_hidden(review) | {"action": "save", "note": ""}, follow_redirects=False)
-    assert done.status_code == 303
-    latest = _latest(run_db, project)
-    assert latest["version"] == 1 and latest["body"]["source"] == "human"
-    names = [g.name for g in GateConfig.from_yaml(latest["body"]["yaml"]).gates]
-    assert names == ["ruff-format", "ruff-check", "pytest"]
-
-
-def test_a_config_saved_after_the_setup_is_not_overwritten(client, project, bare, run_db, indexer):
-    url = f"/ui/p/{project}/settings"
-    review = client.post(url, data={"action": "setup", "preset": "go", "keep-gofmt": "1"})
+    review = client.post(url, data={"action": "start_empty"})
     fields = _hidden(review) | {"base_version": ""}
 
     async def go(conn):
@@ -263,15 +246,14 @@ def test_a_config_saved_after_the_setup_is_not_overwritten(client, project, bare
     assert _hidden(page)["base_version"] == "1" and _versions(run_db, project) == 1
 
 
-def test_an_unknown_preset_is_a_400_and_saves_nothing(client, project, bare, run_db):
-    page = client.post(f"/ui/p/{project}/settings", data={"action": "setup", "preset": "cobol"})
-    assert page.status_code == 400 and "Unknown preset: cobol. Nothing was saved." in page.text and _versions(run_db, project) == 0
-    assert "First setup" in page.text  # the setup page itself, with the presets to choose again
+def test_the_old_setup_action_is_a_400_and_saves_nothing(client, project, bare, run_db):
+    page = client.post(f"/ui/p/{project}/settings", data={"action": "setup", "preset": "python"})
+    assert page.status_code == 400 and _versions(run_db, project) == 0
 
 
-def test_setup_with_a_saved_config_redirects_and_keeps_the_version(client, project, saved, run_db):
+def test_start_empty_with_a_saved_config_redirects_and_keeps_the_version(client, project, saved, run_db):
     saved(YAML)
-    r = client.post(f"/ui/p/{project}/settings", data={"action": "setup", "preset": "python"},
+    r = client.post(f"/ui/p/{project}/settings", data={"action": "start_empty"},
                     follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == f"/ui/p/{project}/settings"
     assert _versions(run_db, project) == 1
@@ -279,7 +261,7 @@ def test_setup_with_a_saved_config_redirects_and_keeps_the_version(client, proje
 
 def test_starting_empty_saves_a_v1_without_gates(client, project, bare, run_db):
     url = f"/ui/p/{project}/settings"
-    review = client.post(url, data={"action": "setup", "preset": "empty"})
+    review = client.post(url, data={"action": "start_empty"})
     assert review.status_code == 200
     done = client.post(url, data=_hidden(review) | {"action": "save", "note": ""}, follow_redirects=False)
     assert done.status_code == 303

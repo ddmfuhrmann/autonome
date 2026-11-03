@@ -30,15 +30,13 @@ How the memory behind all this works is in [memory.md](memory.md).
 1. Start the context (`docker compose up -d --wait`) and install the plugin (see the README).
 2. Open the project's Settings page and save a gate config. **Saving one is what activates the
    project**: until then the plugin's hooks stay silent there (no briefing, no handoff, nothing
-   spent). An approved plan that brings gates also activates it. A project without a config shows
-   the first setup instead of the form: pick a stack preset (Python, TypeScript, Java or Go), see
-   the gates it brings, uncheck the ones you do not want and review. Saving writes version 1 as
-   yours. "Começar vazio" saves a v1 with no gates. The commands of the presets start with the
-   stack's own tool (`uv`, `pnpm`, `./mvnw`, `go`), which is what the implementer is allowed to
-   run; the Python preset assumes `uv`. Detecting the stack from the repo is not done: you pick it.
+   spent). An approved plan that brings gates also activates it. The first config comes from
+   `/autonome:init`, run in Claude Code in the project's repo: it reads the repo and proposes the
+   settings, and you review and save them on the Settings page. A project without a config (and
+   without a proposal) shows that hint instead of the form, plus a "Start empty" button that takes
+   you to the review of a v1 with no gates. Saving writes version 1 as yours.
    If a config is saved meanwhile (a plan's gates, for example), the save writes nothing and the
-   review is shown again against the new version. The setup only exists for the first config; later
-   changes go through the form.
+   review is shown again against the new version. Later changes go through the form.
 3. The project's slug is its repo folder name. When they differ, set `AUTONOME_PROJECT` (or pass
    `--project` to `autonome run`).
 4. Optional, for projects that arrive with history:

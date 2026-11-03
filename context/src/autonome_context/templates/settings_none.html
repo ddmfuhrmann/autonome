@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Settings · no settings yet{% endblock %}
+{% block main %}
+<header class="page-head">
+  <div class="page-head__text"><h1>Settings</h1>
+    <p class="subtitle">No settings yet. Run <code>/autonome:init</code> in Claude Code, in this project's repo.</p></div>
+</header>
+
+{% if has_proposal %}<div class="callout callout--hold"><div class="wrap"><strong>init proposed new settings</strong> · <a href="/ui/p/{{ project }}/settings/proposal">Review</a></div></div>{% endif %}
+
+<form class="section" method="post" action="/ui/p/{{ project }}/settings">
+  <h2>Start empty</h2>
+  <p class="muted">No gates; you add yours later on the Settings page.</p>
+  <input type="hidden" name="action" value="start_empty">
+  <button class="btn btn--ghost" type="submit">Start empty</button>
+</form>
+{% endblock %}
