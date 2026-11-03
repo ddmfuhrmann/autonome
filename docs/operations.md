@@ -143,7 +143,9 @@ edits code; the task does, through the runner. If it queues nothing, check the r
 
 When the implementer finishes and the work is committed, the runner goes through these steps in order:
 
-1. **Commit** the task's work on its branch.
+1. **Commit** the task's work on its branch. The subject is the `Commit: <subject>` line the implementer
+   ends its session with (type from its prefix, scope always the task's feature, up to 72 characters); without
+   a usable one, the task's title.
 2. **Rebase** onto the current `main`.
 3. **Gates and handoff together**: all the gates run on top of `main` while the handoff writer reads the
    task's diff and writes the handoff. Nothing changes in the worktree meanwhile, so the handoff sees

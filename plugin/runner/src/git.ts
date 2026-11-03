@@ -62,7 +62,29 @@ export function fastForwardMain(repo: string, branch: string, main = "main"): { 
   return r.ok ? { ok: true } : { ok: false, reason: r.out };
 }
 
-export function commitMessage(task: { id: number; feature: string | null; body: { title: string; plan_id: number } }): string {
+const COMMIT_TYPES = "fix|refactor|test|docs|build|ci|chore|perf|feat";
+
+/** The implementer's own subject as `[type, summary]`, or null when it is not one usable line. */
+function parseSubject(subject: string | undefined): [string, string] | null {
+  const whole = subject?.trim();
+  if (!whole || /[\r\n]/.test(whole)) return null;
+  const s = whole.slice(0, 72).trim();
+  const m = new RegExp(`^(${COMMIT_TYPES})(?:\\([^)]*\\))?!?:\\s*(.*)$`, "i").exec(s);
+  const summary = (m ? m[2] : s).trim();
+  return summary ? [m ? m[1].toLowerCase() : "feat", summary] : null;
+}
+
+/**
+ * The commit message of a task. `subject` is the line the implementer ended its session with
+ * (`Commit: ...`); the type comes from its prefix and the scope is always the task's feature.
+ * Without a usable subject the task's title is used.
+ */
+export function commitMessage(task: { id: number; feature: string | null; body: { title: string; plan_id: number } }, subject?: string): string {
+  const own = parseSubject(subject);
+  if (own) {
+    const first = `${own[0]}${task.feature ? `(${task.feature})` : ""}: ${own[1]}`;
+    return `${first}\n\nPlan: #${task.body.plan_id}\nTask: #${task.id}\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n`;
+  }
   const title = task.body.title.trim();
   const type = /^(fix|refactor|test|docs|build|ci|chore|perf)\b/i.exec(title)?.[1]?.toLowerCase() ?? "feat";
   const stripped = title.replace(/^(fix|refactor|test|docs|build|ci|chore|perf)\b[:\s-]*/i, "");
@@ -71,8 +93,8 @@ export function commitMessage(task: { id: number; feature: string | null; body: 
   // "Count clicks" -> "count clicks", but an acronym or a name keeps its case: "POST", "SQLite".
   const firstWord = summary.split(/\s/)[0];
   const lower = firstWord.slice(1) === firstWord.slice(1).toLowerCase();
-  const subject = `${type}${task.feature ? `(${task.feature})` : ""}: ${lower ? summary.charAt(0).toLowerCase() : summary.charAt(0)}${summary.slice(1)}`;
-  return `${subject}\n\nPlan: #${task.body.plan_id}\nTask: #${task.id}\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n`;
+  const line = `${type}${task.feature ? `(${task.feature})` : ""}: ${lower ? summary.charAt(0).toLowerCase() : summary.charAt(0)}${summary.slice(1)}`;
+  return `${line}\n\nPlan: #${task.body.plan_id}\nTask: #${task.id}\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n`;
 }
 
 /**

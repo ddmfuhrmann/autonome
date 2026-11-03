@@ -89,6 +89,22 @@ test("commit message follows conventional commits with plan and task trailers", 
   assert.match(commitMessage({ id: 1, feature: null, body: { title: "Add signup form", plan_id: 1 } }), /^feat: add signup form/);
 });
 
+test("the implementer's subject sets the commit type and summary; the scope stays the feature", () => {
+  const task = { id: 7, feature: "links", body: { title: "Count clicks per link", plan_id: 3 } };
+  const msg = commitMessage(task, "fix: handle empty input");
+  assert.match(msg, /^fix\(links\): handle empty input\n\nPlan: #3\nTask: #7\n\nCo-Authored-By: /);
+  assert.equal(msg.split("\n").slice(1).join("\n"), commitMessage(task).split("\n").slice(1).join("\n"));
+  assert.equal(commitMessage(task, "add click counter").split("\n")[0], "feat(links): add click counter");
+  assert.equal(commitMessage(task, "fix(x): y").split("\n")[0], "fix(links): y");
+});
+
+test("an unusable subject falls back to the title and a long one is cut to 72", () => {
+  const task = { id: 7, feature: "links", body: { title: "Count clicks per link", plan_id: 3 } };
+  const fallback = "feat(links): count clicks per link";
+  for (const s of [undefined, "", "   ", "feat: a\nb"]) assert.equal(commitMessage(task, s).split("\n")[0], fallback);
+  assert.equal(commitMessage(task, "feat: " + "x".repeat(200)).split("\n")[0], "feat(links): " + "x".repeat(66));
+});
+
 test("main is fast-forwarded in place when its checkout is clean", () => {
   const dir = repo();
   branchWithCommit(dir, "task");

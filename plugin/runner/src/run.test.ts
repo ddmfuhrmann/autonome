@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { consult } from "./agents.js";
 import { git } from "./git.js";
 import { UsageLimitError } from "./limits.js";
-import { implement, implementerPermissions, implementerTools, judgeTask,preflightPlan, recordRunnerError, runTask, verdictLine, type JudgeSeams, type RunOptions } from "./run.js";
+import { implement, implementerPermissions, implementerPrompt,implementerTools, judgeTask,preflightPlan, recordRunnerError, runTask, verdictLine, type JudgeSeams, type RunOptions } from "./run.js";
 import type { Finding, GateConfig, Plan, ReviewResult, Run, Task } from "./context.js";
 import { earlierFindingsSection, gatesSection, recordRound, retryMessage, settleOutcomes, settleRun } from "./review.js";
 
@@ -337,6 +337,48 @@ test("the implementer's query gets what implementerPermissions returns, and the 
   }
 });
 
+test("the implementer's prompt asks for a last `Commit: <subject>` line in the project's language", () => {
+  for (const mode of ["allowlist", "auto"]) {
+    const prompt = implementerPrompt(gcWith(mode));
+    assert.match(prompt, /as its last line, `Commit: <subject>`/, mode);
+    assert.match(prompt, /Conventional Commits style without the scope/, mode);
+    assert.match(prompt, /language of the project's code and commits, not the `language` setting/, mode);
+  }
+});
+
+/** A fake gate config and a fake session that ends with each of `texts` as a successful result, one per call. */
+async function commitSubjects(texts: (string | undefined)[], retryFrom?: string) {
+  globalThis.fetch = async () => new Response(JSON.stringify(gcWith()), { headers: { "content-type": "application/json" } });
+  const queue = [...texts];
+  const fake = (async function* () {
+    yield { type: "system", subtype: "init", session_id: "s1" };
+    yield { type: "result", subtype: "success", total_cost_usd: 0, result: queue.shift() };
+  }) as never;
+  const opts = { ...preflightOpts([]), seams: { query: fake } } as RunOptions;
+  try {
+    const first = await implement(task, "/wt", "main", opts);
+    const second = retryFrom === undefined ? undefined
+      : await implement(task, "/wt", "main", opts, { sessionId: "s1", prompt: "fix it" });
+    return { first: first.commitSubject, second: second?.commitSubject };
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
+test("implement keeps the last Commit: line of the final text, and undefined without one", async () => {
+  assert.equal((await commitSubjects(["Done.\nCommit: feat: add x"])).first, "feat: add x");
+  assert.equal((await commitSubjects(["Commit: docs: first\nmore\nCommit: fix: later"])).first, "fix: later");
+  assert.equal((await commitSubjects(["Done, nothing else."])).first, undefined);
+  assert.equal((await commitSubjects([undefined])).first, undefined);
+});
+
+test("a resumed session has its own Commit: line, and one without it returns undefined for runTask to keep the earlier", async () => {
+  const again = await commitSubjects(["Commit: feat: add x", "Commit: fix: handle y"], "s1");
+  assert.deepEqual(again, { first: "feat: add x", second: "fix: handle y" });
+  const quiet = await commitSubjects(["Commit: feat: add x", "Fixed it."], "s1");
+  assert.deepEqual(quiet, { first: "feat: add x", second: undefined });
+});
+
 test("in every mode Monitor is off and the hook denies background Bash", async () => {
   for (const mode of ["allowlist", "auto"]) {
     const perms = implementerPermissions(gcWith(mode), "/wt");
@@ -400,7 +442,7 @@ function wipEnv(commitWip?: RunOptions["seams"] extends infer S ? (S extends { c
   const prompts: string[] = [];
   const seen: { cwd: string; files: string[]; status: string }[] = [];
   /** The next session writes `files` in its worktree and then ends with `stop` (a result subtype) or throws `fail`. */
-  const session = (files: Record<string, string>, stop?: string, fail?: string) => ((args: any) => {
+  const session = (files: Record<string, string>, stop?: string, fail?: string, said?: string) => ((args: any) => {
     prompts.push(args.prompt);
     seen.push({ cwd: args.options.cwd, files: readdirSync(args.options.cwd).filter((f) => f !== ".git").sort(),
       status: git(args.options.cwd, "status", "--porcelain") });
@@ -409,6 +451,7 @@ function wipEnv(commitWip?: RunOptions["seams"] extends infer S ? (S extends { c
       yield { type: "system", subtype: "init", session_id: "s-fake" };
       if (fail) throw new Error(fail);
       if (stop) yield { type: "result", subtype: stop, total_cost_usd: 0 };
+      else if (said !== undefined) yield { type: "result", subtype: "success", total_cost_usd: 0, result: said };
     })();
   });
   let query: ReturnType<typeof session> = session({});
@@ -589,6 +632,35 @@ test("main only moves after the handoff and the triage", async () => {
   assert.equal(run.outcome, "merged");
   assert.deepEqual(env.order.slice(-2), ["handoff (main at base)", "triage"]);
   assert.notEqual(mainSha(env.repo), before);
+});
+
+test("the commit's subject comes from the implementer's last Commit: line, the title when there is none", async () => {
+  const said = "Done.\nCommit: docs: first\nmore\nCommit: fix: handle empty input";
+  for (const [text, want] of [[said, "fix(runner): handle empty input"], ["Done, no subject.", "feat(runner): t"]]) {
+    const env = wipEnv();
+    env.next(env.session({ "b.txt": "b\n" }, undefined, undefined, text));
+    env.gates(() => passing);
+    const task = { ...env.mk(), feature: "runner" } as Task;
+    const run = (await runTask(task, env.opts()))!;
+    assert.equal(run.outcome, "merged");
+    assert.equal(git(env.repo, "log", "-1", "--format=%s", "main"), want);
+  }
+});
+
+test("a retry that says no Commit: line keeps the subject given before; one that does gives the last", async () => {
+  for (const [second, want] of [["Fixed it.", "fix(runner): first"], ["Commit: docs: second", "docs(runner): second"]]) {
+    const env = wipEnv();
+    let n = 0;
+    // The first session leaves a stray binary, which sends the implementer back; the retry ignores it.
+    env.next(((args: any) => (++n === 1
+      ? env.session({ "b.txt": "b\n", "x.bin": "a\0b" }, undefined, undefined, "Commit: fix: first")
+      : env.session({ ".gitignore": "x.bin\n" }, undefined, undefined, second))(args)) as never);
+    env.gates(() => passing);
+    const run = (await runTask({ ...env.mk(), feature: "runner" } as Task, env.opts()))!;
+    assert.equal(run.outcome, "merged");
+    assert.ok(n >= 2, "the gate failure sent the session back");
+    assert.equal(git(env.repo, "log", "-1", "--format=%s", "main"), want);
+  }
 });
 
 test("a queue paused while the gates run merges nothing", async () => {

@@ -80,8 +80,10 @@ the start of this session has the task, its plan, the conventions for its layers
   again with a timeout (e.g. \`-x\` and a per-test timeout) to find what hangs, and fix that.
 - Nobody will answer questions. If something is truly ambiguous, choose the option most consistent
   with the plan and the conventions, and say so in your final message.
-- When done, end your turn with a short summary. The gate hook then runs every gate and may send you
-  back with a failure (a retry): fix the cause, not the symptom.`;
+- When done, end your turn with a short summary and, as its last line, \`Commit: <subject>\`: the
+  commit subject in Conventional Commits style without the scope (e.g. \`Commit: feat: count clicks per link\`),
+  in the language of the project's code and commits, not the \`language\` setting. The gate hook then runs
+  every gate and may send you back with a failure (a retry): fix the cause, not the symptom.`;
 
 const SHELL_RULE: Record<"allowlist" | "auto", string> = {
   allowlist: `Create and change files only with the Write and Edit tools. The shell is for running things: the
@@ -288,6 +290,7 @@ export async function implement(task: Task, worktree: string, base: string, opts
   let cost = 0;
   let stop = "";
   let lastPauseCheck = 0;
+  let commitSubject: string | undefined;
   try {
    await withSessionProcess(async (spawnClaudeCodeProcess) => {
     const q = (opts.seams?.query ?? query)({
@@ -335,6 +338,10 @@ export async function implement(task: Task, worktree: string, base: string, opts
       if (msg.type === "result") {
         cost = msg.total_cost_usd;
         if (msg.subtype !== "success") stop ||= msg.subtype;
+        else {
+          const lines = [...(msg.result ?? "").matchAll(/^Commit:\s*(.+)$/gm)];
+          if (lines.length) commitSubject = lines[lines.length - 1][1];
+        }
       }
     }
    }, opts.log);
@@ -344,7 +351,7 @@ export async function implement(task: Task, worktree: string, base: string, opts
   } finally {
     clearTimeout(timer);
   }
-  return { sessionId, tokens, cost, stop };
+  return { sessionId, tokens, cost, stop, commitSubject } as { sessionId: string; tokens: number; cost: number; stop: string; commitSubject?: string };
 }
 
 /** The docs agent keeps the living docs true to main after each delivery. A failure does not undo the
@@ -560,11 +567,11 @@ async function replayJournal(opts: RunOptions): Promise<void> {
 }
 
 /** How the task is delivered as a pull request, or undefined while the project merges by fast-forward. */
-function prDelivery(task: Task, cfg: GateConfig["config"], opts: RunOptions): PrDelivery | undefined {
+function prDelivery(task: Task, cfg: GateConfig["config"], opts: RunOptions, subject?: string): PrDelivery | undefined {
   if (cfg.merge?.mode !== "pr") return undefined;
   return {
     mode: cfg.merge.pr, gh: opts.seams?.gh ?? realGh, log: opts.log,
-    title: commitMessage(task).split("\n")[0],
+    title: commitMessage(task, subject).split("\n")[0],
     body: `Task #${task.id}: ${CONTEXT_URL}/ui/p/${opts.project}/documents/${task.id}\n\nPlan: #${task.body.plan_id}`,
   };
 }
@@ -873,7 +880,9 @@ export async function runTask(task: Task, opts: RunOptions): Promise<Run | undef
 
   // Gates, then the reviewer; blocking findings send the implementer back to the same session.
   const retry = async (prompt: string) => {
+    const earlier = result.commitSubject;
     result = await implement(task, worktree, base, opts, { sessionId: result.sessionId || run.session_id || "", prompt });
+    result.commitSubject ??= earlier; // a retry that says nothing keeps the subject already given
     run.tokens = (run.tokens ?? 0) + result.tokens;
     run.cost_usd = (run.cost_usd ?? 0) + result.cost;
   };
@@ -908,7 +917,7 @@ export async function runTask(task: Task, opts: RunOptions): Promise<Run | undef
     throw e;
   }
   if (!failure && (await isPaused())) return pauseTask(); // before the handoff: a paused session is not finished
-  const pr = prDelivery(task, cfg, opts);
+  const pr = prDelivery(task, cfg, opts, result.commitSubject);
   // On the way to a fast-forward the handoff is written while integrate's gates run; elsewhere it comes first.
   const alongGates = !failure && !!result.sessionId && !task.body.hold_before_merge && !pr;
   const handoff = async (since?: string) => {
@@ -926,7 +935,7 @@ export async function runTask(task: Task, opts: RunOptions): Promise<Run | undef
   }
   if (failure) return block(failure);
   if (await isPaused()) return pauseTask(); // last look before the commit and the merge
-  execFileSync("git", ["commit", "-q", "-F", "-"], { cwd: worktree, input: commitMessage(task), env: sessionEnv() });
+  execFileSync("git", ["commit", "-q", "-F", "-"], { cwd: worktree, input: commitMessage(task, result.commitSubject), env: sessionEnv() });
 
   run.duration_s = Math.round((Date.now() - started) / 1000);
   measureSize(run, worktree, base, cfg.task_size?.max_lines, task.id, opts);
