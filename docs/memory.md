@@ -137,7 +137,7 @@ memory already shaped for their job:
 | briefing (SessionStart) | the task, its plan, the conventions of its layers, earlier friction, preflight notes | every session |
 | `conventions_get` | the rules of the layers a change touches | plan, implementer, reviewer |
 | `history_get` | what went off plan before on the same subject: skipped items, deviations and who judged them (`judged_by`: a triage backend or `human`, with the `verdict`), reviewer blocks, fixes, blocked tasks | plan, preflight |
-| `insights_get` | adherence, gate failures, retries, friction grouped by meaning, advisory review findings, triage verdicts and what happened next, and `convention_effects`: per active convention, findings and friction before and after its adoption (`findings_before/after`, `friction_before/after`, `tasks_after`) and `holding` (true, false, or null when too little history) | retro |
+| `insights_get` | adherence, gate failures, retries, friction grouped by meaning, advisory review findings, `open_debt` (medium and low findings merged tasks left), triage verdicts and what happened next, and `convention_effects`: per active convention, findings and friction before and after its adoption (`findings_before/after`, `friction_before/after`, `tasks_after`) and `holding` (true, false, or null when too little history) | retro |
 | `plan_get`, `plan_list`, `gate_config_get` | plans and the gates that will judge the work | plan, preflight |
 
 ## How it learns

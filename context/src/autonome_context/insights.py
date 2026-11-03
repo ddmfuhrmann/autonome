@@ -184,6 +184,14 @@ async def build(conn: AsyncConnection, project: str, embedder: Embedder, limit: 
                 for t in tasks for r in (t["body"].get("runs") or [])[-1:]
                 for f in ((r.get("reviews") or [r.get("review") or {}])[-1]).get("findings", [])
                 if f.get("severity") != "high"]
+    # What merged as it was: the medium and low findings of a merged task's last round. Loose ends keep
+    # only the medium ones for the human; the low ones would otherwise be nobody's (gastos: 64 merged).
+    open_debt = [{"task_id": t["id"], "plan_id": t["body"].get("plan_id"), "wave_id": t["body"].get("wave_id"),
+                  "feature": t["feature"], "severity": f["severity"], "kind": f.get("kind"), "file": f.get("file"),
+                  "issue": f["issue"][:300]}
+                 for t in tasks if t["status"] == "done" for r in runs_of(t)[-1:] if not r.get("satisfied_by")
+                 for f in ((r.get("reviews") or [r.get("review") or {}])[-1]).get("findings", [])
+                 if f.get("severity") in ("medium", "low")]
     loose_ends = [{"task_id": t["id"], "title": t["body"]["title"], "feature": t["feature"],
                    "loose_ends": t["body"]["after_merge_review"]["loose_ends"]}
                   for t in tasks if (t["body"].get("after_merge_review") or {}).get("status") == "pending"
@@ -223,6 +231,7 @@ async def build(conn: AsyncConnection, project: str, embedder: Embedder, limit: 
                   # implementer and reviewer are the task's runs above; every other role is recorded apart
                   "other_roles": await store.spend_by_role(conn, project)},
         "loose_ends": loose_ends,
+        "open_debt": open_debt[:120],  # newest first
         "already_satisfied": already_satisfied,
         "heavy_conventions": heavy,
         "convention_effects": await _convention_effects(conventions, tasks, friction, embedder),

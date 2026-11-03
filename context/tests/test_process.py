@@ -181,6 +181,34 @@ def test_insights_keep_the_reviewers_advisory_findings_for_the_retro_loop(run_db
         ("links", "missing", "control characters accepted")]
 
 
+def test_open_debt_keeps_what_merged_tasks_left_low_or_medium(run_db, project, indexer):
+    from autonome_context import insights
+
+    def task(status, *findings, **run):
+        return {"title": "t", "spec": "s", "plan_id": 7, "wave_id": 3,
+                "runs": [{"reviews": [{"findings": [{"kind": "missing", "severity": "low", "issue": "earlier round"}]},
+                                      {"findings": list(findings)}], **run}]}
+
+    low = {"kind": "missing", "severity": "low", "file": "a.py", "issue": "still no test of the 500 log"}
+    medium = {"kind": "diverges", "severity": "medium", "issue": "duplicated helper"}
+    high = {"kind": "diverges", "severity": "high", "issue": "blocked one"}
+
+    async def go(conn):
+        async with conn.transaction():
+            await add_feature(conn, project, "links")
+            done = await store.create_document(conn, indexer, project=project, type="task", status="done",
+                                               feature="links", body=task("done", low, medium, high))
+            for status, run in [("blocked", {}), ("done", {"satisfied_by": "abc123"})]:
+                await store.create_document(conn, indexer, project=project, type="task", status=status,
+                                            feature="links", body=task(status, low, **run))
+        return done, await insights.build(conn, project, indexer.embedder)
+
+    done, i = run_db(go)
+    assert [(d["task_id"], d["plan_id"], d["wave_id"], d["severity"], d["file"], d["issue"]) for d in i["open_debt"]] == [
+        (done, 7, 3, "low", "a.py", "still no test of the 500 log"),
+        (done, 7, 3, "medium", None, "duplicated helper")]
+
+
 def _run(at: str, *issues: str, old_shape: bool = False) -> dict:
     review = {"verdict": "pass", "findings": [{"kind": "missing", "severity": "medium", "issue": i} for i in issues]}
     return {"at": at, **({"review": review} if old_shape else {"reviews": [{"findings": []}, review]})}
