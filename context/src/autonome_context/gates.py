@@ -144,13 +144,13 @@ class RoleModel(_Strict):
 
 
 # Who does what, on which model and with how much thinking. The preflight is measured with
-# `autonome bench` (docs/benchmarks/models.md); the reviewer is on Sonnet by the human's choice; the other roles are still a guess.
+# `autonome bench` and the retro with the skill evals (docs/benchmarks/models.md); the reviewer is on Sonnet by the human's choice; the other roles are still a guess.
 DEFAULT_MODELS: dict[str, RoleModel] = {
     "implementer": RoleModel(model="sonnet", effort="medium"),
     "reviewer": RoleModel(model="sonnet", effort="medium"),
     "preflight": RoleModel(model="haiku", effort="low"),
     "tester": RoleModel(model="sonnet", effort="medium"),
-    "retro": RoleModel(model="sonnet", effort="medium"),
+    "retro": RoleModel(model="haiku", effort="medium"),
     "handoff": RoleModel(model="sonnet", effort="low"),
     "docs": RoleModel(model="sonnet", effort="low"),
     "simplifier": RoleModel(model="haiku", effort="low"),

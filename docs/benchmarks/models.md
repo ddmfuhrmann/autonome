@@ -61,3 +61,33 @@ briefing did not carry the plan's `context`, where the API shape was written. Wi
 Haiku finds it every time. Since 0.11.0 the briefing carries the plan's context (capped at 3,000
 characters). The human chose Sonnet medium as the reviewer's default; a project can still
 lower it to Haiku low in `models`. Preflight stays on Haiku low.
+
+## 2026-11-03, after shortlink v10: room to cut cost
+
+`autonome bench --configs haiku:low,sonnet:low,sonnet:medium --runs 1` ($1.39 in all) and the skill
+evals on Haiku and Sonnet (`claude plugin eval plugin --case 'retro-*' | 'handoff-*' --ablation none`).
+One or two runs per case: a direction, not a verdict.
+
+| Case | haiku:low | sonnet:low | sonnet:medium |
+|---|---|---|---|
+| reviewer/post-links | 1.00, $0.009, 13 s | 1.00, $0.165, 10 s | 1.00, $0.053, 10 s |
+| reviewer/raw-500 | 1.00, $0.008, 30 s | **0.00**, $0.061, 7 s | 1.00, $0.081, 11 s |
+| reviewer/invented-api | 1.00, $0.008, 19 s | 1.00, $0.087, 8 s | 1.00, $0.118, 16 s |
+| preflight/plan-16 | 1.00, $0.014, 26 s | 1.00, $0.203, 23 s | **0.00** (ready), $0.106, 20 s |
+| implementer/permissions | 1.00, $0.012, 38 s | 1.00, $0.190, 36 s | 1.00, $0.239, 38 s |
+
+| Skill evals (1 run retro, 2 runs handoff) | Haiku | Sonnet |
+|---|---|---|
+| retro (5 cases) | 0.80, ~$0.007 a case, 12–38 s | 0.50, ~$0.077 a case, 11–29 s |
+| handoff (5 cases) | 0.78, ~$0.004 a case; misses `real-decisions`, leaks a CPF once | 1.00, ~$0.044 a case, 8–14 s |
+
+- **Reviewer**: Haiku low finds everything at a tenth of the cost, but takes longer (13–30 s against
+  10–16 s), and the reviewer is a third of a task's time (shortlink-v10: implementer 63%, reviewer
+  32%, gates 4%). Sonnet low misses the raw 500: never below medium for Sonnet.
+- **Preflight**: Haiku low stays. Sonnet medium called plan-16 ready; a stronger model is not what
+  the preflight lacks. The shortlink-v9 miss (an indirect import through `links.application`) is not
+  a bench case yet.
+- **Retro**: Haiku scored as well or better at a tenth of the cost; since this run it is the default
+  (`models.retro: haiku medium`).
+  `retro-one-remedy-per-problem` fails on both: the skill, not the model.
+- **Handoff**: stays on Sonnet. Haiku misses decisions and once let a CPF through.

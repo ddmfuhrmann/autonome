@@ -131,7 +131,7 @@ models:
   reviewer:    {model: sonnet, effort: medium}   # reviews each diff
   preflight:   {model: haiku,  effort: low}      # checks a waiting plan against the code and the gates
   tester:      {model: sonnet, effort: medium}   # tries a finished feature in the smoke test
-  retro:       {model: sonnet, effort: medium}   # learns from a finished wave
+  retro:       {model: haiku,  effort: medium}   # learns from a finished wave
   handoff:     {model: sonnet, effort: low}      # writes each session's handoff
   docs:        {model: sonnet, effort: low}      # keeps the living docs
   staff:       {model: opus,   effort: high}     # senior agent, once per attempt, before a task blocks (see operations)
