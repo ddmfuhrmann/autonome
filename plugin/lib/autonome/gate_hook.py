@@ -24,10 +24,22 @@ class Outcome:
 
 
 @dataclass
+class Skipped:
+    """A gate that did not run, and why; never a failure and never recorded as a gate run."""
+    gate: str
+    reason: str
+
+
+@dataclass
 class Verdict:
     status: str  # green | failing | blocked | skipped
     message: str = ""
     outcomes: list[Outcome] = field(default_factory=list)
+    skipped: list[Skipped] = field(default_factory=list)
+
+
+def skipped_line(s: Skipped) -> str:
+    return f"{s.gate}  ({s.reason})"
 
 
 def repo_root(cwd: str) -> str:
@@ -73,10 +85,27 @@ def _untracked(cwd: str) -> set[str]:
     return set(filter(None, common.git(cwd, "ls-files", "--others", "--exclude-standard").splitlines()))
 
 
-def run_gates(cwd: str, config: dict, files: list[str], only_fast: bool = False) -> list[Outcome]:
-    outcomes = []
+def skip_reason(gate: dict, files: list[str], only_fast: bool) -> str | None:
+    if only_fast and not gate.get("fast"):
+        return "not fast"
+    if not applies(gate, files):
+        return f"when: no changed file matches {', '.join(gate['when'])}"
+    return None
+
+
+def run_gates(
+    cwd: str, config: dict, files: list[str], only_fast: bool = False,
+) -> tuple[list[Outcome], list[Skipped]]:
+    """The outcomes of the gates that ran, and the gates that did not with the reason."""
+    outcomes: list[Outcome] = []
+    skipped: list[Skipped] = []
+    failed = False
     for gate in config.get("gates", []):
-        if (only_fast and not gate.get("fast")) or not applies(gate, files):
+        reason = skip_reason(gate, files, only_fast)
+        if reason is None and failed:
+            reason = "not run: an earlier gate failed"
+        if reason:
+            skipped.append(Skipped(gate["name"], reason))
             continue
         start = time.monotonic()
         before = _untracked(cwd)
@@ -93,9 +122,8 @@ def run_gates(cwd: str, config: dict, files: list[str], only_fast: bool = False)
         passed = ok or mode == "fix"
         outcomes.append(Outcome(gate["name"], passed, int((time.monotonic() - start) * 1000), output,
                                 None if passed else signature(gate["name"], output), mode))
-        if not passed:
-            break  # cheapest first: no point paying for the rest
-    return outcomes
+        failed = not passed  # cheapest first: no point paying for the rest
+    return outcomes, skipped
 
 
 def _state_path(session_id: str) -> Path:
@@ -124,7 +152,7 @@ def check(
     if not files or fp == state.get("green_fingerprint"):
         return Verdict("skipped" if not files else "green", "nothing new to check")
 
-    outcomes = run_gates(cwd, config, files)
+    outcomes, skipped = run_gates(cwd, config, files)
     fp = fingerprint(cwd, base)  # fix-mode gates may have changed the tree
     if record and outcomes:
         try:
@@ -139,7 +167,7 @@ def check(
     failed = next((o for o in outcomes if not o.passed), None)
     if not failed:
         save_state(session_id, {"status": "green", "green_fingerprint": fp, "attempts": 0})
-        return Verdict("green", f"{len(outcomes)} gates passed", outcomes)
+        return Verdict("green", f"{len(outcomes)} gates passed", outcomes, skipped)
 
     retries = config.get("retries") or {}
     attempts = state.get("attempts", 0)
@@ -149,15 +177,18 @@ def check(
         save_state(session_id, {**state, "status": "blocked", "reason": f"{failed.gate}: {reason}",
                                 "last_signature": failed.signature})
         return Verdict("blocked", f"Gate '{failed.gate}' still failing ({reason}). Stopping; the task is blocked.",
-                       outcomes)
+                       outcomes, skipped)
 
     save_state(session_id, {"status": "failing", "attempts": attempts + 1, "last_signature": failed.signature})
     tail = "\n".join(failed.output.strip().splitlines()[-60:])
+    note = "".join(f"\nSKIP  {skipped_line(s)}" for s in skipped)
     return Verdict(
         "failing",
         f"Gate hook: gate '{failed.gate}' failed (retry {attempts + 1}/{retries.get('max', 3)}). "
-        f"Fix the cause, then finish again. Do not weaken or skip the gate.\n\n{tail}",
+        f"Fix the cause, then finish again. Do not weaken or skip the gate.\n\n{tail}"
+        + (f"\n{note}" if note else ""),
         outcomes,
+        skipped,
     )
 
 

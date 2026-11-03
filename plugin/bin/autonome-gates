@@ -34,16 +34,19 @@ def main() -> int:
     if args.all_files:
         config = {**config, "gates": [{**g, "when": []} for g in config.get("gates", [])]}
     files = gate_hook.changed_files(cwd, args.base)
-    outcomes = gate_hook.run_gates(cwd, config, files, only_fast=args.fast)
+    outcomes, skipped = gate_hook.run_gates(cwd, config, files, only_fast=args.fast)
     ok = all(o.passed for o in outcomes)
     if args.json:
         print(json.dumps({"passed": ok, "config_version": fetched["version"],
-                          "outcomes": [asdict(o) for o in outcomes]}))
+                          "outcomes": [asdict(o) for o in outcomes],
+                          "skipped": [asdict(s) for s in skipped]}))
     else:
         for o in outcomes:
             print(f"{'PASS' if o.passed else 'FAIL'}  {o.gate}  ({o.duration_ms} ms)")
             if not o.passed:
                 print("\n".join(o.output.strip().splitlines()[-60:]))
+        for s in skipped:
+            print(f"SKIP  {gate_hook.skipped_line(s)}")
         if not outcomes:
             print("no gate applies to the changed files")
     return 0 if ok else 1
