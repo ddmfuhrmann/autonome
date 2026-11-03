@@ -24,6 +24,7 @@ All take `project` (the project slug) unless noted. Ids are document ids.
 | `conventions_get` | `project`, `layers?` | active conventions for those layers (all when omitted): id, title, layers, rule |
 | `insights_get` | `project` | how the process is going: adherence, plan items changed or skipped, gate failure rates, repeated failures, retries (failed gates and review rounds after the first), blocked tasks, reviewer findings, loose ends still open, tokens and cost with the costliest tasks, conventions heavier than a quarter of the briefing, friction clusters |
 | `gate_config_get` | `project` | `{version, config, pending}`: the gate config (null version when none is saved) and the gates approved plans will add |
+| `settings_propose` | `project`, `yaml`, `note?` | keeps a proposed gate config on the project (a new one replaces the previous; `note` up to 500 characters without control characters, `yaml` up to 64 KB). It is validated like a Settings save and is never the gate config: only the human turns it into a version, in the Settings. Returns `{ok, review_at}`, or `{error, problems}` and nothing is saved |
 
 ### Planning
 

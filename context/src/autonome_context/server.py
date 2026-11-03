@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field, ValidationError
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from . import api, backlog, evaluation, history, imports, insights, plans, rules, services, store, web
+from . import api, backlog, evaluation, history, imports, insights, plans, rules, services, settings_proposal, store, web
 from .chunking import DEFAULT_STRATEGY, STRATEGIES
 from .handoff import Handoff
 from .migrate import migrate
@@ -71,6 +71,22 @@ async def gate_config_get(project: Annotated[str, Field(description="Project slu
     pool, _ = await services.get()
     async with pool.connection() as conn:
         return await api.gate_config_body(conn, project)
+
+
+@mcp.tool()
+async def settings_propose(
+    project: Annotated[str, Field(description="Project slug")],
+    yaml: Annotated[str, Field(description="The proposed gate config, as YAML (at most 64 KB)")],
+    note: Annotated[str, Field(description="Why these settings, for the human reviewing them (at most 500 characters)")] = "",
+) -> dict:
+    """Propose the project's settings. The proposal is kept apart from the gate config: only the human
+    turns it into a version, reviewing it in the Settings. A new proposal replaces the previous one."""
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        result = await settings_proposal.propose(conn, project, yaml, note)
+    if "error" in result:
+        return result
+    return {"ok": True, "review_at": f"{services.settings.public_url}/ui/p/{project}/settings/proposal"}
 
 
 @mcp.tool()

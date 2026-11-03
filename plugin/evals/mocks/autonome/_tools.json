@@ -376,6 +376,36 @@
       }
     },
     {
+      "name": "settings_propose",
+      "description": "Propose the project's settings. The proposal is kept apart from the gate config: only the human\nturns it into a version, reviewing it in the Settings. A new proposal replaces the previous one.",
+      "inputSchema": {
+        "properties": {
+          "project": {
+            "description": "Project slug",
+            "title": "Project",
+            "type": "string"
+          },
+          "yaml": {
+            "description": "The proposed gate config, as YAML (at most 64 KB)",
+            "title": "Yaml",
+            "type": "string"
+          },
+          "note": {
+            "default": "",
+            "description": "Why these settings, for the human reviewing them (at most 500 characters)",
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project",
+          "yaml"
+        ],
+        "title": "settings_proposeArguments",
+        "type": "object"
+      }
+    },
+    {
       "name": "features_get",
       "description": "The project's feature catalog: slug, description, code paths and last_activity of each feature.\nA feature is a stable capability of the product, not the change being made. Read it before\nplanning and pick the feature whose paths fit the work (the most specific wins).",
       "inputSchema": {
