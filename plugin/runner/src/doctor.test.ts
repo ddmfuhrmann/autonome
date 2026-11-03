@@ -67,8 +67,14 @@ const gatesCheck = async (gateConfig: unknown) => {
   return (await doctor("p", repo())).find((c) => c.name === "gates")!;
 };
 
-test("greenfield: no gates configured and none pending from a plan still fails", async () => {
+test("no saved config and none pending from a plan fails and points to the init", async () => {
   const c = await gatesCheck({ version: null, config: { gates: [] }, pending: [] });
+  assert.equal(c.ok, false);
+  assert.match(c.detail, /no settings yet → run \/autonome:init in Claude Code/);
+});
+
+test("a saved config with no gates still says to add them in the UI", async () => {
+  const c = await gatesCheck({ version: 1, config: { gates: [] }, pending: [] });
   assert.equal(c.ok, false);
   assert.match(c.detail, /no gates configured → add them in the UI/);
 });

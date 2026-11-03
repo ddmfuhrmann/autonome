@@ -41,6 +41,11 @@ Before asking the user anything:
 - Read the code the change will touch. If it is not in the working directory, say so in one line
   and go on from the memory; where the code lives is not a question to ask now.
 
+When `gate_config_get` comes back with `version` null (the project has no saved config), your first
+message says in one line why (without gates, a feature catalog and conventions the plan comes out
+fragile) and asks whether to run `/autonome:init` first. Do not call `plan_draft` before the answer.
+If the user declines, plan as usual.
+
 Make every one of these calls, `gate_config_get` included, even when the request looks clear or the
 user says not to ask anything: they are reads, not questions, and the plan depends on them.
 

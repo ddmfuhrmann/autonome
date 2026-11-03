@@ -96,7 +96,8 @@ export async function doctor(project: string, repo: string, seams: { query?: Mod
     const missing = [...new Set(commands)]
       .filter((cmd) => cmd && spawnSync("sh", ["-c", `command -v ${JSON.stringify(cmd)}`], { cwd: repo, env: sessionEnv() }).status !== 0);
     add("gates", all.length > 0 && missing.length === 0,
-      all.length === 0 ? "no gates configured → add them in the UI (Config)"
+      all.length === 0 ? (got.version === null ? "no settings yet → run /autonome:init in Claude Code"
+        : "no gates configured → add them in the UI (Config)")
         : missing.length ? `not found in ${repo}: ${missing.join(", ")} → install them or fix the gate command`
           : configured.length ? `${configured.map((g) => g.name).join(", ")}: commands found` +
               (pending.length ? `; ${pending.length} more pending from approved plans` : "")
