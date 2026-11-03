@@ -18,7 +18,9 @@ below are the same; section 5 says what changes.
 
 ## 1. Learn what the project already knows
 
-Before asking the user anything:
+Before asking the user anything, make the reads below **in one message, as parallel tool calls**
+(none needs another's result), and call each once. Every turn of this conversation re-reads all that
+came before it, so a read spread over many turns, or repeated, costs many times over:
 
 - `search` the idea in plain words, then again with the exact names involved (classes, endpoints).
   Look for earlier decisions, handoffs of related work, and their **friction** and **deviations**.
@@ -38,8 +40,18 @@ Before asking the user anything:
 - `gate_config_get`: the gates that will judge the work, and `language`: when it is set, write the
   plan's text (title, goal, context, specs, acceptance, design, discussion) and your messages in it;
   code, identifiers, paths, commands and JSON keys stay as they are.
-- Read the code the change will touch. If it is not in the working directory, say so in one line
-  and go on from the memory; where the code lives is not a question to ask now.
+- Learn the code the change will touch through one `Explore` subagent (the `Agent` tool), in the
+  same message: name the idea and the paths from the catalog, and ask for the files involved, the
+  names and signatures the tasks will use, how the code does the same kind of thing today, and the
+  tests around it, as a short summary with paths. Do not read or grep the code yourself to get
+  there: what you read stays in this conversation for every later turn, the subagent's reading does
+  not. Read a file yourself only for a detail the summary leaves out and a task needs exactly. When
+  the `Agent` tool is not available, read only the files the tasks will name. If the code is not in
+  the working directory, say so in one line and go on from the memory; where the code lives is not
+  a question to ask now.
+
+When drafting, reuse what these reads returned; call one again only when the conversation changed
+what to look for (a new name, another feature).
 
 When `gate_config_get` comes back with `version` null (the project has no saved config), your first
 message says in one line why (without gates, a feature catalog and conventions the plan comes out
