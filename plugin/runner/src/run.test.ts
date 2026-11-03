@@ -382,14 +382,18 @@ function wipEnv(commitWip?: RunOptions["seams"] extends infer S ? (S extends { c
   git(repo, "add", ".");
   git(repo, "commit", "-qm", "init");
   const transitions: { to: string; run?: Run }[] = [];
+  const order: string[] = []; // what happened, in order, for the tests of the merge sequence
+  let paused: unknown = null;
+  let triage: unknown;
   const json = (b: unknown) => new Response(JSON.stringify(b), { headers: { "content-type": "application/json" } });
   globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     if (url.endsWith("/gate-config")) {
       return json({ config: { gates: [], retries: { max: 1 }, review: { enabled: false, max_rounds: 1 }, smoke_test: null, models: {},
-        budget: { task_minutes: 5, task_tokens: 1e9, plan_tokens: 1e9 } } });
+        triage, budget: { task_minutes: 5, task_tokens: 1e9, plan_tokens: 1e9 } } });
     }
-    if (url.endsWith("/state")) return json({ paused: null });
+    if (url.endsWith("/triage")) { order.push("triage"); return json({ deviations: [] }); }
+    if (url.endsWith("/state")) return json({ paused });
     if (url.includes("/transition")) transitions.push(JSON.parse(String(init?.body)));
     return json({ status: "ok" });
   };
@@ -402,6 +406,7 @@ function wipEnv(commitWip?: RunOptions["seams"] extends infer S ? (S extends { c
       status: git(args.options.cwd, "status", "--porcelain") });
     for (const [f, text] of Object.entries(files)) writeFileSync(join(args.options.cwd, f), text);
     return (async function* () {
+      yield { type: "system", subtype: "init", session_id: "s-fake" };
       if (fail) throw new Error(fail);
       if (stop) yield { type: "result", subtype: stop, total_cost_usd: 0 };
     })();
@@ -417,7 +422,8 @@ function wipEnv(commitWip?: RunOptions["seams"] extends infer S ? (S extends { c
     try { git(repo, "rev-parse", "--verify", `refs/heads/${branch}`); return true; } catch { return false; }
   };
   const mainHasWip = () => git(repo, "log", "main", "--format=%s").split("\n").some((s) => s.startsWith("wip("));
-  return { repo, transitions, prompts, seen, mk, exists, mainHasWip, opts,
+  return { repo, transitions, prompts, seen, mk, exists, mainHasWip, opts, order,
+    pause: () => { paused = { by: "test" }; }, withTriage: () => { triage = { model: "haiku", reject_at: 0.7, max_rounds: 1 }; },
     next: (q: ReturnType<typeof session>) => { query = q; },
     gates: (g: JudgeSeams["gates"]) => { gatesFn = g; }, session };
 }
@@ -546,4 +552,122 @@ test("a task without a WIP starts with the plain prompt", async () => {
   const env = wipEnv();
   await runTask(env.mk([{ at: "", branch: "x", worktree: "", base: "", outcome: "blocked", reason: "r" }]), env.opts());
   assert.equal(env.prompts[0], "Run task #5: t. Read the briefing, then implement it.");
+});
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const passing = { passed: true, summary: "all gates passed", outcomes: [] };
+
+/** The ff to main shows as main's sha moving; `order` has the rest. */
+function mainSha(repo: string) { return git(repo, "rev-parse", "main"); }
+
+test("the handoff is written while the gates run on top of main: the time is the longer of the two, not the sum", async () => {
+  const env = wipEnv();
+  env.next(env.session({ "b.txt": "b\n" }));
+  let gateCalls = 0;
+  env.gates(async () => { if (++gateCalls === 1) return passing; await sleep(800); return passing; });
+  const opts = env.opts();
+  opts.seams!.handoff = async () => { await sleep(800); };
+  const t0 = Date.now();
+  const run = (await runTask(env.mk(), opts))!;
+  const ms = Date.now() - t0;
+  assert.equal(run.outcome, "merged");
+  assert.ok(ms < 1400, `took ${ms} ms; the gates and the handoff should overlap`);
+});
+
+test("main only moves after the handoff and the triage", async () => {
+  const env = wipEnv();
+  env.withTriage();
+  env.next(env.session({ "b.txt": "b\n" }));
+  env.gates(() => passing);
+  const before = mainSha(env.repo);
+  const opts = env.opts();
+  opts.seams!.handoff = async () => {
+    await sleep(100);
+    env.order.push(`handoff (main at ${mainSha(env.repo) === before ? "base" : "moved"})`);
+  };
+  const run = (await runTask(env.mk(), opts))!;
+  assert.equal(run.outcome, "merged");
+  assert.deepEqual(env.order.slice(-2), ["handoff (main at base)", "triage"]);
+  assert.notEqual(mainSha(env.repo), before);
+});
+
+test("a queue paused while the gates run merges nothing", async () => {
+  const env = wipEnv();
+  env.next(env.session({ "b.txt": "b\n" }));
+  let gateCalls = 0;
+  env.gates(() => { if (++gateCalls === 2) env.pause(); return passing; }); // the 2nd run is integrate's
+  const before = mainSha(env.repo);
+  const run = (await runTask(env.mk(), env.opts()))!;
+  assert.equal(run.outcome, "paused");
+  assert.equal(mainSha(env.repo), before);
+});
+
+test("gates failing on top of main block the task only after the handoff finished", async () => {
+  const env = wipEnv();
+  env.next(env.session({ "b.txt": "b\n" }));
+  let gateCalls = 0;
+  env.gates(() => (++gateCalls === 1 ? passing : { passed: false, summary: "gates failed on top of main", outcomes: [] }));
+  let handoffDone = false;
+  const opts = env.opts();
+  opts.seams!.handoff = async () => { await sleep(150); handoffDone = true; };
+  const before = mainSha(env.repo);
+  const run = (await runTask(env.mk(), opts))!;
+  assert.equal(run.outcome, "blocked");
+  assert.match(run.reason!, /gates failed on top of main/);
+  assert.ok(handoffDone);
+  assert.equal(mainSha(env.repo), before);
+});
+
+test("the handoff gets the task's diff: the task's files and nothing from main", async () => {
+  const env = wipEnv();
+  const work = env.session({ "b.txt": "b\n" });
+  env.next(((args: any) => { // main moves while the session runs, so the branch is rebased
+    writeFileSync(join(env.repo, "m.txt"), "m\n");
+    git(env.repo, "add", "m.txt");
+    git(env.repo, "commit", "-qm", "main moved");
+    return work(args);
+  }) as never);
+  env.gates(() => passing);
+  const opts = env.opts();
+  let seen: { base?: string; files?: string } = {};
+  opts.seams!.handoff = async (_s, cwd, _t, _p, _l, base) => {
+    seen = { base, files: git(cwd, "diff", "--name-only", `${base}..HEAD`) };
+  };
+  const run = (await runTask(env.mk(), opts))!;
+  assert.equal(run.outcome, "merged");
+  assert.equal(seen.files, "b.txt");
+  assert.notEqual(seen.base, run.base);
+});
+
+test("a task that conflicts with main still gets its handoff, from where the branch leaves main", async () => {
+  const env = wipEnv();
+  env.withTriage();
+  const work = env.session({ "a.txt": "mine\n" });
+  env.next(((args: any) => { // main edits the same file while the session runs
+    writeFileSync(join(env.repo, "a.txt"), "theirs\n");
+    git(env.repo, "commit", "-qam", "main moved");
+    return work(args);
+  }) as never);
+  env.gates(() => passing);
+  const opts = env.opts();
+  let handedOff = false;
+  opts.seams!.handoff = async () => { handedOff = true; };
+  const run = (await runTask(env.mk(), opts))!;
+  assert.equal(run.outcome, "blocked");
+  assert.match(run.reason!, /conflicts with main/);
+  assert.ok(handedOff);
+  assert.equal(env.order.at(-1), "triage");
+});
+
+test("a handoff that throws is only logged: the gates and the merge go on", async () => {
+  const env = wipEnv();
+  env.next(env.session({ "b.txt": "b\n" }));
+  env.gates(() => passing);
+  const opts = env.opts();
+  const logs: string[] = [];
+  opts.log = (l) => { logs.push(l); };
+  opts.seams!.handoff = async () => { throw new Error("boom"); };
+  const run = (await runTask(env.mk(), opts))!;
+  assert.equal(run.outcome, "merged");
+  assert.ok(logs.some((l) => l.includes("handoff failed: Error: boom")));
 });

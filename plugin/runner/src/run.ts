@@ -46,7 +46,7 @@ export interface RunOptions {
   events?: EventStream;
   /** Tests replace the agent sessions and Jev's API with fakes. */
   seams?: { query?: typeof query; preflight?: typeof preflight; ask?: typeof askJev; runTask?: (task: Task, opts: RunOptions) => Promise<Run | undefined>;
-    gates?: JudgeSeams["gates"]; review?: typeof review; commitWip?: typeof commitWip; codeLines?: typeof codeLines;
+    gates?: JudgeSeams["gates"]; handoff?: typeof writeHandoff; review?: typeof review; commitWip?: typeof commitWip; codeLines?: typeof codeLines;
     gh?: Gh; docs?: (repo: string, project: string, args: string[], log: RunOptions["log"], signal?: AbortSignal) => void | Promise<void> };
   /** The background docs of this run; made on first use. */
   docsQueue?: DocsQueue;
@@ -254,15 +254,23 @@ function transcriptPath(sessionId: string): string | null {
 }
 
 /** The handoff writer: a separate agent writes the handoff of the session, linked to the task. */
-function writeHandoff(sessionId: string, cwd: string, taskId: number, project: string, log: RunOptions["log"]): void {
+async function writeHandoff(sessionId: string, cwd: string, taskId: number, project: string, log: RunOptions["log"],
+  base?: string): Promise<void> {
   const transcript = transcriptPath(sessionId);
   if (!transcript) return log(`  no transcript found for ${sessionId}; skipping handoff`);
   const dir = join(AUTONOME_HOME, "logs");
   mkdirSync(dir, { recursive: true });
   const payload = join(dir, `run-${sessionId}.json`);
-  writeFileSync(payload, JSON.stringify({ session_id: sessionId, transcript_path: transcript, cwd, task_id: taskId }));
-  const r = spawnSync("python3", [join(PLUGIN_ROOT, "hooks", "write_handoff.py"), payload], {
-    cwd, encoding: "utf8", env: sessionEnv({ AUTONOME_PROJECT: project }) });
+  writeFileSync(payload, JSON.stringify({ session_id: sessionId, transcript_path: transcript, cwd, task_id: taskId, base }));
+  // A child process, not spawnSync: the gates run on this thread while the handoff is written.
+  const r = await new Promise<{ status: number | null; stderr: string }>((resolve) => {
+    const child = spawn("python3", [join(PLUGIN_ROOT, "hooks", "write_handoff.py"), payload], {
+      cwd, env: sessionEnv({ AUTONOME_PROJECT: project }), stdio: ["ignore", "ignore", "pipe"] });
+    let stderr = "";
+    child.stderr.on("data", (d) => { stderr = (stderr + d).slice(-2000); });
+    child.on("error", (e) => resolve({ status: null, stderr: String(e) }));
+    child.on("close", (status) => resolve({ status, stderr }));
+  });
   log(r.status === 0 ? `  handoff written` : `  handoff failed: ${r.stderr.slice(-500)}`);
 }
 
@@ -464,13 +472,27 @@ interface Integrated {
 
 /** Rebase the task's branch on main, re-check the gates, and fast-forward main (or push it and open a pull request). */
 async function integrate(repo: string, worktree: string, branch: string, push: boolean,
-  hooks: { gates?: JudgeSeams["gates"]; paused?: () => Promise<boolean>; pr?: PrDelivery } = {}): Promise<Integrated> {
+  hooks: { gates?: JudgeSeams["gates"]; paused?: () => Promise<boolean>; pr?: PrDelivery;
+    /** Written while the gates run on top of main; gets the sha where the task's diff starts. Never throws. */
+    handoff?: (base: string) => Promise<void>;
+    /** After the handoff and the gates, whatever the result (the triage of what the handoff proposed). */
+    settle?: () => Promise<void> } = {}): Promise<Integrated> {
   const rebase = tryGit(worktree, "rebase", "main");
   if (!rebase.ok) {
     tryGit(worktree, "rebase", "--abort");
+    // Blocked all the same: the handoff explains it, from where the branch leaves main.
+    await hooks.handoff?.(git(worktree, "merge-base", "main", "HEAD"));
+    await hooks.settle?.();
     return { ok: false, reason: `conflicts with main: ${rebase.out.slice(-800)}` };
   }
-  const check = (hooks.gates ?? gates)(worktree, "main");
+  const handoff = hooks.handoff?.(git(worktree, "rev-parse", "main"));
+  let check: Awaited<ReturnType<JudgeSeams["gates"]>>;
+  try {
+    check = await (hooks.gates ?? gates)(worktree, "main");
+  } finally {
+    await handoff; // the handoff explains a block too, so it finishes before anything else happens
+  }
+  await hooks.settle?.();
   if (!check.passed) return { ok: false, reason: `gates failed on top of main: ${check.summary}` };
   // The gates took a while: last look before main moves.
   if (await hooks.paused?.()) return { ok: false, paused: true };
@@ -641,8 +663,10 @@ export function verdictLine(r: ReviewResult): string {
 }
 
 /** What `judgeTask` calls out to; tests swap them (a reviewer that fails round 1 and passes round 2). */
+type GateResult = { passed: boolean; summary: string; outcomes?: GateOutcome[] };
+
 export interface JudgeSeams {
-  gates: (cwd: string, base: string) => { passed: boolean; summary: string; outcomes?: GateOutcome[] };
+  gates: (cwd: string, base: string) => GateResult | Promise<GateResult>;
   review: typeof review;
   briefing: () => Promise<string>;
 }
@@ -691,7 +715,7 @@ export async function judgeTask(input: JudgeInput, seams: JudgeSeams): Promise<{
     }
     if (await input.paused?.()) return { failure: null, blockedOnReview: false, paused: true };
     stage(opts, { task_id: task.id }, "gates");
-    const check = seams.gates(worktree, base);
+    const check = await seams.gates(worktree, base);
     stage(opts, { task_id: task.id }, check.passed ? "gates passed" : `gates: ${check.summary.split(":")[0]}`);
     if (!check.passed) return { failure: check.summary, blockedOnReview: false };
     if (!cfg.review.enabled) return { failure: null, blockedOnReview: false };
@@ -879,9 +903,21 @@ export async function runTask(task: Task, opts: RunOptions): Promise<Run | undef
     throw e;
   }
   if (!failure && (await isPaused())) return pauseTask(); // before the handoff: a paused session is not finished
-  if (result.sessionId) {
-    writeHandoff(result.sessionId, worktree, task.id, opts.project, log);
-    await triagePending(opts.project, cfg, opts);
+  const pr = prDelivery(task, cfg, opts);
+  // On the way to a fast-forward the handoff is written while integrate's gates run; elsewhere it comes first.
+  const alongGates = !failure && !!result.sessionId && !task.body.hold_before_merge && !pr;
+  const handoff = async (since?: string) => {
+    if (!result.sessionId) return;
+    try {
+      await (opts.seams?.handoff ?? writeHandoff)(result.sessionId, worktree, task.id, opts.project, log, since);
+    } catch (e) {
+      log(`  handoff failed: ${String(e).split("\n")[0]}`);
+    }
+  };
+  const settle = () => triagePending(opts.project, cfg, opts);
+  if (!alongGates) {
+    await handoff();
+    if (result.sessionId) await settle();
   }
   if (failure) return block(failure);
   if (await isPaused()) return pauseTask(); // last look before the commit and the merge
@@ -903,7 +939,8 @@ export async function runTask(task: Task, opts: RunOptions): Promise<Run | undef
     Object.assign(run, { diff_stat: git(worktree, "diff", "--stat", `${base}..HEAD`),
       diff: git(worktree, "diff", `${base}..HEAD`).slice(0, 60_000) });
   }
-  const r = await integrate(repo, worktree, branch, opts.push, { gates: opts.seams?.gates, paused: isPaused, pr: prDelivery(task, cfg, opts) });
+  const r = await integrate(repo, worktree, branch, opts.push, { gates: opts.seams?.gates, paused: isPaused, pr,
+    handoff: alongGates ? handoff : undefined, settle: alongGates ? settle : undefined });
   if (r.paused) {
     // Back to uncommitted work on top of the current main, so the resumed session sees its changes.
     tryGit(worktree, "reset", "--soft", "HEAD~1");

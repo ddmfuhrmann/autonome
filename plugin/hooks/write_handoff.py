@@ -116,11 +116,20 @@ def write(condensed: str, cwd: str, facts: str) -> dict:
     return json.loads(result[start:end + 1])
 
 
+def task_diff_fact(base: str | None) -> str:
+    """When the task is already committed, where its diff starts; the commit holds nothing of main's."""
+    if not base:
+        return ""
+    return (f"The task's work is committed. Its diff is `git diff {base}..HEAD` "
+            f"(files: `git diff --name-only {base}..HEAD`); nothing before {base} is the task's.")
+
+
 def main(payload_path: str) -> None:
     event = json.loads(Path(payload_path).read_text())
     cwd = event.get("cwd") or os.getcwd()
     transcript = Path(event["transcript_path"])
-    handoff = write(condense(transcript), cwd, gate_facts(event["session_id"]))
+    handoff = write(condense(transcript), cwd,
+                    "\n\n".join(filter(None, [gate_facts(event["session_id"]), task_diff_fact(event.get("base"))])))
     handoff.update(project=common.project_slug(cwd), session_id=event["session_id"],
                    commit_sha=common.git(cwd, "rev-parse", "HEAD") or None)
     result = common.send_json("/api/handoffs", {

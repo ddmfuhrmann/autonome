@@ -46,3 +46,48 @@ def test_prompt_says_no_catalog_when_the_api_is_out(monkeypatch):
 
     assert "Feature catalog: no catalog available." in prompt
     assert "[user] hi" in prompt
+
+
+def test_task_diff_fact_names_the_diff_from_the_base():
+    fact = write_handoff.task_diff_fact("abc123")
+
+    assert "git diff abc123..HEAD" in fact
+    assert "git diff --name-only abc123..HEAD" in fact
+
+
+def test_task_diff_fact_is_empty_without_a_base():
+    assert write_handoff.task_diff_fact(None) == ""
+    assert write_handoff.task_diff_fact("") == ""
+
+
+def _facts_sent(monkeypatch, tmp_path, event_extra) -> str:
+    import json
+
+    transcript = tmp_path / "t.jsonl"
+    transcript.write_text("")
+    payload = tmp_path / "p.json"
+    payload.write_text(json.dumps({"session_id": "s", "transcript_path": str(transcript), "cwd": str(tmp_path), **event_extra}))
+    seen = {}
+
+    def fake_write(condensed, cwd, facts):
+        seen["facts"] = facts
+        return {}
+
+    monkeypatch.setattr(write_handoff, "write", fake_write)
+    monkeypatch.setattr(write_handoff, "gate_facts", lambda sid: "gate facts")
+    monkeypatch.setattr(common, "project_slug", lambda cwd: "autonome")
+    monkeypatch.setattr(common, "git", lambda cwd, *a: "head")
+    monkeypatch.setattr(common, "send_json", lambda *a, **k: {})
+    write_handoff.main(str(payload))
+    return seen["facts"]
+
+
+def test_main_adds_the_task_diff_to_the_facts_when_the_payload_has_a_base(monkeypatch, tmp_path):
+    facts = _facts_sent(monkeypatch, tmp_path, {"base": "abc123"})
+
+    assert facts.startswith("gate facts")
+    assert "git diff abc123..HEAD" in facts
+
+
+def test_main_sends_only_the_gate_facts_without_a_base(monkeypatch, tmp_path):
+    assert _facts_sent(monkeypatch, tmp_path, {}) == "gate facts"
