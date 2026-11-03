@@ -130,6 +130,7 @@ models:
   retro:       {model: sonnet, effort: medium}   # learns from a finished wave
   handoff:     {model: sonnet, effort: low}      # writes each session's handoff
   docs:        {model: sonnet, effort: low}      # keeps the living docs
+  staff:       {model: opus,   effort: high}     # senior agent, once per attempt, before a task blocks (see operations)
   simplifier:  {model: sonnet, effort: medium}   # override: the default is haiku/low (`DEFAULT_MODELS`); proposes simplifications in the `simplify` schedule
 # Any role may add `fallback: <model>`: the model the session switches to when its own is overloaded
 # or unavailable (Agent SDK `fallbackModel`, `claude -p --fallback-model`). It does not help with the
@@ -137,6 +138,9 @@ models:
 #   implementer: {model: sonnet, effort: medium, fallback: haiku}
 # The handoff and docs writers start lean: only the project's settings, no plugins, MCP servers or
 # skills, and only their read-only tools, so a session begins at ~12k tokens instead of ~55k.
+# The `staff` role is opus with high effort when left out. To close a task as already satisfied or to
+# revise its spec the staff needs Jev (`triage.model: jev-latest` and the key); without it the staff
+# can still fix the task, and the rest stays a diagnosis for you.
 
 # Optional: try each finished feature in a running environment (fakes, never real services).
 smoke_test:

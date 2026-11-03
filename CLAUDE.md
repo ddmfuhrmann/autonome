@@ -59,7 +59,14 @@ plugin/runner/  the runner (TypeScript, Claude Agent SDK): one session + worktre
   finished feature in a running environment (checks + a tester agent that follows the project's `permissions`, never edits files and works in a throwaway
   worktree; what it cannot exercise is `untested`, a note that does not fail the plan) and turns failures into fix
   tasks in the same plan, blocking it for a human after `max_fixes` rounds. Environments use fakes,
-  never real external services.
+  never real external services. The **staff** (Opus high) is the last stop before a task blocks: once
+  per attempt, in a new session in the task's worktree, for a block that is not infrastructure or
+  delivery (never the usage limit, a runner error, a conflict with main or a closed PR). It answers in
+  structured output with one of four actions: `fixed` (the gates and the reviewer run again),
+  `already_satisfied` (closes the task as done without a merge, with `satisfied_by`, a commit in main),
+  `revise` (a new spec for the task, which the implementer then runs) or `give_up`. Jev judges the two
+  that change scope; without his key, or when his call fails, they stay a diagnosis for the human and
+  the task blocks.
 - **Triage**: Jev also judges a held plan's preflight revision (only the changed tasks; three
   questions: drops acceptance, adds out-of-scope, changes design) and the runner approves it when none
   reaches `reject_at`. Jev only, no Haiku fallback: no key, a failure, a changed task list, or a plan
@@ -83,7 +90,7 @@ plugin/runner/  the runner (TypeScript, Claude Agent SDK): one session + worktre
   by rejecting it in the UI. The
   Jev key (`TYPESAFE_API_KEY`) lives in the runner's environment or `~/.autonome/secrets.env`, never in
   the gate config, and never reaches agent sessions.
-- **Models**: every agent role (implementer, reviewer, preflight, tester, retro, handoff, docs) has a
+- **Models**: every agent role (implementer, reviewer, preflight, tester, retro, handoff, docs, staff) has a
   model and an effort in the gate config (`models`, defaults in `gates.DEFAULT_MODELS`: Haiku low
   for preflight, as measured by `autonome bench`; Sonnet for the rest, the reviewer included, by the human's choice). `run --model/--effort` override all roles.
   A role may name a `fallback` model, used when its own is overloaded or unavailable (not the usage limit).
@@ -91,6 +98,11 @@ plugin/runner/  the runner (TypeScript, Claude Agent SDK): one session + worktre
   rely on (an external API's shape) reaches the implementer and the reviewer.
   The triage has its own model setting, `triage` in the gate config: Jev (`jev-latest`) with Haiku as
   the fallback; it is not one of the `models` roles and `--model/--effort` do not change it.
+  The `staff` role is Opus with high effort by default, the last stop before the human.
+  Jev also judges what the staff proposes: that a task is already satisfied (questions on the commit
+  in main that delivered it) and its revision of the task's spec (drops acceptance, adds out-of-scope,
+  changes design). Jev only, no Haiku fallback: without the key the staff can still fix, but closing
+  or revising stays a diagnosis for the human.
 - **Plans learn from the subject's history.** plan and the preflight read `history_get` (what went
   off plan before on the same feature and related ones) and turn each lesson into acceptance, out of
   scope, a convention or a question; plans also walk each task's edge cases and propose the

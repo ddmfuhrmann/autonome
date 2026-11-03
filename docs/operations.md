@@ -62,6 +62,36 @@ branch (`autonome/task-<id>-…`, kept for inspection). Typical reasons:
 | `runner error (3 in a row)` | the runner itself threw three times on the task (a bug, not the task) | read the error in the runs; fix the runner or the context (is it up to date?), then **Try again** |
 | `the session changed nothing` | the implementer did nothing | the spec was probably unclear: abandon and re-plan |
 
+### What happens before a task blocks: the staff
+
+When a task is about to block, the runner first calls the **staff**, a senior agent (Opus, high effort
+by default, `models.staff`). It runs **once per attempt**: **Try again** opens a new attempt, so it
+can look again. It starts a new session in the task's own worktree, with the reason, the gate output,
+the open findings, the recent history of `main` and what the implementer last said.
+
+It does not enter for the usage limit, a `runner error`, `conflicts with main` or a closed pull
+request; those keep the handling above. It also does not start on a paused queue.
+
+It answers with one of four actions:
+
+| Action | What the runner does |
+|---|---|
+| `fixed` | the staff changed the worktree; the gates and the reviewer run again, and only a pass goes on to merge |
+| `already satisfied` | the task asks for what `main` already has. The staff names the commit (`satisfied_by`); the runner checks it is in `main` and the worktree has no changes, Jev judges it, and the task is `done` **without a merge**, with the commit as proof |
+| `revise` | the task's spec cannot be met as written. The staff proposes a new title, spec and acceptance; Jev judges it, the proposal is saved on the task, and the implementer runs the revised task, then the gates and the reviewer |
+| `give up` | nothing above applies; the task blocks with the staff's diagnosis |
+
+Jev judges what changes scope. For an already satisfied task he asks whether the commit delivers what
+the task asked. For a revision he asks whether it drops an acceptance, adds something out of scope or
+changes the design. If any answer reaches `reject_at`, the verdict is hold: the task blocks with the
+staff's diagnosis and the flag, and the proposal is on the task's page; read it, then **Try again** or
+edit the task.
+
+Without the Jev key (or with `triage` off), or when his call fails, the staff can still fix. Closing
+or revising becomes a diagnosis only: the task blocks as `staff: <diagnosis>`, and a failed call never
+counts as accepted. A staff session that fails or answers badly also blocks the task, with the
+original reason and the error.
+
 Before the runner removes the worktree of a blocked task (or one that stopped on the usage limit), it
 commits the changes as `wip(task-N): <reason>` on the task's branch and records its sha in the run
 (`wip_sha`); the WIP never reaches `main`. To see it: `git log main..<branch>` (the branch is on the
