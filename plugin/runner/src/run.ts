@@ -28,6 +28,7 @@ const live = (opts: RunOptions, role: string, owner: { task_id?: number; plan_id
   (msg: unknown) => fromMessage(msg).forEach((e) => opts.events?.push({ ...e, role, ...owner }));
 const stage = (opts: RunOptions, owner: { task_id?: number; plan_id?: number }, text: string) =>
   opts.events?.push({ role: "runner", kind: "stage", text, ...owner });
+import { runStaff, staffEligible } from "./staff.js";
 import { applyWip, codeLines, commitMessage, commitWip, fastForwardMain, git, mainCheckout, stageWork, strayFiles, tryGit, wipMessage } from "./git.js";
 
 export const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -48,7 +49,7 @@ export interface RunOptions {
   events?: EventStream;
   /** Tests replace the agent sessions and Jev's API with fakes. */
   seams?: { query?: typeof query; preflight?: typeof preflight; ask?: typeof askJev; runTask?: (task: Task, opts: RunOptions) => Promise<Run | undefined>;
-    gates?: JudgeSeams["gates"]; handoff?: typeof writeHandoff; review?: typeof review; commitWip?: typeof commitWip; codeLines?: typeof codeLines;
+    gates?: JudgeSeams["gates"]; handoff?: typeof writeHandoff; review?: typeof review; staff?: typeof runStaff; commitWip?: typeof commitWip; codeLines?: typeof codeLines;
     gh?: Gh; docs?: (repo: string, project: string, args: string[], log: RunOptions["log"], signal?: AbortSignal) => void | Promise<void> };
   /** The background docs of this run; made on first use. */
   docsQueue?: DocsQueue;
@@ -293,6 +294,7 @@ export async function implement(task: Task, worktree: string, base: string, opts
   let stop = "";
   let lastPauseCheck = 0;
   let commitSubject: string | undefined;
+  let said = "";
   try {
    await withSessionProcess(async (spawnClaudeCodeProcess) => {
     const q = (opts.seams?.query ?? query)({
@@ -330,6 +332,7 @@ export async function implement(task: Task, worktree: string, base: string, opts
         }
       }
       if (msg.type === "assistant") {
+        for (const b of msg.message.content) if (b.type === "text") said = (said + "\n" + b.text).slice(-3000);
         const u = msg.message.usage;
         tokens += (u?.input_tokens ?? 0) + (u?.output_tokens ?? 0) + (u?.cache_creation_input_tokens ?? 0);
         if (!stop && tokens > cfg.budget.task_tokens) {
@@ -353,7 +356,7 @@ export async function implement(task: Task, worktree: string, base: string, opts
   } finally {
     clearTimeout(timer);
   }
-  return { sessionId, tokens, cost, stop, commitSubject } as { sessionId: string; tokens: number; cost: number; stop: string; commitSubject?: string };
+  return { sessionId, tokens, cost, stop, commitSubject, said } as { sessionId: string; tokens: number; cost: number; stop: string; commitSubject?: string; said?: string };
 }
 
 /** The docs agent keeps the living docs true to main after each delivery. A failure does not undo the
@@ -1009,18 +1012,69 @@ export async function runTask(task: Task, opts: RunOptions): Promise<Run | undef
     return run;
   };
   const isPaused = async () => !!(await context.projectPause(opts.project));
+  let lastGates = "";
+  const judge = () => judgeTask({ task, cfg, opts, run, worktree, base, current: () => result, retry, paused: isPaused }, {
+    gates: async (cwd, b) => {
+      const check = await (opts.seams?.gates ?? gates)(cwd, b);
+      lastGates = check.summary;
+      return check;
+    },
+    review: opts.seams?.review ?? review,
+    briefing: async () => (await context.briefing(opts.project, task.id)).text,
+  });
+  // The staff looks once, from outside, before the task blocks; what it fixes goes back through the gates and the reviewer.
+  const staffStep = async (why: string): Promise<{ failure: string | null; paused?: boolean }> => {
+    const gc = await context.gateConfig(opts.project);
+    const model = roleModel(cfg, "staff", opts);
+    stage(opts, { task_id: task.id }, "staff: looking");
+    stageWork(worktree);
+    let ran: Awaited<ReturnType<typeof runStaff>>;
+    try {
+      ran = await (opts.seams?.staff ?? runStaff)({
+        input: { task, failure: why, briefing: (await context.briefing(opts.project, task.id)).text, gates: lastGates,
+          findings: blockedOnReview && run.review ? findingsForRetry(run.review) : undefined, said: result.said, repo, worktree, base },
+        model, permissions: implementerPermissions(gc, worktree), language: languageRule(cfg), pluginRoot: PLUGIN_ROOT,
+        env: { AUTONOME_RUN: "1", AUTONOME_TASK_ID: String(task.id), AUTONOME_BASE_SHA: base, AUTONOME_PROJECT: opts.project,
+          BASH_DEFAULT_TIMEOUT_MS: "120000", BASH_MAX_TIMEOUT_MS: "300000", PATH: `${join(PLUGIN_ROOT, "bin")}:${process.env.PATH}` },
+        timeoutMs: cfg.budget.task_minutes * 60_000, onMessage: live(opts, "staff", { task_id: task.id }), log, query: opts.seams?.query,
+      });
+    } catch (e) {
+      if (e instanceof ContextError || e instanceof UsageLimitError || isUsageLimit(String(e))) throw e;
+      const err = (e instanceof Error ? e.message : String(e)).split("\n")[0];
+      run.staff = { action: "failed", diagnosis: err, model: model.model, cost_usd: 0 };
+      stage(opts, { task_id: task.id }, "staff: failed");
+      log(`  staff failed: ${err}`);
+      return { failure: `${why}\nstaff failed: ${err}` };
+    }
+    const { answer } = ran;
+    run.staff = { action: answer.action, diagnosis: answer.diagnosis, model: ran.model, cost_usd: ran.cost };
+    run.cost_usd = (run.cost_usd ?? 0) + ran.cost;
+    await context.spend(opts.project, "staff", ran.cost, { task_id: task.id, feature: task.feature });
+    stage(opts, { task_id: task.id }, `staff: ${answer.action}`);
+    log(`  staff: ${answer.action}: ${answer.diagnosis.split("\n")[0]}`);
+    // Closing as satisfied and revising the spec are wired in a later task; for now they hand the diagnosis to the human.
+    if (answer.action !== "fixed") return { failure: `staff: ${answer.diagnosis}` };
+    result = { sessionId: ran.sessionId, tokens: 0, cost: ran.cost, stop: "", commitSubject: result.commitSubject };
+    run.session_id = ran.sessionId || run.session_id;
+    const again = await judge();
+    if (again.paused) return { failure: null, paused: true };
+    blockedOnReview = again.blockedOnReview;
+    return { failure: again.failure && `staff: ${answer.diagnosis}\n${again.failure}` };
+  };
   let failure: string | null;
   try {
-    const judged = await judgeTask({ task, cfg, opts, run, worktree, base, current: () => result, retry, paused: isPaused }, {
-      gates: opts.seams?.gates ?? gates,
-      review: opts.seams?.review ?? review,
-      briefing: async () => (await context.briefing(opts.project, task.id)).text,
-    });
+    const judged = await judge();
     if (judged.paused) return pauseTask();
     failure = judged.failure;
     blockedOnReview = judged.blockedOnReview;
+    if (staffEligible(failure, run)) {
+      if (await isPaused()) return pauseTask(); // the staff does not start on a paused queue
+      const out = await staffStep(failure);
+      if (out.paused) return pauseTask();
+      failure = out.failure;
+    }
   } catch (e) {
-    // Out of usage (in the implementer or a reviewer): the work so far is kept as WIP, the task runs again later.
+    // Out of usage (in the implementer, a reviewer or the staff): the work so far is kept as WIP, the task runs again later.
     if (e instanceof UsageLimitError || isUsageLimit(String(e))) throw onUsageLimit(e);
     throw e;
   }

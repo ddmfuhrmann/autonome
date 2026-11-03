@@ -9,6 +9,7 @@ import { git } from "./git.js";
 import { UsageLimitError } from "./limits.js";
 import { implement, implementerPermissions, implementerPrompt,implementerTools, judgeTask,preflightPlan, recordRunnerError, runTask, verdictLine, type JudgeSeams, type RunOptions } from "./run.js";
 import type { Finding, GateConfig, Plan, ReviewResult, Run, Task } from "./context.js";
+import { runStaff } from "./staff.js";
 import { earlierFindingsSection, gatesSection, recordRound, retryMessage, settleOutcomes, settleRun } from "./review.js";
 
 const realFetch = globalThis.fetch;
@@ -437,11 +438,12 @@ function wipEnv(commitWip?: RunOptions["seams"] extends infer S ? (S extends { c
   const order: string[] = []; // what happened, in order, for the tests of the merge sequence
   let paused: unknown = null;
   let triage: unknown;
+  let models: Record<string, unknown> = {};
   const json = (b: unknown) => new Response(JSON.stringify(b), { headers: { "content-type": "application/json" } });
   globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     if (url.endsWith("/gate-config")) {
-      return json({ config: { gates: [], retries: { max: 1 }, review: { enabled: false, max_rounds: 1 }, smoke_test: null, models: {},
+      return json({ config: { gates: [], retries: { max: 1 }, review: { enabled: false, max_rounds: 1 }, smoke_test: null, models,
         triage, budget: { task_minutes: 5, task_tokens: 1e9, plan_tokens: 1e9 } } });
     }
     if (url.endsWith("/triage")) { order.push("triage"); return json({ deviations: [] }); }
@@ -467,8 +469,11 @@ function wipEnv(commitWip?: RunOptions["seams"] extends infer S ? (S extends { c
   let query: ReturnType<typeof session> = session({});
   const failGates = () => ({ passed: false, summary: "lint failed: x", outcomes: [] });
   let gatesFn: JudgeSeams["gates"] = failGates;
+  // No staff unless a test asks for one: its session fails at once, and the block keeps the original failure.
+  let staffFn: NonNullable<RunOptions["seams"]>["staff"] = async () => { throw new Error("no staff in this test"); };
   const opts = (): RunOptions => ({ project: "p", repo, maxTasks: 1, push: false, log: () => {},
-    seams: { query: ((a: unknown) => query(a)) as never, gates: (c, b) => gatesFn(c, b), commitWip } });
+    seams: { query: ((a: unknown) => query(a)) as never, gates: (c, b) => gatesFn(c, b), commitWip,
+      staff: (s) => (staffFn ?? runStaff)(s) } });
   const mk = (runs: Run[] = []) => ({ id: 5, project: "p", status: "pending", feature: null, layers: [],
     body: { title: "t", spec: "s", acceptance: [], plan_id: 1, seq: 1, hold_before_merge: false, runs } }) as unknown as Task;
   const exists = (branch: string) => {
@@ -478,7 +483,9 @@ function wipEnv(commitWip?: RunOptions["seams"] extends infer S ? (S extends { c
   return { repo, transitions, prompts, seen, mk, exists, mainHasWip, opts, order,
     pause: () => { paused = { by: "test" }; }, withTriage: () => { triage = { model: "haiku", reject_at: 0.7, max_rounds: 1 }; },
     next: (q: ReturnType<typeof session>) => { query = q; },
-    gates: (g: JudgeSeams["gates"]) => { gatesFn = g; }, session };
+    gates: (g: JudgeSeams["gates"]) => { gatesFn = g; },
+    staff: (s: NonNullable<RunOptions["seams"]>["staff"]) => { staffFn = s; },
+    useRealStaff: () => { staffFn = undefined; }, setModels: (m: Record<string, unknown>) => { models = m; }, session };
 }
 
 const LIMIT_TEXT = "You've hit your session limit · resets 3:40pm";
@@ -752,4 +759,135 @@ test("a handoff that throws is only logged: the gates and the merge go on", asyn
   const run = (await runTask(env.mk(), opts))!;
   assert.equal(run.outcome, "merged");
   assert.ok(logs.some((l) => l.includes("handoff failed: Error: boom")));
+});
+
+// The staff: one look before a task blocks. The real `runStaff` runs on the same fake `query` as the implementer.
+function staffEnv(answer: unknown, opts: { stop?: string } = {}) {
+  const env = wipEnv();
+  env.useRealStaff();
+  const calls: { options: any; prompt: string }[] = [];
+  env.next(((args: any) => {
+    calls.push({ options: args.options, prompt: args.prompt });
+    // The first session is the implementer; the next is the staff, which writes a fix and answers.
+    if (calls.length === 1) return env.session({ "b.txt": "b\n" })(args);
+    return (async function* () {
+      yield { type: "system", subtype: "init", session_id: `s-${calls.length}` };
+      if (calls.length === 2) writeFileSync(join(args.options.cwd, "fix.txt"), "fix\n");
+      if (opts.stop) yield { type: "result", subtype: opts.stop, total_cost_usd: 0 };
+      else yield { type: "result", subtype: "success", total_cost_usd: 0.5, structured_output: calls.length === 2 ? answer : undefined, result: "" };
+    })();
+  }) as never);
+  return { env, calls };
+}
+const fixedAnswer = { action: "fixed", diagnosis: "the lint rule needed a fix.txt" };
+
+test("staff fixes: the gates pass again and the task merges", async () => {
+  const { env, calls } = staffEnv(fixedAnswer);
+  let n = 0;
+  env.gates(() => (++n === 1 ? { passed: false, summary: "lint failed: x", outcomes: [] } : passing));
+  const run = (await runTask(env.mk(), env.opts()))!;
+  assert.equal(run.outcome, "merged");
+  assert.equal(run.staff?.action, "fixed");
+  assert.equal(run.staff?.diagnosis, fixedAnswer.diagnosis);
+  assert.equal(run.staff?.cost_usd, 0.5);
+  assert.match(calls[1].prompt, /lint failed: x/);
+  assert.equal(git(env.repo, "show", "main:fix.txt"), "fix");
+});
+
+test("staff fixes but the gates fail again: blocked with 'staff:' and the new failure, WIP committed", async () => {
+  const { env, calls } = staffEnv(fixedAnswer);
+  let n = 0;
+  env.gates(() => ({ passed: false, summary: `lint failed: round ${++n}`, outcomes: [] }));
+  const run = (await runTask(env.mk(), env.opts()))!;
+  assert.equal(run.outcome, "blocked");
+  assert.match(run.reason!, /^staff: the lint rule needed a fix\.txt\nlint failed: round 2/);
+  assert.ok(run.wip_sha);
+  assert.equal(run.staff?.action, "fixed");
+  assert.equal(calls.filter((c) => c.prompt.startsWith("# Task #5")).length, 1, "the staff is called once");
+});
+
+test("staff gives up: blocked with its diagnosis", async () => {
+  const { env } = staffEnv({ action: "give_up", diagnosis: "the spec contradicts a convention" });
+  const run = (await runTask(env.mk(), env.opts()))!;
+  assert.equal(run.outcome, "blocked");
+  assert.equal(run.reason, "staff: the spec contradicts a convention");
+  assert.equal(run.staff?.action, "give_up");
+});
+
+test("already_satisfied and revise only block with the diagnosis for now", async () => {
+  for (const action of ["already_satisfied", "revise"]) {
+    const { env } = staffEnv({ action, diagnosis: `as ${action}`, satisfied_by: "abc", revised: { title: "t", spec: "s", acceptance: [] } });
+    const run = (await runTask(env.mk(), env.opts()))!;
+    assert.equal(run.outcome, "blocked");
+    assert.equal(run.reason, `staff: as ${action}`);
+    assert.equal(run.staff?.action, action);
+  }
+});
+
+test("the usage limit and a conflict with main do not call the staff", async () => {
+  let called = 0;
+  const count = async () => { called++; throw new Error("not wanted"); };
+  const limited = wipEnv();
+  limited.staff(count);
+  limited.next(limited.session({ "b.txt": "b\n" }, LIMIT_TEXT));
+  assert.ok(await runTask(limited.mk(), limited.opts()).then(() => null, (e) => e) instanceof UsageLimitError);
+  const env = wipEnv();
+  env.staff(count);
+  const work = env.session({ "a.txt": "mine\n" });
+  env.next(((args: any) => {
+    writeFileSync(join(env.repo, "a.txt"), "theirs\n");
+    git(env.repo, "commit", "-qam", "main moved");
+    return work(args);
+  }) as never);
+  env.gates(() => passing);
+  const run = (await runTask(env.mk(), env.opts()))!;
+  assert.match(run.reason!, /conflicts with main/);
+  assert.equal(run.staff, undefined);
+  assert.equal(called, 0);
+});
+
+test("a failure the attempt already had the staff for does not call it again", async () => {
+  const { staffEligible } = await import("./staff.js");
+  assert.ok(staffEligible("lint failed: x", {}));
+  assert.ok(!staffEligible("lint failed: x", { staff: { action: "give_up", diagnosis: "d", model: "m", cost_usd: 0 } }));
+  assert.ok(!staffEligible("runner error: boom", {}));
+  assert.ok(!staffEligible(null, {}));
+});
+
+test("a paused queue: the staff does not start", async () => {
+  const env = wipEnv();
+  let called = 0;
+  env.staff(async () => { called++; throw new Error("not wanted"); });
+  env.next(env.session({ "b.txt": "b\n" }));
+  env.gates(() => { env.pause(); return { passed: false, summary: "lint failed: x", outcomes: [] }; });
+  const run = (await runTask(env.mk(), env.opts()))!;
+  assert.equal(run.outcome, "paused");
+  assert.equal(called, 0);
+});
+
+test("an answer outside the schema blocks with the original failure and 'staff failed'", async () => {
+  for (const answer of [{ action: "delete_everything", diagnosis: "x" }, { action: "fixed" }, undefined]) {
+    const { env } = staffEnv(answer);
+    const run = (await runTask(env.mk(), env.opts()))!;
+    assert.equal(run.outcome, "blocked");
+    assert.match(run.reason!, /^lint failed: x\nstaff failed: /);
+    assert.equal(run.staff?.action, "failed");
+  }
+  const { env } = staffEnv(fixedAnswer, { stop: "error_max_turns" });
+  const run = (await runTask(env.mk(), env.opts()))!;
+  assert.match(run.reason!, /^lint failed: x\nstaff failed: error_max_turns/);
+});
+
+test("the staff session uses models.staff and the implementer's permissions", async () => {
+  const { env, calls } = staffEnv({ action: "give_up", diagnosis: "d" });
+  env.setModels({ implementer: { model: "sonnet", effort: "medium" }, staff: { model: "opus", effort: "high" } });
+  await runTask(env.mk(), env.opts());
+  const [impl, staff] = [calls[0].options, calls[1].options];
+  assert.equal(staff.model, "opus");
+  assert.equal(staff.effort, "high");
+  assert.equal(impl.model, "sonnet");
+  for (const k of ["permissionMode", "allowedTools", "disallowedTools"]) assert.deepEqual(staff[k], impl[k], k);
+  assert.equal(staff.hooks.PreToolUse.length, impl.hooks.PreToolUse.length);
+  assert.equal(staff.cwd, impl.cwd);
+  assert.deepEqual(staff.outputFormat.schema.properties.action.enum, ["fixed", "already_satisfied", "revise", "give_up"]);
 });

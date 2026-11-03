@@ -66,6 +66,8 @@ export interface Run {
   /** merge.mode: pr — where the task's pull request is and who merges it. */
   pr_url?: string;
   pr_mode?: "manual" | "auto";
+  /** The staff's one intervention in this attempt, whatever came of it. */
+  staff?: { action: string; diagnosis: string; model: string; cost_usd: number };
 }
 
 export interface GateConfig {
