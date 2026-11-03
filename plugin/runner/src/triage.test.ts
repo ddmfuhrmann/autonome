@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import type { consult } from "./agents.js";
 import type { Triage } from "./context.js";
-import { type Answers, haiku, jev, judge, judgeRevision, judgeSatisfied, judgeTaskRevision, pingJev, QUESTIONS, REPEATS_QUESTION, REVISION_QUESTIONS, SATISFIED_QUESTIONS, SCREEN_QUESTION, screen, screenHaiku, screenJev, verdict } from "./triage.js";
+import { type Answers, haiku, jev, judge, judgeRevision, judgeSatisfied, judgeRuleChange, judgeTaskRevision, pingJev, QUESTIONS, REPEATS_QUESTION, REVISION_QUESTIONS, RULE_QUESTIONS, SATISFIED_QUESTIONS, SCREEN_QUESTION, screen, screenHaiku, screenJev, verdict } from "./triage.js";
 
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; });
@@ -353,4 +353,21 @@ test("a satisfied judgment with no key, a haiku model, an HTTP error or a missin
   await assert.rejects(judgeSatisfied(satState, cfg, "k"), /different_task/);
   fakeJev(sat(0.1, -1));
   await assert.rejects(judgeSatisfied(satState, cfg, "k"), /different_task/);
+});
+
+test("a rule change is judged by Jev on its three questions: hold at reject_at, else accept; never without a key", async () => {
+  const state = { task: { title: "t" }, plan: "design", why: "the plan lets stats use links.application", gates: "architecture failed", rule_diff: "+allow" };
+  let asked: { state: unknown; names: string[] } | undefined;
+  const ok = await judgeRuleChange(state, cfg, "k", async (s, nouls) => {
+    asked = { state: s, names: nouls.map((n) => n.name) };
+    return { weakens_rule: 0.1, silences_failure: 0.2, code_is_wrong: 0.1 };
+  });
+  assert.equal(ok.verdict, "accept");
+  assert.equal(asked?.state, state);
+  assert.deepEqual(asked?.names, Object.keys(RULE_QUESTIONS));
+  const held = await judgeRuleChange(state, cfg, "k", async () => ({ weakens_rule: 0.1, silences_failure: 0.9, code_is_wrong: 0.1 }));
+  assert.equal(held.verdict, "hold");
+  await assert.rejects(judgeRuleChange(state, cfg, undefined), /key/);
+  await assert.rejects(judgeRuleChange(state, { ...cfg, model: "haiku" }, "k"), /haiku/);
+  await assert.rejects(judgeRuleChange(state, cfg, "k", async () => ({ weakens_rule: 0.1 })), /silences_failure/);
 });

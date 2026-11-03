@@ -37,8 +37,9 @@ test("the diagnosis has what the staff needs, with the gates cut at 6000 and the
   assert.ok(text.includes("s".repeat(3000)));
 });
 
-test("the schema has the four actions and a bounded diagnosis", () => {
-  assert.deepEqual(STAFF_SCHEMA.properties.action.enum, ["fixed", "already_satisfied", "revise", "give_up"]);
+test("the schema has the five actions and a bounded diagnosis", () => {
+  assert.deepEqual(STAFF_SCHEMA.properties.action.enum, ["fixed", "fix_rule", "already_satisfied", "revise", "give_up"]);
+  assert.deepEqual(STAFF_SCHEMA.properties.rule_change.required, ["files", "why"]);
   assert.equal(STAFF_SCHEMA.properties.diagnosis.minLength, 1);
   assert.equal(STAFF_SCHEMA.properties.diagnosis.maxLength, 2000);
 });

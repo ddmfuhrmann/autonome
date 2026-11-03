@@ -779,7 +779,7 @@ test("a handoff that throws is only logged: the gates and the merge go on", asyn
 });
 
 // The staff: one look before a task blocks. The real `runStaff` runs on the same fake `query` as the implementer.
-function staffEnv(answer: unknown, opts: { stop?: string; impl?: Record<string, string>; noFix?: boolean } = {}) {
+function staffEnv(answer: unknown, opts: { stop?: string; impl?: Record<string, string>; noFix?: boolean; fix?: Record<string, string> } = {}) {
   const env = wipEnv();
   env.useRealStaff();
   const calls: { options: any; prompt: string }[] = [];
@@ -789,7 +789,9 @@ function staffEnv(answer: unknown, opts: { stop?: string; impl?: Record<string, 
     if (calls.length === 1) return env.session(opts.impl ?? { "b.txt": "b\n" })(args);
     return (async function* () {
       yield { type: "system", subtype: "init", session_id: `s-${calls.length}` };
-      if (calls.length === 2 && !opts.noFix) writeFileSync(join(args.options.cwd, "fix.txt"), "fix\n");
+      if (calls.length === 2 && !opts.noFix) {
+        for (const [f, text] of Object.entries(opts.fix ?? { "fix.txt": "fix\n" })) writeFileSync(join(args.options.cwd, f), text);
+      }
       if (opts.stop) yield { type: "result", subtype: opts.stop, total_cost_usd: 0 };
       else yield { type: "result", subtype: "success", total_cost_usd: 0.5, structured_output: calls.length === 2 ? (typeof answer === "function" ? answer(env.repo) : answer) : undefined, result: "" };
     })();
@@ -932,6 +934,57 @@ test("no Jev key, or a Jev that throws: blocked with the diagnosis, nothing clos
   }
 });
 
+// fix_rule (the shortlink-v9 #1828 case): the rule behind a gate, written by an earlier task, forbids what the plan allows.
+const ruleAnswer = { action: "fix_rule", diagnosis: "the contract forbids an indirect import the plan allows",
+  rule_change: { files: ["a.txt"], why: "the design lets stats use links.application" } };
+const lowRule = { weakens_rule: 0.1, silences_failure: 0.1, code_is_wrong: 0.1 };
+
+test("fix_rule with a Jev accept: the rule change stays, the gates and the reviewer run again, it merges", async () => {
+  const { env } = staffEnv(ruleAnswer, { fix: { "a.txt": "a\nallow_indirect_imports = True\n" } });
+  env.withJev();
+  const seen: Record<string, any>[] = [];
+  env.ask(jevSays(lowRule, seen));
+  let n = 0;
+  env.gates(() => (++n === 1 ? { passed: false, summary: "architecture failed: x", outcomes: [] } : passing));
+  const run = (await withKey("k", () => runTask(env.mk(), env.opts())))!;
+  assert.equal(run.outcome, "merged");
+  assert.equal(run.staff?.action, "fix_rule");
+  assert.equal(run.staff?.rule_change?.verdict, "accept");
+  assert.deepEqual(run.staff?.rule_change?.files, ["a.txt"]);
+  assert.match(seen[0].rule_diff, /\+allow_indirect_imports = True/);
+  assert.equal(seen[0].why, ruleAnswer.rule_change.why);
+  assert.match(seen[0].gates, /architecture failed/);
+  assert.equal(git(env.repo, "show", "main:a.txt"), "a\nallow_indirect_imports = True");
+});
+
+test("fix_rule with a Jev hold, or no Jev: the rule change is undone and the task blocks with it as a proposal", async () => {
+  for (const key of ["k", undefined]) {
+    const { env } = staffEnv(ruleAnswer, { fix: { "a.txt": "a\nallow_indirect_imports = True\n" } });
+    env.withJev();
+    env.ask(jevSays({ ...lowRule, silences_failure: 0.9 }));
+    const run = (await withKey(key, () => runTask(env.mk(), env.opts())))!;
+    assert.equal(run.outcome, "blocked");
+    const head = key ? /^staff: the contract forbids .* \(Jev: silences_failure 0\.9\)/ : /^staff: the contract forbids [^(]*\n\nProposed/;
+    assert.match(run.reason!, head);
+    assert.match(run.reason!, /Proposed rule change \(undone; apply it to unblock\):\n[\s\S]*\+allow_indirect_imports = True/);
+    assert.equal(run.staff?.rule_change?.verdict, key ? "hold" : "none");
+    assert.equal(git(env.repo, "show", `${run.branch}:a.txt`), "a", "the WIP keeps the rule as it was");
+  }
+});
+
+test("fix_rule naming a file that is not on the base, or outside the worktree: blocked, the Jev is not asked", async () => {
+  for (const files of [["new.cfg"], ["../a.txt"]]) {
+    const { env } = staffEnv({ ...ruleAnswer, rule_change: { files, why: "w" } }, { fix: { "new.cfg": "x\n" } });
+    env.withJev();
+    let asked = 0;
+    env.ask((async () => { asked++; return lowRule; }) as never);
+    const run = (await withKey("k", () => runTask(env.mk(), env.opts())))!;
+    assert.equal(run.outcome, "blocked");
+    assert.match(run.reason!, /fix_rule without a change to rule files/);
+    assert.equal(asked, 0);
+  }
+});
+
 test("the usage limit and a conflict with main do not call the staff", async () => {
   let called = 0;
   const count = async () => { called++; throw new Error("not wanted"); };
@@ -997,5 +1050,5 @@ test("the staff session uses models.staff and the implementer's permissions", as
   for (const k of ["permissionMode", "allowedTools", "disallowedTools"]) assert.deepEqual(staff[k], impl[k], k);
   assert.equal(staff.hooks.PreToolUse.length, impl.hooks.PreToolUse.length);
   assert.equal(staff.cwd, impl.cwd);
-  assert.deepEqual(staff.outputFormat.schema.properties.action.enum, ["fixed", "already_satisfied", "revise", "give_up"]);
+  assert.deepEqual(staff.outputFormat.schema.properties.action.enum, ["fixed", "fix_rule", "already_satisfied", "revise", "give_up"]);
 });

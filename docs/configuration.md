@@ -140,8 +140,8 @@ models:
 #   implementer: {model: sonnet, effort: medium, fallback: haiku}
 # The handoff and docs writers start lean: only the project's settings, no plugins, MCP servers or
 # skills, and only their read-only tools, so a session begins at ~12k tokens instead of ~55k.
-# The `staff` role is opus with high effort when left out. To close a task as already satisfied or to
-# revise its spec the staff needs Jev (`triage.model: jev-latest` and the key); without it the staff
+# The `staff` role is opus with high effort when left out. To close a task as already satisfied, to
+# revise its spec or to fix a rule behind a gate the staff needs Jev (`triage.model: jev-latest` and the key); without it the staff
 # can still fix the task, and the rest stays a diagnosis for you.
 
 # Optional: try each finished feature in a running environment (fakes, never real services).

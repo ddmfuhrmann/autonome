@@ -72,23 +72,26 @@ the open findings, the recent history of `main` and what the implementer last sa
 It does not enter for the usage limit, a `runner error`, `conflicts with main` or a closed pull
 request; those keep the handling above. It also does not start on a paused queue.
 
-It answers with one of four actions:
+It answers with one of five actions:
 
 | Action | What the runner does |
 |---|---|
 | `fixed` | the staff changed the worktree; the gates and the reviewer run again, and only a pass goes on to merge |
+| `fix rule` | the code does what the plan asks and the rule behind a gate (an import contract, a lint or type checker setting written by an earlier task) is what is wrong. The staff edits the rule file and names it with the plan statement the old rule contradicted; the runner checks the file exists on the base, Jev judges the diff, and on accept the gates and the reviewer run again (the reviewer is told about the change). On hold, or without Jev, the rule change is undone and the task blocks with the diff in the reason, ready to apply |
 | `already satisfied` | the task asks for what `main` already has. The staff names the commit (`satisfied_by`); the runner checks it is in `main` and the worktree has no changes, Jev judges it, and the task is `done` **without a merge**, with the commit as proof |
 | `revise` | the task's spec cannot be met as written. The staff proposes a new title, spec and acceptance; Jev judges it, the proposal is saved on the task, and the implementer runs the revised task, then the gates and the reviewer |
 | `give up` | nothing above applies; the task blocks with the staff's diagnosis |
 
 Jev judges what changes scope. For an already satisfied task he asks whether the commit delivers what
 the task asked. For a revision he asks whether it drops an acceptance, adds something out of scope or
-changes the design. If any answer reaches `reject_at`, the verdict is hold: the task blocks with the
+changes the design. For a rule change he asks whether it allows something the plan or a convention
+still forbids, whether it silences the failing check instead of correcting the rule, and whether the
+old rule was right and the code is what goes against the plan. If any answer reaches `reject_at`, the verdict is hold: the task blocks with the
 staff's diagnosis and the flag, and the proposal is on the task's page; read it, then **Try again** or
 edit the task.
 
-Without the Jev key (or with `triage` off), or when his call fails, the staff can still fix. Closing
-or revising becomes a diagnosis only: the task blocks as `staff: <diagnosis>`, and a failed call never
+Without the Jev key (or with `triage` off), or when his call fails, the staff can still fix. Closing,
+revising or changing a rule becomes a diagnosis only: the task blocks as `staff: <diagnosis>`, and a failed call never
 counts as accepted. A staff session that fails or answers badly also blocks the task, with the
 original reason and the error.
 

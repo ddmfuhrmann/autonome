@@ -424,6 +424,26 @@ export async function judgeSatisfied(state: Record<string, unknown>, cfg: Triage
   return holdOrAccept("satisfied", state, cfg, key, SATISFIED_QUESTIONS, ask) as Promise<SatisfiedJudgment>;
 }
 
+/** Questions on a rule the staff changed because the rule, not the code, went against the plan: the state
+ * carries the `task`, the `plan` (its briefing: goal, out of scope, design, conventions), the staff's `why`,
+ * the `gates` output that failed and the `rule_diff`. */
+export const RULE_QUESTIONS = {
+  weakens_rule: "The change in `rule_diff` allows something that the plan's design, its out of scope or a convention in `plan` still forbids.",
+  silences_failure: "The change in `rule_diff` makes the failing check in `gates` pass by skipping, ignoring or lowering it (a disabled check, an ignored file or error code, a lower threshold) rather than by making the rule say what the plan asks.",
+  code_is_wrong: "The rule as it was before `rule_diff` says what the plan's design asks, so the code of `task` is what goes against the plan.",
+} as const;
+
+export type RuleAnswers = Record<keyof typeof RULE_QUESTIONS, number>;
+
+export interface RuleJudgment { model: string; answers: RuleAnswers; verdict: "accept" | "hold" }
+
+/** Jev judges the staff's change to a rule behind a gate: `hold` when any answer reaches `reject_at`, else
+ * `accept`. Only Jev, with a key; anything else throws, never a verdict. */
+export async function judgeRuleChange(state: Record<string, unknown>, cfg: Triage, key: string | undefined,
+  ask: typeof askJev = askJev): Promise<RuleJudgment> {
+  return holdOrAccept("rule change", state, cfg, key, RULE_QUESTIONS, ask) as Promise<RuleJudgment>;
+}
+
 async function holdOrAccept(what: string, state: Record<string, unknown>, cfg: Triage, key: string | undefined,
   questions: Record<string, string>, ask: typeof askJev): Promise<{ model: string; answers: Record<string, number>; verdict: "accept" | "hold" }> {
   if (cfg.model !== JEV_MODEL) throw new Error(`${what}: triage model is "${cfg.model}", only ${JEV_MODEL} judges this`);

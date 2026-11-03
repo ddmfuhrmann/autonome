@@ -3,7 +3,7 @@
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { query } from "./models.js";
 import { consult, machineRule } from "./agents.js";
@@ -17,10 +17,11 @@ import { smokeTest } from "./smoke-test.js";
 import { findJevKey, jevKey, sessionEnv } from "./secrets.js";
 import { triagePending, triageRevisions } from "./triage-run.js";
 import type { askJev } from "./triage.js";
-import { advisoryLine, judgeSatisfied, judgeTaskRevision, raisedLine } from "./triage.js";
+import { advisoryLine, judgeRuleChange, judgeSatisfied, judgeTaskRevision, raisedLine } from "./triage.js";
 
 /** How much of the delivering commit's diff the Jev sees when a task is closed as already satisfied. */
 const SATISFIED_DIFF_CAP = 20_000;
+const RULE_DIFF_CAP = 4_000;
 import { isUsageLimit, UsageLimitError, untilReset } from "./limits.js";
 import { retroFinishedWaves } from "./retro.js";
 import { EventStream, fromMessage } from "./events.js";
@@ -1028,8 +1029,10 @@ export async function runTask(task: Task, opts: RunOptions): Promise<Run | undef
       return check;
     },
     review: opts.seams?.review ?? review,
-    briefing: async () => (await context.briefing(opts.project, task.id)).text,
+    briefing: async () => (await context.briefing(opts.project, task.id)).text + ruleNote,
   });
+  // A rule change the staff made and the Jev accepted, told to the reviewer so it is not taken for a weakened gate.
+  let ruleNote = "";
   // The staff looks once, from outside, before the task blocks; what it fixes goes back through the gates and the reviewer.
   const staffStep = async (why: string): Promise<{ failure: string | null; paused?: boolean; closed?: boolean }> => {
     const gc = await context.gateConfig(opts.project);
@@ -1131,7 +1134,29 @@ export async function runTask(task: Task, opts: RunOptions): Promise<Run | undef
       blockedOnReview = after.blockedOnReview;
       return { failure: after.failure && `${blocked}\n${after.failure}` };
     }
-    if (answer.action !== "fixed") return { failure: blocked };
+    if (answer.action === "fix_rule") {
+      const rc = answer.rule_change;
+      const files = rc?.files ?? [];
+      const inside = files.every((f) => !isAbsolute(f) && !f.split(/[\\/]/).includes("..")
+        && tryGit(worktree, "cat-file", "-e", `${base}:${f}`).ok);
+      const diff = rc && inside ? tryGit(worktree, "diff", base, "--", ...files) : { ok: false, out: "" };
+      if (!rc || !inside || !diff.ok || !diff.out) {
+        return { failure: `${blocked}\n(fix_rule without a change to rule files that exist on the base)` };
+      }
+      const proposal = `\n\nProposed rule change (undone; apply it to unblock):\n${diff.out.slice(0, RULE_DIFF_CAP)}`;
+      const undo = () => { tryGit(worktree, "checkout", base, "--", ...files); };
+      const j = cfg.triage && await jevJudge((key) => judgeRuleChange({ task: task.body, plan: briefingText, why: rc.why,
+        gates: lastGates.slice(0, 6000), rule_diff: diff.out.slice(0, RULE_DIFF_CAP) }, cfg.triage!, key, ask));
+      run.staff.rule_change = { files, why: rc.why, diff: diff.out.slice(0, RULE_DIFF_CAP), verdict: j ? j.verdict : "none",
+        answers: j ? Object.fromEntries(Object.entries(j.answers).map(([k, v]) => [k, String(v)])) : {} };
+      if (!j) { undo(); return { failure: `${blocked}${proposal}` }; }
+      if (j.verdict === "hold") { undo(); return { failure: `${blocked} (Jev: ${flagged(j)})${proposal}` }; }
+      stage(opts, { task_id: task.id }, `rule changed by staff: ${files.join(", ")} (Jev: accept)`);
+      log(`  rule changed by staff: ${files.join(", ")}`);
+      ruleNote = `\n\n## Rule changed by the staff\nThe staff changed ${files.join(", ")} because the rule, not the code, went `
+        + `against the plan: ${rc.why}\nThe Jev judged that it weakens nothing the plan or a convention forbids. `
+        + `Do not report this change as a weakened gate.`;
+    } else if (answer.action !== "fixed") return { failure: blocked };
     result = { sessionId: ran.sessionId, tokens: 0, cost: ran.cost, stop: "", commitSubject: result.commitSubject };
     run.session_id = ran.sessionId || run.session_id;
     const again = await judge();

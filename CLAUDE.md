@@ -62,10 +62,13 @@ plugin/runner/  the runner (TypeScript, Claude Agent SDK): one session + worktre
   never real external services. The **staff** (Opus high) is the last stop before a task blocks: once
   per attempt, in a new session in the task's worktree, for a block that is not infrastructure or
   delivery (never the usage limit, a runner error, a conflict with main or a closed PR). It answers in
-  structured output with one of four actions: `fixed` (the gates and the reviewer run again),
+  structured output with one of five actions: `fixed` (the gates and the reviewer run again),
+  `fix_rule` (the rule behind a gate, written by an earlier task, is what goes against the plan: the staff
+  edits that rule file, Jev judges the diff, and on accept the gates and the reviewer run again; on hold or
+  without Jev the change is undone and the task blocks with it as a proposal),
   `already_satisfied` (closes the task as done without a merge, with `satisfied_by`, a commit in main),
-  `revise` (a new spec for the task, which the implementer then runs) or `give_up`. Jev judges the two
-  that change scope; without his key, or when his call fails, they stay a diagnosis for the human and
+  `revise` (a new spec for the task, which the implementer then runs) or `give_up`. Jev judges the three
+  that change scope or a rule; without his key, or when his call fails, they stay a diagnosis for the human and
   the task blocks.
 - **Triage**: Jev also judges a held plan's preflight revision (only the changed tasks; three
   questions: drops acceptance, adds out-of-scope, changes design) and the runner approves it when none

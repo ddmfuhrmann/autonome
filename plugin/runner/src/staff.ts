@@ -18,6 +18,13 @@ Look at the cause from outside, then answer with exactly one action:
 - "fixed": you changed the worktree so the gates and the reviewer can pass now. Do the fix yourself, with
   the Write and Edit tools; the runner runs the gates and the reviewer again. Fix the cause, never weaken,
   skip or edit a gate or the rules behind it. Do not commit, push or touch git history: the runner does.
+- "fix_rule": the code does what the plan asks and the rule behind a gate is what is wrong (an import
+  contract, a lint or type checker setting, written by an earlier task, that forbids what the plan's design
+  allows). Edit the rule file yourself so it says what the plan asks, and nothing more; fix the code too if it
+  needs it. Give \`rule_change\`: the rule \`files\` you changed (paths relative to the worktree) and \`why\`
+  (which plan statement the old rule contradicted). The Jev judges the change before the gates run again;
+  if it holds, your rule change is undone and the task blocks with it as a proposal for the human. Never use it
+  to silence a check that is right: skipping, ignoring or lowering a rule to let wrong code through is not a fix.
 - "already_satisfied": the task asks for something main already has (a duplicate of a merged task).
   Give \`satisfied_by\`: the full sha of the commit on main that delivered it. Without proof, do not use it.
 - "revise": the task's own spec or acceptance cannot be met as written. Give \`revised\` (title, spec,
@@ -26,14 +33,23 @@ Look at the cause from outside, then answer with exactly one action:
 
 \`diagnosis\` is a short, clear account of what was wrong and what you did (1 to 2000 characters).
 Stay inside the task: nothing listed as out of scope, and no changes to decisions, conventions or the
-gate config. Nobody will answer questions.`;
+gate config (the context's \`gate_config\`; rule files in the repo only through "fix_rule"). Nobody will
+answer questions.`;
 
 export const STAFF_SCHEMA = {
   type: "object",
   properties: {
-    action: { type: "string", enum: ["fixed", "already_satisfied", "revise", "give_up"] },
+    action: { type: "string", enum: ["fixed", "fix_rule", "already_satisfied", "revise", "give_up"] },
     diagnosis: { type: "string", minLength: 1, maxLength: 2000 },
     satisfied_by: { type: "string" },
+    rule_change: {
+      type: "object",
+      properties: {
+        files: { type: "array", items: { type: "string" }, minItems: 1 },
+        why: { type: "string", minLength: 1 },
+      },
+      required: ["files", "why"],
+    },
     revised: {
       type: "object",
       properties: {
@@ -47,16 +63,17 @@ export const STAFF_SCHEMA = {
   required: ["action", "diagnosis"],
 } as const;
 
-export type StaffAction = "fixed" | "already_satisfied" | "revise" | "give_up";
+export type StaffAction = "fixed" | "fix_rule" | "already_satisfied" | "revise" | "give_up";
 
 export interface StaffAnswer {
   action: StaffAction;
   diagnosis: string;
   satisfied_by?: string;
+  rule_change?: { files: string[]; why: string };
   revised?: { title: string; spec: string; acceptance: string[] };
 }
 
-const ACTIONS: StaffAction[] = ["fixed", "already_satisfied", "revise", "give_up"];
+const ACTIONS: StaffAction[] = ["fixed", "fix_rule", "already_satisfied", "revise", "give_up"];
 const GATES_CAP = 6000;
 const SAID_CAP = 3000;
 
@@ -130,6 +147,11 @@ function parse(raw: unknown): StaffAnswer {
   if (!ACTIONS.includes(a.action as StaffAction)) throw new Error(`unknown action ${JSON.stringify(a.action)}`);
   if (typeof a.diagnosis !== "string" || !a.diagnosis.length || a.diagnosis.length > 2000) throw new Error("diagnosis must be 1..2000 characters");
   if (a.satisfied_by !== undefined && typeof a.satisfied_by !== "string") throw new Error("satisfied_by must be a string");
+  if (a.rule_change !== undefined) {
+    const r = a.rule_change;
+    if (!r || !Array.isArray(r.files) || !r.files.length || r.files.some((f) => typeof f !== "string" || !f)
+      || typeof r.why !== "string" || !r.why) throw new Error("rule_change must have files and why");
+  }
   if (a.revised !== undefined) {
     const r = a.revised;
     if (!r || typeof r.title !== "string" || typeof r.spec !== "string" || !Array.isArray(r.acceptance)

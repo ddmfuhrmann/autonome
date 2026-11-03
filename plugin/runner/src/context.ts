@@ -67,7 +67,9 @@ export interface Run {
   pr_url?: string;
   pr_mode?: "manual" | "auto";
   /** The staff's one intervention in this attempt, whatever came of it. */
-  staff?: { action: string; diagnosis: string; model: string; cost_usd: number };
+  staff?: { action: string; diagnosis: string; model: string; cost_usd: number;
+    /** With "fix_rule": the rule files the staff changed, their diff and the Jev's verdict (answers as text). */
+    rule_change?: { files: string[]; why: string; diff: string; verdict: string; answers: Record<string, string> } };
   /** Closed without a merge: the commit in main that already delivered the task, and the Jev's accept. */
   satisfied_by?: string;
   satisfied_triage?: { model: string; answers: Record<string, string>; verdict: "accept" };

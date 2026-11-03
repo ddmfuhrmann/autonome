@@ -203,8 +203,8 @@ ROLE_GLOSS: dict[str, str] = {
     "handoff": "Writes a session's handoff from the facts.",
     "docs": "Rewrites the features' living docs.",
     "simplifier": "Reads recently changed code and proposes simplification tasks.",
-    "staff": "Senior agent that takes over a task about to block: fixes it, closes it as already satisfied, "
-             "or revises its spec.",
+    "staff": "Senior agent that takes over a task about to block: fixes it or the rule behind a gate, "
+             "closes it as already satisfied, or revises its spec.",
 }
 
 
