@@ -56,7 +56,8 @@ plugin/runner/  the runner (TypeScript, Claude Agent SDK): one session + worktre
   the gate config on approval or when the task that sets their tooling up is merged.
 - **Verification beyond gates**: a reviewer agent reads each task's diff before merge (high findings
   send the implementer back to the same session); a smoke test (`smoke_test` in the gate config) tries a
-  finished feature in a running environment (checks + a tester agent) and turns failures into fix
+  finished feature in a running environment (checks + a tester agent that follows the project's `permissions`, never edits files and works in a throwaway
+  worktree; what it cannot exercise is `untested`, a note that does not fail the plan) and turns failures into fix
   tasks in the same plan, blocking it for a human after `max_fixes` rounds. Environments use fakes,
   never real external services.
 - **Triage**: Jev also judges a held plan's preflight revision (only the changed tasks; three

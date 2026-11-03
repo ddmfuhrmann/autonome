@@ -220,6 +220,10 @@ removed afterwards (the environment's `up`, `down`, `seed` and checks still run 
 - `auto`: the classifier decides; the prompt tells the tester to test the running app, not to build
   or run the project's tests.
 
+What the tester cannot exercise (a command denied, a service the environment does not have) it
+reports as `untested`, with the reason. `untested` is a note for you on the plan's page and never
+fails the smoke test: only what was tested and broke fails it.
+
 - `allowlist` (default): `dontAsk` with an allowlist (read and edit files, the gates' own commands,
   `allowed_commands`, read-only git). Anything else is denied.
 - `auto`: the Agent SDK's classifier approves or denies each call, so a session can run a script for

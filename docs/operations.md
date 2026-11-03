@@ -86,7 +86,9 @@ run: abandon or re-plan them too).
   resolve it first, the runner leaves it alone.
 - **Blocked at the smoke test**: the finished feature failed in the running environment and the
   fix rounds ran out, or the environment did not start. Read the report; **Try again** runs one more
-  smoke test with fresh rounds, **Accept as is** closes the plan, **Abandon** drops it.
+  smoke test with fresh rounds, **Accept as is** closes the plan, **Abandon** drops it. Criteria the
+  tester could not exercise show as `untested` with the reason; they never block the plan, but read
+  them: if the tester was denied what it needed, adjust `permissions` or the environment.
 - **A wave does not move**: a feature waits for the plans it depends on. Find the first one not
   done on the wave's page.
 
