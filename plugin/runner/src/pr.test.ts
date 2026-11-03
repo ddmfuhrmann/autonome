@@ -63,6 +63,9 @@ interface Setup {
   /** Tasks the context reports in `in_pr`. */
   inPr?: { id: number; title: string; status: string; feature: string | null; pr_url: string }[];
   claims?: unknown[];
+  docs?: NonNullable<Parameters<typeof run>[0]['seams']>['docs'];
+  maxTasks?: number;
+  docsWaitMs?: number;
 }
 
 function fakeContext(s: Setup) {
@@ -104,8 +107,8 @@ async function play(repo: string, s: Setup, session: (cwd: string) => void = (cw
     })();
     return Object.assign(gen, { interrupt: async () => {} });
   }) as never;
-  const error = await run({ project: "p", repo, maxTasks: 1, push: false, log: (l) => log.push(l),
-    seams: { query, gh: s.gh, docs: () => {}, gates: () => ({ passed: true, summary: "all gates passed" }) } }).then(() => undefined, (e: Error) => e);
+  const error = await run({ project: "p", repo, maxTasks: s.maxTasks ?? 1, push: false, log: (l) => log.push(l), docsWaitMs: s.docsWaitMs,
+    seams: { query, gh: s.gh, docs: s.docs ?? (() => {}), gates: () => ({ passed: true, summary: "all gates passed" }) } }).then(() => undefined, (e: Error) => e);
   return { transitions, log, error };
 }
 
@@ -217,7 +220,7 @@ async function follow(repo: string, gh: Gh) {
   const transitions = fakeContext({ merge: PR_MANUAL, gh, inPr: waiting });
   const log: string[] = [];
   const docs: string[][] = [];
-  await followPrs({ project: "p", repo, maxTasks: 1, push: false, log: (l) => log.push(l), seams: { gh, docs: (_r, _p, a) => docs.push(a) } });
+  await followPrs({ project: "p", repo, maxTasks: 1, push: false, log: (l) => log.push(l), seams: { gh, docs: (_r, _p, a) => { docs.push(a); } } });
   return { transitions, log, docs };
 }
 
@@ -374,4 +377,34 @@ test("openPr and prState read what gh prints", () => {
   const { gh } = fakeGh((a) => (a[1] === "create" ? { ok: true, out: `Creating pull request\n${PR}\n` } : undefined));
   assert.deepEqual(openPr(gh, "/", { branch: "b", title: "t", body: "x", mode: "manual" }), { url: PR, mode: "manual" });
   assert.throws(() => prState(() => ({ ok: true, out: "not json" }), "/", PR), /unexpected/);
+});
+
+const task2 = { ...task, id: 10, body: { ...task.body, title: "Links 2", seq: 2 } };
+const twoTasks = [{ task, preflight: null, smoke_test: null }, { task: task2, preflight: null, smoke_test: null }];
+let n = 0;
+const uniqueFile = (cwd: string) => writeFileSync(join(cwd, `f${++n}.txt`), "x\n");
+
+test("the next task starts while the merged task's doc still runs, and run waits for the doc before it returns", async () => {
+  const { repo } = makeRepo();
+  const { gh } = fakeGh();
+  let docFinished = false;
+  let docStarted = false;
+  let sessionsAfterDocStart = 0;
+  const docs = async () => { docStarted = true; await new Promise((r) => setTimeout(r, 300)); docFinished = true; };
+  const { transitions, error } = await play(repo, { gh, claims: twoTasks, maxTasks: 2, docs, docsWaitMs: 5000 },
+    (cwd) => { if (docStarted && !docFinished) sessionsAfterDocStart++; uniqueFile(cwd); });
+  assert.equal(error, undefined);
+  assert.deepEqual(transitions.map((t) => t.to), ["done", "done"]);
+  assert.ok(sessionsAfterDocStart >= 1, "the second task began while the first doc ran");
+  assert.equal(docFinished, true, "run did not return before the pending doc ended");
+});
+
+test("a failing doc only logs: the merge stays recorded", async () => {
+  const { repo } = makeRepo();
+  const { gh } = fakeGh();
+  const { transitions, log, error } = await play(repo, { gh, docs: async () => { throw new Error("boom"); } }, uniqueFile);
+  assert.equal(error, undefined);
+  assert.deepEqual(transitions.map((t) => t.to), ["done"]);
+  assert.equal(git(repo, "rev-parse", "main"), transitions[0].run!.merged_sha);
+  assert.ok(log.some((l) => l.includes("docs update failed")));
 });

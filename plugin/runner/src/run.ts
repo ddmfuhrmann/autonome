@@ -1,6 +1,6 @@
 // The runner: takes approved tasks one by one, runs each in its own session and worktree, and
 // only lets work reach main when the gates agree.
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -47,7 +47,11 @@ export interface RunOptions {
   /** Tests replace the agent sessions and Jev's API with fakes. */
   seams?: { query?: typeof query; preflight?: typeof preflight; ask?: typeof askJev; runTask?: (task: Task, opts: RunOptions) => Promise<Run | undefined>;
     gates?: JudgeSeams["gates"]; review?: typeof review; commitWip?: typeof commitWip; codeLines?: typeof codeLines;
-    gh?: Gh; docs?: typeof updateDocs };
+    gh?: Gh; docs?: (repo: string, project: string, args: string[], log: RunOptions["log"], signal?: AbortSignal) => void | Promise<void> };
+  /** The background docs of this run; made on first use. */
+  docsQueue?: DocsQueue;
+  /** Ceiling for waiting on pending docs before leaving (ms); tests shorten it. */
+  docsWaitMs?: number;
 }
 
 /** How often a running session looks at the project's pause (at most), in ms. */
@@ -338,6 +342,93 @@ export function updateDocs(repo: string, project: string, args: string[], log: R
   log(r.status === 0 ? `  docs: ${r.stdout.trim()}` : `  docs update failed: ${r.stderr.slice(-400)}`);
 }
 
+/** Like `updateDocs`, but does not block the runner. On abort the whole process group is killed. */
+export function updateDocsAsync(repo: string, project: string, args: string[], log: RunOptions["log"], signal?: AbortSignal): Promise<void> {
+  const cwd = mainCheckout(repo) ?? repo;
+  return new Promise((resolveDocs) => {
+    const child = spawn(join(PLUGIN_ROOT, "bin", "autonome-docs"), ["--project", project, ...args], { cwd, env: sessionEnv(), detached: true });
+    let out = "";
+    let err = "";
+    child.stdout?.on("data", (d) => (out += d));
+    child.stderr?.on("data", (d) => (err += d));
+    const kill = () => {
+      try {
+        if (child.pid) process.kill(-child.pid, "SIGKILL");
+      } catch {
+        child.kill("SIGKILL");
+      }
+    };
+    if (signal?.aborted) kill();
+    else signal?.addEventListener("abort", kill, { once: true });
+    child.on("error", (e) => {
+      log(`  docs update failed: ${String(e)}`);
+      resolveDocs();
+    });
+    child.on("close", (code) => {
+      signal?.removeEventListener("abort", kill);
+      kill(); // nothing the docs agent left behind outlives it
+      log(code === 0 ? `  docs: ${out.trim()}` : `  docs update failed: ${err.slice(-400)}`);
+      resolveDocs();
+    });
+  });
+}
+
+/** Living docs run in the background after a merge: one at a time per feature, and a merge that
+ * lands while one runs only marks "again after", so it runs once more, not once per merge. */
+export class DocsQueue {
+  private running = new Map<string, Promise<void>>();
+  private again = new Set<string>();
+  private abort = new AbortController();
+  private closed = false;
+
+  constructor(private opts: RunOptions) {}
+
+  start(feature: string): void {
+    if (this.closed) return;
+    if (this.running.has(feature)) {
+      this.again.add(feature);
+      return;
+    }
+    const docs = this.opts.seams?.docs ?? updateDocsAsync;
+    const p = (async () => {
+      try {
+        await docs(this.opts.repo, this.opts.project, ["--feature", feature], this.opts.log, this.abort.signal);
+      } catch (e) {
+        this.opts.log(`  docs update failed: ${String(e)}`);
+      } finally {
+        this.running.delete(feature);
+        if (this.again.delete(feature)) this.start(feature);
+      }
+    })();
+    this.running.set(feature, p);
+  }
+
+  /** Waits for the pending docs up to the ceiling, then kills what is left. */
+  async drain(): Promise<void> {
+    if (!this.running.size) return;
+    const ceiling = this.opts.docsWaitMs ?? DOCS_WAIT_MS;
+    let timer: NodeJS.Timeout | undefined;
+    const timedOut = new Promise<"timeout">((r) => (timer = setTimeout(() => r("timeout"), ceiling)));
+    const settled = (async () => {
+      while (this.running.size) await Promise.all([...this.running.values()]);
+      return "done" as const;
+    })();
+    const result = await Promise.race([settled, timedOut]);
+    clearTimeout(timer);
+    if (result === "done") return;
+    this.closed = true;
+    this.again.clear();
+    this.abort.abort();
+    this.opts.log(`  docs left for the doc-drift schedule`);
+    this.running.clear();
+  }
+}
+
+/** How long the runner waits for pending docs before it leaves, in ms. */
+const DOCS_WAIT_MS = 5 * 60_000;
+
+const docsQueue = (opts: RunOptions): DocsQueue => (opts.docsQueue ??= new DocsQueue(opts));
+
 /** Records the task's size on the run; going over the limit is only noted, never a block. */
 function measureSize(run: Run, worktree: string, base: string, max: number | undefined, taskId: number, opts: RunOptions): void {
   try {
@@ -509,7 +600,7 @@ export async function followPrs(opts: RunOptions): Promise<void> {
       await context.transition(t.id, "done", { ...base, outcome: "merged", merged_sha: pr.mergeSha });
       opts.log(`#${t.id} ${t.pr_url} was merged (${pr.mergeSha.slice(0, 7)})`);
       stage(opts, { task_id: t.id }, `pull request merged (${pr.mergeSha.slice(0, 7)})`);
-      if (t.feature) (opts.seams?.docs ?? updateDocs)(opts.repo, opts.project, ["--feature", t.feature], opts.log);
+      if (t.feature) docsQueue(opts).start(t.feature);
       prFailures.delete(t.id);
     } catch (e) {
       if (!(e instanceof PrError || e instanceof ContextError)) throw e;
@@ -655,7 +746,7 @@ export async function runTask(task: Task, opts: RunOptions): Promise<Run | undef
     if (r.ok) await recordMerged(task, final, opts);
     else await context.transition(task.id, "pending", final);
     log(r.ok ? `  merged` : `  could not merge: ${r.reason}`);
-    if (r.ok && task.feature) updateDocs(repo, opts.project, ["--feature", task.feature], log);
+    if (r.ok && task.feature) docsQueue(opts).start(task.feature);
     return final;
   }
 
@@ -840,7 +931,7 @@ export async function runTask(task: Task, opts: RunOptions): Promise<Run | undef
   await recordMerged(task, run, opts);
   log(`  merged into main`);
   stage(opts, { task_id: task.id }, `merged into main (${run.merged_sha?.slice(0, 7) ?? ""})`);
-  if (task.feature) updateDocs(repo, opts.project, ["--feature", task.feature], log);
+  if (task.feature) docsQueue(opts).start(task.feature);
   return run;
 }
 
@@ -971,6 +1062,7 @@ export async function run(opts: RunOptions): Promise<number> {
   try {
     return await runAll();
   } finally {
+    await docsQueue(opts).drain();
     await opts.events?.flush();
     const text = summary(tally);
     if (text) opts.log(text);
@@ -999,7 +1091,10 @@ export async function run(opts: RunOptions): Promise<number> {
         // The queue is empty: a wave may have just finished. Run its retro before waiting or leaving.
         await retroFinishedWaves(opts);
         if (!opts.watch) break;
-        if (sinceOverview) updateDocs(opts.repo, opts.project, ["--overview"], opts.log);
+        if (sinceOverview) {
+          await docsQueue(opts).drain();
+          updateDocs(opts.repo, opts.project, ["--overview"], opts.log);
+        }
         sinceOverview = 0;
         await new Promise((r) => setTimeout(r, opts.watch! * 1000));
         continue;
@@ -1037,7 +1132,10 @@ export async function run(opts: RunOptions): Promise<number> {
       ran++;
       sinceOverview++;
     }
-    if (sinceOverview) updateDocs(opts.repo, opts.project, ["--overview"], opts.log);
+    if (sinceOverview) {
+      await docsQueue(opts).drain();
+      updateDocs(opts.repo, opts.project, ["--overview"], opts.log);
+    }
     opts.log(ran ? `ran ${ran} task(s)` : "nothing to run");
     return ran;
   }
