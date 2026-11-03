@@ -68,6 +68,18 @@ export interface Run {
   pr_mode?: "manual" | "auto";
   /** The staff's one intervention in this attempt, whatever came of it. */
   staff?: { action: string; diagnosis: string; model: string; cost_usd: number };
+  /** Closed without a merge: the commit in main that already delivered the task, and the Jev's accept. */
+  satisfied_by?: string;
+  satisfied_triage?: { model: string; answers: Record<string, string>; verdict: "accept" };
+}
+
+/** The staff's revision of a running task's spec, with the Jev's verdict (answers as text, as the context stores them). */
+export interface StaffRevisionBody {
+  revised: { title: string; spec: string; acceptance: string[] };
+  diagnosis: string;
+  model: string;
+  answers: Record<string, string>;
+  verdict: "accept" | "hold";
 }
 
 export interface GateConfig {
@@ -365,6 +377,8 @@ export const context = {
       method: "POST",
       body: JSON.stringify({ to, run }),
     }),
+  staffRevision: (taskId: number, r: StaffRevisionBody) =>
+    call<{ status: string; verdict: string }>(`/api/tasks/${taskId}/staff-revision`, { method: "POST", body: JSON.stringify(r) }),
   triageState: (project: string) =>
     call<{ deviations: TriageItem[]; screen?: ScreenItem[]; revisions?: RevisionItem[] }>(`/api/projects/${project}/triage`),
   triageRevision: (planId: number, v: RevisionVerdictBody) =>

@@ -4,6 +4,14 @@ import { changes, summary, type State } from "./watch.js";
 
 const empty: State = { tasks: [], plans: [], waves: [], waiting: [] };
 
+test("a task closed as already satisfied and a spec the staff revised have their own lines", () => {
+  const prev: State = { ...empty, tasks: [{ id: 3, title: "C", status: "running" }, { id: 4, title: "D", status: "running" }] };
+  const next: State = { ...empty, tasks: [{ id: 3, title: "C", status: "done", satisfied_by: "abcdef1234567890" },
+    { id: 4, title: "D", status: "running", staff_revised: true }] };
+  assert.deepEqual(changes(prev, next), ["info #3 already satisfied by abcdef1", "info #4 spec revised by staff"]);
+  assert.deepEqual(changes(next, next), []);
+});
+
 test("a task moving and a wave finishing are info lines", () => {
   const prev: State = { ...empty, tasks: [{ id: 1, title: "A", status: "pending" }, { id: 2, title: "B", status: "running" }],
     waves: [{ id: 9, title: "W1", status: "approved" }] };

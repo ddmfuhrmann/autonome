@@ -821,6 +821,8 @@ async def project_state(request: Request) -> JSONResponse:
         "tasks": [{"id": t["id"], "title": t["body"]["title"], "status": t["status"], "feature": t["feature"],
                    "plan_id": t["body"].get("plan_id"), "reason": (last(t).get("reason") or "")[:300],
                    "after_merge": (t["body"].get("after_merge_review") or {}).get("status"),
+                   "satisfied_by": last(t).get("satisfied_by"),
+                   "staff_revised": (t["body"].get("staff_revision") or {}).get("verdict") == "accept",
                    **(dict(zip(("pr_url", "pr_mode"), store.task_pr(t))) if t["status"] == "in_pr" else {})} for t in tasks],
         "plans": [{"id": p["id"], "title": p["body"].get("title"), "status": p["status"], "feature": p["feature"]}
                   for p in plans_],

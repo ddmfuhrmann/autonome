@@ -436,6 +436,8 @@ function wipEnv(commitWip?: RunOptions["seams"] extends infer S ? (S extends { c
   git(repo, "commit", "-qm", "init");
   const transitions: { to: string; run?: Run }[] = [];
   const order: string[] = []; // what happened, in order, for the tests of the merge sequence
+  const revisions: Record<string, any>[] = [];
+  const logs: string[] = [];
   let paused: unknown = null;
   let triage: unknown;
   let models: Record<string, unknown> = {};
@@ -449,6 +451,7 @@ function wipEnv(commitWip?: RunOptions["seams"] extends infer S ? (S extends { c
     if (url.endsWith("/triage")) { order.push("triage"); return json({ deviations: [] }); }
     if (url.endsWith("/state")) return json({ paused });
     if (url.includes("/transition")) transitions.push(JSON.parse(String(init?.body)));
+    if (url.endsWith("/staff-revision")) revisions.push(JSON.parse(String(init?.body)));
     return json({ status: "ok" });
   };
   const prompts: string[] = [];
@@ -471,8 +474,9 @@ function wipEnv(commitWip?: RunOptions["seams"] extends infer S ? (S extends { c
   let gatesFn: JudgeSeams["gates"] = failGates;
   // No staff unless a test asks for one: its session fails at once, and the block keeps the original failure.
   let staffFn: NonNullable<RunOptions["seams"]>["staff"] = async () => { throw new Error("no staff in this test"); };
-  const opts = (): RunOptions => ({ project: "p", repo, maxTasks: 1, push: false, log: () => {},
-    seams: { query: ((a: unknown) => query(a)) as never, gates: (c, b) => gatesFn(c, b), commitWip,
+  let askFn: NonNullable<RunOptions["seams"]>["ask"];
+  const opts = (): RunOptions => ({ project: "p", repo, maxTasks: 1, push: false, log: (l) => logs.push(l),
+    seams: { query: ((a: unknown) => query(a)) as never, gates: (c, b) => gatesFn(c, b), commitWip, ask: askFn,
       staff: (s) => (staffFn ?? runStaff)(s) } });
   const mk = (runs: Run[] = []) => ({ id: 5, project: "p", status: "pending", feature: null, layers: [],
     body: { title: "t", spec: "s", acceptance: [], plan_id: 1, seq: 1, hold_before_merge: false, runs } }) as unknown as Task;
@@ -480,8 +484,10 @@ function wipEnv(commitWip?: RunOptions["seams"] extends infer S ? (S extends { c
     try { git(repo, "rev-parse", "--verify", `refs/heads/${branch}`); return true; } catch { return false; }
   };
   const mainHasWip = () => git(repo, "log", "main", "--format=%s").split("\n").some((s) => s.startsWith("wip("));
-  return { repo, transitions, prompts, seen, mk, exists, mainHasWip, opts, order,
+  return { repo, transitions, revisions, logs, prompts, seen, mk, exists, mainHasWip, opts, order,
     pause: () => { paused = { by: "test" }; }, withTriage: () => { triage = { model: "haiku", reject_at: 0.7, max_rounds: 1 }; },
+    withJev: () => { triage = { model: "jev-latest", fallback: "off", reject_at: 0.7, max_rounds: 1 }; },
+    ask: (a: NonNullable<RunOptions["seams"]>["ask"]) => { askFn = a; },
     next: (q: ReturnType<typeof session>) => { query = q; },
     gates: (g: JudgeSeams["gates"]) => { gatesFn = g; },
     staff: (s: NonNullable<RunOptions["seams"]>["staff"]) => { staffFn = s; },
@@ -762,19 +768,19 @@ test("a handoff that throws is only logged: the gates and the merge go on", asyn
 });
 
 // The staff: one look before a task blocks. The real `runStaff` runs on the same fake `query` as the implementer.
-function staffEnv(answer: unknown, opts: { stop?: string } = {}) {
+function staffEnv(answer: unknown, opts: { stop?: string; impl?: Record<string, string>; noFix?: boolean } = {}) {
   const env = wipEnv();
   env.useRealStaff();
   const calls: { options: any; prompt: string }[] = [];
   env.next(((args: any) => {
     calls.push({ options: args.options, prompt: args.prompt });
     // The first session is the implementer; the next is the staff, which writes a fix and answers.
-    if (calls.length === 1) return env.session({ "b.txt": "b\n" })(args);
+    if (calls.length === 1) return env.session(opts.impl ?? { "b.txt": "b\n" })(args);
     return (async function* () {
       yield { type: "system", subtype: "init", session_id: `s-${calls.length}` };
-      if (calls.length === 2) writeFileSync(join(args.options.cwd, "fix.txt"), "fix\n");
+      if (calls.length === 2 && !opts.noFix) writeFileSync(join(args.options.cwd, "fix.txt"), "fix\n");
       if (opts.stop) yield { type: "result", subtype: opts.stop, total_cost_usd: 0 };
-      else yield { type: "result", subtype: "success", total_cost_usd: 0.5, structured_output: calls.length === 2 ? answer : undefined, result: "" };
+      else yield { type: "result", subtype: "success", total_cost_usd: 0.5, structured_output: calls.length === 2 ? (typeof answer === "function" ? answer(env.repo) : answer) : undefined, result: "" };
     })();
   }) as never);
   return { env, calls };
@@ -814,13 +820,104 @@ test("staff gives up: blocked with its diagnosis", async () => {
   assert.equal(run.staff?.action, "give_up");
 });
 
-test("already_satisfied and revise only block with the diagnosis for now", async () => {
-  for (const action of ["already_satisfied", "revise"]) {
-    const { env } = staffEnv({ action, diagnosis: `as ${action}`, satisfied_by: "abc", revised: { title: "t", spec: "s", acceptance: [] } });
-    const run = (await runTask(env.mk(), env.opts()))!;
+/** Runs `fn` with the Jev key set (or removed, and no secrets file), restoring the environment after. */
+async function withKey<T>(key: string | undefined, fn: () => Promise<T>): Promise<T> {
+  const was = { key: process.env.TYPESAFE_API_KEY, home: process.env.AUTONOME_HOME };
+  if (key) process.env.TYPESAFE_API_KEY = key; else delete process.env.TYPESAFE_API_KEY;
+  process.env.AUTONOME_HOME = mkdtempSync(join(tmpdir(), "nohome-"));
+  try { return await fn(); } finally {
+    if (was.key === undefined) delete process.env.TYPESAFE_API_KEY; else process.env.TYPESAFE_API_KEY = was.key;
+    if (was.home === undefined) delete process.env.AUTONOME_HOME; else process.env.AUTONOME_HOME = was.home;
+  }
+}
+const jevSays = (answers: Record<string, number>, seen: unknown[] = []) =>
+  (async (state: Record<string, unknown>) => { seen.push(state); return answers; }) as never;
+/** The staff answers that main's head delivered the task (or `sha`, when given). */
+const dupAnswer = (sha?: string) => (repo: string) =>
+  ({ action: "already_satisfied", diagnosis: "duplicate of #1627", satisfied_by: sha ?? git(repo, "rev-parse", "main") });
+const lowSat = { unmet_acceptance: 0.1, different_task: 0.05 };
+const revisedSpec = { title: "t2", spec: "smaller spec", acceptance: ["a1"] };
+
+test("already_satisfied (the #1632 case): Jev accepts, the task is done without a merge", async () => {
+  const { env } = staffEnv(dupAnswer(), { impl: {}, noFix: true });
+  env.withJev();
+  const seen: unknown[] = [];
+  env.ask(jevSays(lowSat, seen));
+  const mainBefore = git(env.repo, "rev-parse", "main");
+  const run = (await withKey("k", () => runTask(env.mk(), env.opts())))!;
+  assert.equal(run.outcome, "already_satisfied");
+  assert.equal(run.satisfied_by, mainBefore);
+  assert.equal(run.satisfied_triage?.verdict, "accept");
+  assert.deepEqual(run.satisfied_triage?.answers, { unmet_acceptance: "0.1", different_task: "0.05" });
+  assert.deepEqual(env.transitions.map((t) => t.to), ["done"]);
+  assert.equal(git(env.repo, "rev-parse", "main"), mainBefore, "nothing merged");
+  assert.equal(seen.length, 1);
+  assert.ok(!existsSync(run.worktree));
+});
+
+test("already_satisfied with a commit that is not in main, or a dirty worktree: blocked, the Jev is not asked", async () => {
+  for (const [files, sha] of [[{}, "a".repeat(40)], [{ "b.txt": "b\n" }, undefined]] as const) {
+    const { env: e } = staffEnv(dupAnswer(sha), { impl: { ...files }, noFix: true });
+    e.withJev();
+    let asked = 0;
+    e.ask((async () => { asked++; return lowSat; }) as never);
+    const run = (await withKey("k", () => runTask(e.mk(), e.opts())))!;
     assert.equal(run.outcome, "blocked");
-    assert.equal(run.reason, `staff: as ${action}`);
-    assert.equal(run.staff?.action, action);
+    assert.match(run.reason!, /^staff: duplicate of #1627/);
+    assert.equal(asked, 0);
+    assert.deepEqual(e.transitions.map((t) => t.to), ["blocked"]);
+  }
+});
+
+test("already_satisfied with a Jev hold: blocked with the flag in the reason", async () => {
+  const { env: e } = staffEnv(dupAnswer(), { impl: {}, noFix: true });
+  e.withJev();
+  e.ask(jevSays({ unmet_acceptance: 0.9, different_task: 0.1 }));
+  const run = (await withKey("k", () => runTask(e.mk(), e.opts())))!;
+  assert.equal(run.outcome, "blocked");
+  assert.match(run.reason!, /^staff: duplicate of #1627 \(Jev: unmet_acceptance 0\.9\)/);
+  assert.ok(!e.transitions.some((t) => t.to === "done"));
+});
+
+test("revise with a Jev accept: the revision is posted, the staff implements it, the gates pass and it merges", async () => {
+  const { env, calls } = staffEnv({ action: "revise", diagnosis: "too big", revised: revisedSpec }, { noFix: true });
+  env.withJev();
+  env.ask(jevSays({ drops_acceptance: 0.1, adds_out_of_scope: 0.1, changes_design: 0.1 }));
+  let n = 0;
+  env.gates(() => (++n === 1 ? { passed: false, summary: "lint failed: x", outcomes: [] } : passing));
+  const task = env.mk();
+  const run = (await withKey("k", () => runTask(task, env.opts())))!;
+  assert.equal(run.outcome, "merged");
+  assert.equal(env.revisions.length, 1);
+  assert.equal(env.revisions[0].verdict, "accept");
+  assert.deepEqual(env.revisions[0].revised, revisedSpec);
+  assert.match(calls[2].prompt, /^implement the revised task/);
+  assert.equal(calls[2].options.resume, "s-2");
+});
+
+test("revise with a Jev hold: the revision is posted as hold and the task blocks", async () => {
+  const { env, calls } = staffEnv({ action: "revise", diagnosis: "too big", revised: revisedSpec }, { noFix: true });
+  env.withJev();
+  env.ask(jevSays({ drops_acceptance: 0.8, adds_out_of_scope: 0.1, changes_design: 0.1 }));
+  const run = (await withKey("k", () => runTask(env.mk(), env.opts())))!;
+  assert.equal(run.outcome, "blocked");
+  assert.match(run.reason!, /^staff: too big \(Jev: drops_acceptance 0\.8\)/);
+  assert.deepEqual(env.revisions.map((r) => r.verdict), ["hold"]);
+  assert.equal(calls.length, 2, "no session implements it");
+});
+
+test("no Jev key, or a Jev that throws: blocked with the diagnosis, nothing closed or revised", async () => {
+  const answers = [dupAnswer(), () => ({ action: "revise", diagnosis: "too big", revised: revisedSpec })];
+  for (const [i, answer] of answers.entries()) for (const key of [undefined, "k"]) {
+    const { env } = staffEnv(answer, { impl: i === 0 ? {} : undefined, noFix: true });
+    env.withJev();
+    env.ask((async () => { throw new Error("jev down"); }) as never);
+    const run = (await withKey(key, () => runTask(env.mk(), env.opts())))!;
+    assert.equal(run.outcome, "blocked");
+    assert.equal(run.reason, `staff: ${i === 0 ? "duplicate of #1627" : "too big"}`);
+    assert.ok(!env.transitions.some((t) => t.to === "done"));
+    assert.deepEqual(env.revisions, []);
+    if (key) assert.ok(env.logs.some((l) => l.includes("jev failed: jev down")));
   }
 });
 

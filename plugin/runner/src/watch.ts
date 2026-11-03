@@ -3,7 +3,11 @@
 import { call } from "./context.js";
 
 export interface State {
-  tasks: { id: number; title: string; status: string; reason?: string }[];
+  tasks: { id: number; title: string; status: string; reason?: string;
+    /** The commit in main that already delivered a task closed without a merge. */
+    satisfied_by?: string | null;
+    /** The staff's revision of the running task's spec was accepted by the Jev. */
+    staff_revised?: boolean }[];
   plans: { id: number; title: string; status: string }[];
   waves: { id: number; title: string; status: string }[];
   waiting: { kind: string; id: number; title: string; blocks: boolean; deviation?: boolean; exhausted?: boolean; conflict?: boolean;
@@ -39,10 +43,13 @@ const WAITING: Record<string, string> = {
 export function changes(prev: State, next: State): string[] {
   const out: string[] = [];
   const before = new Map(prev.tasks.map((t) => [t.id, t.status]));
+  const revised = new Set(prev.tasks.filter((t) => t.staff_revised).map((t) => t.id));
   for (const t of next.tasks) {
     const was = before.get(t.id);
+    if (t.staff_revised && was && !revised.has(t.id)) out.push(`info #${t.id} spec revised by staff`);
     if (was === t.status) continue;
     if (t.status === "running") out.push(`info T-${t.id} started: ${t.title}`);
+    else if (t.status === "done" && was && t.satisfied_by) out.push(`info #${t.id} already satisfied by ${t.satisfied_by.slice(0, 7)}`);
     else if (t.status === "done" && was) out.push(`info T-${t.id} merged: ${t.title}`);
     else if (t.status === "pending" && was === "running") out.push(`info T-${t.id} back to pending: ${t.title}`);
     else if (t.status === "paused") out.push(`info #${t.id} paused`);

@@ -17,7 +17,10 @@ import { smokeTest } from "./smoke-test.js";
 import { findJevKey, jevKey, sessionEnv } from "./secrets.js";
 import { triagePending, triageRevisions } from "./triage-run.js";
 import type { askJev } from "./triage.js";
-import { advisoryLine } from "./triage.js";
+import { advisoryLine, judgeSatisfied, judgeTaskRevision } from "./triage.js";
+
+/** How much of the delivering commit's diff the Jev sees when a task is closed as already satisfied. */
+const SATISFIED_DIFF_CAP = 20_000;
 import { isUsageLimit, UsageLimitError, untilReset } from "./limits.js";
 import { retroFinishedWaves } from "./retro.js";
 import { EventStream, fromMessage } from "./events.js";
@@ -1023,15 +1026,16 @@ export async function runTask(task: Task, opts: RunOptions): Promise<Run | undef
     briefing: async () => (await context.briefing(opts.project, task.id)).text,
   });
   // The staff looks once, from outside, before the task blocks; what it fixes goes back through the gates and the reviewer.
-  const staffStep = async (why: string): Promise<{ failure: string | null; paused?: boolean }> => {
+  const staffStep = async (why: string): Promise<{ failure: string | null; paused?: boolean; closed?: boolean }> => {
     const gc = await context.gateConfig(opts.project);
     const model = roleModel(cfg, "staff", opts);
+    const briefingText = (await context.briefing(opts.project, task.id)).text;
     stage(opts, { task_id: task.id }, "staff: looking");
     stageWork(worktree);
     let ran: Awaited<ReturnType<typeof runStaff>>;
     try {
       ran = await (opts.seams?.staff ?? runStaff)({
-        input: { task, failure: why, briefing: (await context.briefing(opts.project, task.id)).text, gates: lastGates,
+        input: { task, failure: why, briefing: briefingText, gates: lastGates,
           findings: blockedOnReview && run.review ? findingsForRetry(run.review) : undefined, said: result.said, repo, worktree, base },
         model, permissions: implementerPermissions(gc, worktree), language: languageRule(cfg), pluginRoot: PLUGIN_ROOT,
         env: { AUTONOME_RUN: "1", AUTONOME_TASK_ID: String(task.id), AUTONOME_BASE_SHA: base, AUTONOME_PROJECT: opts.project,
@@ -1052,8 +1056,77 @@ export async function runTask(task: Task, opts: RunOptions): Promise<Run | undef
     await context.spend(opts.project, "staff", ran.cost, { task_id: task.id, feature: task.feature });
     stage(opts, { task_id: task.id }, `staff: ${answer.action}`);
     log(`  staff: ${answer.action}: ${answer.diagnosis.split("\n")[0]}`);
-    // Closing as satisfied and revising the spec are wired in a later task; for now they hand the diagnosis to the human.
-    if (answer.action !== "fixed") return { failure: `staff: ${answer.diagnosis}` };
+    const blocked = `staff: ${answer.diagnosis}`;
+    // The Jev judges what closes a task or changes its spec; no key, no triage or a failed call never decides.
+    const jevJudge = async <T>(what: (key: string) => Promise<T>): Promise<T | null> => {
+      const key = cfg.triage?.model === "jev-latest" ? jevKey((l) => log(`  triage: ${l}`)) : undefined;
+      if (!key) return null;
+      try {
+        return await what(key);
+      } catch (e) {
+        if (e instanceof UsageLimitError || isUsageLimit(String(e))) throw e;
+        log(`  jev failed: ${(e instanceof Error ? e.message : String(e)).split("\n")[0]}`);
+        return null;
+      }
+    };
+    const flagged = (j: { answers: Record<string, number> }) => {
+      const [flag, value] = Object.entries(j.answers).sort((a, b) => b[1] - a[1])[0];
+      return `${flag} ${value}`;
+    };
+    const ask = opts.seams?.ask;
+    if (answer.action === "already_satisfied") {
+      const sha = answer.satisfied_by ?? "";
+      const dirty = tryGit(worktree, "status", "--porcelain");
+      if (!/^[0-9a-f]{7,40}$/i.test(sha) || !tryGit(repo, "merge-base", "--is-ancestor", sha, "main").ok) {
+        return { failure: `${blocked}\n(satisfied_by ${sha || "(none)"} is not a commit in main)` };
+      }
+      if (!dirty.ok || dirty.out) return { failure: `${blocked}\n(the worktree has changes; not closed as already satisfied)` };
+      const shown = tryGit(repo, "show", "--stat", "--patch", sha);
+      if (!shown.ok) return { failure: blocked };
+      const { title, spec, acceptance } = task.body;
+      const j = cfg.triage && await jevJudge((key) => judgeSatisfied({ task: { title, spec, acceptance },
+        delivered: shown.out.slice(0, SATISFIED_DIFF_CAP) }, cfg.triage!, key, ask));
+      if (!j) return { failure: blocked };
+      if (j.verdict === "hold") return { failure: `${blocked} (Jev: ${flagged(j)})` };
+      settleRun(run, undefined);
+      Object.assign(run, { outcome: "already_satisfied", satisfied_by: sha,
+        satisfied_triage: { model: j.model, answers: Object.fromEntries(Object.entries(j.answers).map(([k, v]) => [k, String(v)])), verdict: "accept" },
+        duration_s: Math.round((Date.now() - started) / 1000) });
+      stage(opts, { task_id: task.id }, `already satisfied by ${sha}`);
+      log(`  already satisfied by ${sha}: closed without a merge`);
+      await context.transition(task.id, "done", run);
+      tryGit(repo, "worktree", "remove", "--force", worktree);
+      tryGit(repo, "branch", "-D", branch);
+      return { failure: null, closed: true };
+    }
+    if (answer.action === "revise") {
+      const revised = answer.revised;
+      if (!revised) return { failure: blocked };
+      const { title, spec, acceptance } = task.body;
+      const j = cfg.triage && await jevJudge((key) => judgeTaskRevision({ original: { title, spec, acceptance }, revised,
+        plan: briefingText }, cfg.triage!, key, ask));
+      if (!j) return { failure: blocked };
+      try {
+        await context.staffRevision(task.id, { revised, diagnosis: answer.diagnosis, model: j.model, verdict: j.verdict,
+          answers: Object.fromEntries(Object.entries(j.answers).map(([k, v]) => [k, String(v)])) });
+      } catch (e) {
+        if (e instanceof ContextError) throw e;
+        log(`  staff revision not recorded: ${String(e).split("\n")[0]}`);
+        return { failure: blocked };
+      }
+      if (j.verdict === "hold") return { failure: `${blocked} (Jev: ${flagged(j)})` };
+      Object.assign(task.body, revised);
+      stage(opts, { task_id: task.id }, "spec revised by staff");
+      log(`  spec revised by staff`);
+      result = { sessionId: ran.sessionId, tokens: 0, cost: 0, stop: "", commitSubject: result.commitSubject };
+      run.session_id = ran.sessionId || run.session_id;
+      await retry(`implement the revised task\n\n# ${revised.title}\n${revised.spec}\n\nAcceptance:\n${revised.acceptance.map((a) => `- ${a}`).join("\n")}`);
+      const after = await judge();
+      if (after.paused) return { failure: null, paused: true };
+      blockedOnReview = after.blockedOnReview;
+      return { failure: after.failure && `${blocked}\n${after.failure}` };
+    }
+    if (answer.action !== "fixed") return { failure: blocked };
     result = { sessionId: ran.sessionId, tokens: 0, cost: ran.cost, stop: "", commitSubject: result.commitSubject };
     run.session_id = ran.sessionId || run.session_id;
     const again = await judge();
@@ -1071,6 +1144,7 @@ export async function runTask(task: Task, opts: RunOptions): Promise<Run | undef
       if (await isPaused()) return pauseTask(); // the staff does not start on a paused queue
       const out = await staffStep(failure);
       if (out.paused) return pauseTask();
+      if (out.closed) return run;
       failure = out.failure;
     }
   } catch (e) {
