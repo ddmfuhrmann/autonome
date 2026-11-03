@@ -7,6 +7,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { consult } from "./agents.js";
+import { withSessionProcess } from "./processes.js";
 import { CONTEXT_URL, ContextError, context, languageRule, roleModel, sdkModel, waitForContext, type Effort, type GateConfig, type Plan, type Preflight, type ReviewResult, type Run, type Task } from "./context.js";
 import { doctor, report } from "./doctor.js";
 import { bashPrefixes, scopedFileCommands } from "./fsguard.js";
@@ -182,6 +183,7 @@ export async function preflight(plan: Plan, opts: RunOptions): Promise<Preflight
     schema: PLAN_SCHEMA,
     prompt: preflightPrompt(plan, opts.project, gates, cfg.task_size?.max_lines),
     onMessage: live(opts, "preflight", { plan_id: plan.id }),
+    log: opts.log,
   });
   return answer;
 }
@@ -287,6 +289,7 @@ export async function implement(task: Task, worktree: string, base: string, opts
   let stop = "";
   let lastPauseCheck = 0;
   try {
+   await withSessionProcess(async (spawnClaudeCodeProcess) => {
     const q = (opts.seams?.query ?? query)({
       prompt: retry?.prompt ?? `Run task #${task.id}: ${task.body.title}. Read the briefing, then implement it.${note ? `\n\n${note}` : ""}`,
       options: {
@@ -294,6 +297,7 @@ export async function implement(task: Task, worktree: string, base: string, opts
         cwd: worktree,
         ...sdkModel(roleModel(cfg, "implementer", opts)),
         abortController: abort,
+        spawnClaudeCodeProcess,
         ...implementerPermissions(gateConfig, worktree),
         settingSources: ["project"],
         plugins: [{ type: "local", path: PLUGIN_ROOT }],
@@ -333,6 +337,7 @@ export async function implement(task: Task, worktree: string, base: string, opts
         if (msg.subtype !== "success") stop ||= msg.subtype;
       }
     }
+   }, opts.log);
   } catch (e) {
     if (e instanceof ContextError) throw e; // not the session's fault, and never a pause
     stop ||= abort.signal.aborted ? `time budget exceeded (${cfg.budget.task_minutes} min)` : String(e);
@@ -725,7 +730,7 @@ export async function judgeTask(input: JudgeInput, seams: JudgeSeams): Promise<{
     const key = cfg.triage?.model === "jev-latest" ? jevKey((l) => opts.log(`triage: ${l}`)) : undefined;
     const rv = await seams.review(task, briefing, worktree, base,
       { ...roleModel(cfg, "reviewer", opts), language: languageRule(cfg) },
-      live(opts, "reviewer", { task_id: task.id }), run.review?.findings, { cfg: cfg.triage, key });
+      live(opts, "reviewer", { task_id: task.id }), run.review?.findings, { cfg: cfg.triage, key }, opts.log);
     recordRound(run, rv.result, round + 1);
     opts.events?.push({ task_id: task.id, role: "reviewer", kind: "say", text: verdictLine(rv.result) });
     const checked = advisoryLine(rv.result.findings, cfg.triage?.model === "jev-latest" && !key ? "no Jev key" : undefined);

@@ -85,11 +85,13 @@ export function earlierFindingsSection(previous: Finding[] | undefined): string 
 
 export async function review(task: Task, briefing: string, worktree: string, base: string, who: RoleModel & { language?: string },
   onMessage?: (msg: unknown) => void, previous?: Finding[],
-  triage?: { cfg?: Triage | null; key?: string; ask?: (f: Finding, key: string) => Promise<number> }) {
+  triage?: { cfg?: Triage | null; key?: string; ask?: (f: Finding, key: string) => Promise<number> },
+  log?: (line: string) => void) {
   const diff = git(worktree, "diff", "--cached", base).slice(0, 80_000);
   const { answer, cost } = await consult<ReviewResult>({
     cwd: worktree,
     onMessage,
+    log,
     ...who,
     role: REVIEWER_PROMPT,
     schema: SCHEMA,

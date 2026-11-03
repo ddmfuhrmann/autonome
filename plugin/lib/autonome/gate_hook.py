@@ -4,7 +4,9 @@ the agent may stop, must try again (retry), or is going in circles (blocked)."""
 import fnmatch
 import hashlib
 import json
+import os
 import re
+import signal
 import subprocess
 import time
 from dataclasses import asdict, dataclass, field
@@ -93,6 +95,42 @@ def skip_reason(gate: dict, files: list[str], only_fast: bool) -> str | None:
     return None
 
 
+KILL_GRACE_S = 5
+
+
+def _run_in_group(command: str, cwd: str, timeout_s: float) -> tuple[str, bool]:
+    """Runs the command in its own process group; when it ends the group is killed, and at the timeout
+    it gets SIGTERM and, after a grace period, SIGKILL, so nothing it started stays running."""
+    proc = subprocess.Popen(command, shell=True, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, start_new_session=True)
+    try:
+        out, _ = proc.communicate(timeout=timeout_s)
+        # Nothing the gate started in the background outlives it.
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        return out[-20000:], proc.returncode == 0
+    except subprocess.TimeoutExpired:
+        for sig, wait in ((signal.SIGTERM, KILL_GRACE_S), (signal.SIGKILL, None)):
+            try:
+                os.killpg(proc.pid, sig)
+            except ProcessLookupError:
+                break
+            try:
+                proc.communicate(timeout=wait)
+                break
+            except subprocess.TimeoutExpired:
+                continue
+        # Survivors that detached from the group's pipes are gone with the group; reap what is left.
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        proc.kill()
+        return f"timed out after {timeout_s:g}s (killed the process group)", False
+
+
 def run_gates(
     cwd: str, config: dict, files: list[str], only_fast: bool = False,
 ) -> tuple[list[Outcome], list[Skipped]]:
@@ -109,12 +147,7 @@ def run_gates(
             continue
         start = time.monotonic()
         before = _untracked(cwd)
-        try:
-            proc = subprocess.run(gate["run"], shell=True, cwd=cwd, capture_output=True, text=True,
-                                  timeout=gate.get("timeout_s", 900))
-            output, ok = (proc.stdout + proc.stderr)[-20000:], proc.returncode == 0
-        except subprocess.TimeoutExpired:
-            output, ok = f"timed out after {gate.get('timeout_s', 900)}s", False
+        output, ok = _run_in_group(gate["run"], cwd, gate.get("timeout_s", 900))
         # A gate checks the work; files it leaves behind (coverage data, reports) are not the work.
         for leftover in _untracked(cwd) - before:
             Path(cwd, leftover).unlink(missing_ok=True)

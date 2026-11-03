@@ -1,7 +1,7 @@
 // The smoke test: once every task of a plan has merged, the feature is tried in a running environment.
 // Scripted checks run first, then an agent (the tester) exercises the plan's acceptance criteria on
 // the live app. A failure comes back as fix tasks for the same plan.
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -102,11 +102,36 @@ export function testerPermissions(gc: GateConfig, dir: string): NonNullable<Cons
   return { permissionMode: "dontAsk", allowedTools: TESTER_TOOLS, disallowedTools, hooks };
 }
 
-function sh(cmd: string, cwd: string, env: Record<string, string>, timeoutS = 900) {
-  const r = spawnSync("sh", ["-c", cmd], { cwd, env: sessionEnv(env), encoding: "utf8", timeout: timeoutS * 1000 });
-  const output = `${r.stdout ?? ""}${r.stderr ?? ""}`.slice(-4000);
-  return { ok: r.status === 0, output: r.error ? `${String(r.error)}\n${output}` : output };
+/** Runs a command in its own process group; at the ceiling the whole group is killed, not just the shell,
+ * and so it is when a check (`killAtEnd`) finishes. */
+async function sh(cmd: string, cwd: string, env: Record<string, string>, timeoutS = 900, killAtEnd = false) {
+  return new Promise<{ ok: boolean; output: string }>((resolve) => {
+    const child = spawn("sh", ["-c", cmd], { cwd, env: sessionEnv(env), detached: true });
+    let out = "";
+    let timedOut = false;
+    const take = (d: Buffer) => { out = (out + d).slice(-4000); };
+    child.stdout.on("data", take);
+    child.stderr.on("data", take);
+    const killGroup = (sig: NodeJS.Signals) => {
+      try { if (child.pid) process.kill(-child.pid, sig); } catch { /* group already gone */ }
+    };
+    const timer = setTimeout(() => {
+      timedOut = true;
+      killGroup("SIGTERM");
+      setTimeout(() => killGroup("SIGKILL"), TERM_GRACE_MS).unref();
+    }, timeoutS * 1000);
+    child.on("error", (e) => { clearTimeout(timer); resolve({ ok: false, output: `${String(e)}\n${out}` }); });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (killAtEnd) killGroup("SIGKILL"); // a check's leftovers; `up` is meant to leave the app running
+      resolve(timedOut
+        ? { ok: false, output: `${out}\ntimed out after ${timeoutS}s (killed the process group)`.slice(-4000) }
+        : { ok: code === 0, output: out });
+    });
+  });
 }
+
+const TERM_GRACE_MS = 5000;
 
 export async function smokeTest(
   plan: Plan, cfg: SmokeTest, cwd: string, who: RoleModel & { language?: string } | undefined, log: (line: string) => void,
@@ -116,17 +141,18 @@ export async function smokeTest(
   let scratch: string | undefined;
   const blocked = (report: string): SmokeTestResult => ({ passed: false, report, checks: [], fixes: [], untested: [] });
   try {
-    const up = sh(cfg.up, cwd, env);
+    const up = await sh(cfg.up, cwd, env);
     if (!up.ok) return blocked(`the environment did not start (${cfg.up}):\n${up.output}`);
     if (cfg.seed) {
-      const seed = sh(cfg.seed, cwd, env);
+      const seed = await sh(cfg.seed, cwd, env);
       if (!seed.ok) return blocked(`the seed failed (${cfg.seed}):\n${seed.output}`);
     }
-    const checks = cfg.checks.map((c) => {
-      const r = sh(c.run, cwd, env, c.timeout_s);
+    const checks: SmokeTestResult["checks"] = [];
+    for (const c of cfg.checks) {
+      const r = await sh(c.run, cwd, env, c.timeout_s, true);
       log(`  check ${c.name}: ${r.ok ? "passed" : "failed"}`);
-      return { name: c.name, passed: r.ok, output: r.output };
-    });
+      checks.push({ name: c.name, passed: r.ok, output: r.output });
+    }
     const allChecks = checks.every((c) => c.passed);
     if (!cfg.tester) {
       return {
@@ -148,7 +174,7 @@ export async function smokeTest(
     const gc = extra.gc ?? ({ version: null, config: {} } as unknown as GateConfig);
     const mode = gc.config.permissions === "auto" ? "auto" : "allowlist";
     const { answer } = await consult<Omit<SmokeTestResult, "checks">>({
-      cwd: scratch, ...who, onMessage, role: testerPrompt(mode), schema: SCHEMA, maxTurns: 60, env,
+      cwd: scratch, ...who, onMessage, log, role: testerPrompt(mode), schema: SCHEMA, maxTurns: 60, env,
       permissions: testerPermissions(gc, scratch), query: extra.query,
       prompt: [
         `The app runs at ${cfg.url}. Smoke test of plan #${plan.id} (feature ${plan.feature ?? "-"}).`,
@@ -165,7 +191,7 @@ export async function smokeTest(
       tryGit(cwd, "worktree", "remove", "--force", scratch);
       rmSync(scratch, { recursive: true, force: true });
     }
-    const down = sh(cfg.down, cwd, env);
+    const down = await sh(cfg.down, cwd, env);
     if (!down.ok) log(`  environment teardown failed: ${down.output.slice(-300)}`);
   }
 }

@@ -1,6 +1,7 @@
 // Read-only agents the runner consults: they look, never change the code, and answer as JSON.
 import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
 import { CONTEXT_URL, type Effort } from "./context.js";
+import { withSessionProcess } from "./processes.js";
 import { sessionEnv } from "./secrets.js";
 
 const READ_ONLY = [
@@ -34,6 +35,8 @@ export interface Consult {
   };
   /** Every SDK message, for the live view. */
   onMessage?: (msg: unknown) => void;
+  /** Where "killed N leftover processes" goes. */
+  log?: (line: string) => void;
   /** Tests replace the SDK's `query` with a fake. */
   query?: typeof query;
 }
@@ -42,10 +45,12 @@ export interface Consult {
 export async function consult<T>(c: Consult): Promise<{ answer: T; cost: number }> {
   let answer: T | undefined;
   let cost = 0;
+  await withSessionProcess(async (spawnClaudeCodeProcess) => {
   for await (const msg of (c.query ?? query)({
     prompt: c.prompt,
     options: {
       cwd: c.cwd,
+      spawnClaudeCodeProcess,
       model: c.model,
       effort: c.effort,
       ...(c.fallback && c.fallback !== c.model ? { fallbackModel: c.fallback } : {}),
@@ -64,6 +69,7 @@ export async function consult<T>(c: Consult): Promise<{ answer: T; cost: number 
       if (msg.subtype === "success") answer = msg.structured_output as T;
     }
   }
+  }, c.log);
   if (answer === undefined) throw new Error("the agent returned no answer");
   return { answer, cost };
 }

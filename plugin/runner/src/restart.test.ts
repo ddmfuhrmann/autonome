@@ -126,5 +126,5 @@ test("a setup task on a greenfield project may run the pending gates' tools, and
   const r = await promisify(execFile)(join(PLUGIN_BIN, "autonome-gates"), ["--json", "--base", "HEAD"], { cwd: repo,
     env: { ...process.env, AUTONOME_CONTEXT_URL: `http://127.0.0.1:${port}`, AUTONOME_PROJECT: "shortlink-4" } });
   server.close();
-  assert.deepEqual(JSON.parse(r.stdout), { passed: true, config_version: null, outcomes: [] });
+  assert.deepEqual(JSON.parse(r.stdout), { passed: true, config_version: null, outcomes: [], skipped: [] });
 });

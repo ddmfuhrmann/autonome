@@ -173,3 +173,58 @@ def test_skipped_gates_are_not_recorded_and_show_in_the_hook_message(repo):
     assert v.status == "failing" and [s.gate for s in v.skipped] == ["docs-only", "test"]
     assert "SKIP  test  (not run: an earlier gate failed)" in v.message
     assert [o.gate for o in v.outcomes] == ["format", "lint"]
+
+
+def _alive(pattern: str) -> bool:
+    return subprocess.run(["pgrep", "-f", pattern], capture_output=True).returncode == 0
+
+
+def test_a_gate_that_times_out_dies_with_its_whole_process_group(tmp_path):
+    import time
+
+    marker = f"sleep 3{uuid.uuid4().int % 900 + 100}"
+    config = {"gates": [{"name": "slow", "run": f"sh -c '{marker} & wait'", "timeout_s": 1}]}
+
+    start = time.monotonic()
+    outcomes, _ = gate_hook.run_gates(str(tmp_path), config, [])
+
+    assert time.monotonic() - start < 10
+    assert not outcomes[0].passed
+    assert "timed out after 1s (killed the process group)" in outcomes[0].output
+    assert not _alive(marker)
+
+
+def test_a_timed_out_gate_leaves_processes_outside_its_group_alone(tmp_path):
+    marker = f"sleep 4{uuid.uuid4().int % 900 + 100}"
+    bystander = subprocess.Popen(marker.split(), start_new_session=True)
+    try:
+        config = {"gates": [{"name": "slow", "run": "sleep 60", "timeout_s": 1}]}
+        gate_hook.run_gates(str(tmp_path), config, [])
+        assert bystander.poll() is None
+    finally:
+        bystander.kill()
+        bystander.wait()
+
+
+def test_a_gate_that_exits_does_not_leave_background_processes(tmp_path):
+    marker = f"sleep 5{uuid.uuid4().int % 900 + 100}"
+    config = {"gates": [{"name": "bg", "run": f"{marker} >/dev/null 2>&1 &", "timeout_s": 30}]}
+
+    outcomes, _ = gate_hook.run_gates(str(tmp_path), config, [])
+
+    assert outcomes[0].passed
+    assert not _alive(marker)
+
+
+def test_a_gate_that_ignores_sigterm_is_killed_after_the_grace_period(tmp_path):
+    import time
+
+    marker = f"sleep 6{uuid.uuid4().int % 900 + 100}"
+    config = {"gates": [{"name": "stubborn", "run": f"trap '' TERM; {marker}", "timeout_s": 1}]}
+
+    start = time.monotonic()
+    outcomes, _ = gate_hook.run_gates(str(tmp_path), config, [])
+
+    assert 5 <= time.monotonic() - start < 15
+    assert "timed out after 1s (killed the process group)" in outcomes[0].output
+    assert not _alive(marker)
