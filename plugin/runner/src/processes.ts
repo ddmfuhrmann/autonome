@@ -47,6 +47,29 @@ export async function killAll(pids: number[], graceMs = 5000): Promise<void> {
   signalAll(pids.filter(alive), "SIGKILL");
 }
 
+/** The process groups the runner started on their own (sessions, the docs agent) and that are still alive.
+ * Being detached, they do not get the terminal's Ctrl-C: `killLiveGroups` is how they die with the runner. */
+const liveGroups = new Set<number>();
+
+export function trackGroup(pid: number | undefined): void {
+  if (pid) liveGroups.add(pid);
+}
+
+export function untrackGroup(pid: number | undefined): void {
+  if (pid) liveGroups.delete(pid);
+}
+
+/** SIGTERM to every group still tracked, SIGKILL after `graceMs`. Returns how many groups there were. */
+export async function killLiveGroups(graceMs = 3000): Promise<number> {
+  const groups = [...liveGroups];
+  const members = treeOf(groups);
+  for (const pid of groups) { try { process.kill(-pid, "SIGTERM"); } catch { /* group already gone */ } }
+  await killAll(members, graceMs);
+  for (const pid of groups) { try { process.kill(-pid, "SIGKILL"); } catch { /* group already gone */ } }
+  liveGroups.clear();
+  return groups.length;
+}
+
 export type SpawnSession = NonNullable<Options["spawnClaudeCodeProcess"]>;
 
 /** Runs `fn` with a spawner for the SDK's process (`spawnClaudeCodeProcess`): the process starts in its
@@ -62,7 +85,7 @@ export async function withSessionProcess<T>(
   const watcher = setInterval(mark, 250);
   const spawnSession: SpawnSession = ({ command, args, cwd, env, signal }) => {
     const child = spawn(command, args, { cwd, env: env as NodeJS.ProcessEnv, signal, detached: true, stdio: ["pipe", "pipe", "ignore"] });
-    if (child.pid) { roots.add(child.pid); tracked.add(child.pid); }
+    if (child.pid) { roots.add(child.pid); tracked.add(child.pid); trackGroup(child.pid); }
     return child;
   };
   try {
@@ -70,6 +93,7 @@ export async function withSessionProcess<T>(
   } finally {
     clearInterval(watcher);
     mark();
+    for (const pid of roots) untrackGroup(pid);
     const left = [...tracked].filter((pid) => pid !== process.pid && alive(pid));
     for (const pid of roots) { try { process.kill(-pid, "SIGTERM"); } catch { /* group already gone */ } }
     if (left.length > 0) {

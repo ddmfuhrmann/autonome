@@ -136,6 +136,8 @@ edits code; the task does, through the runner. If it queues nothing, check the r
 | `queue paused by <by>: <reason>` | the project's queue is paused; the runner takes no task (with `--watch` it waits) | a human resumes the queue. A session running when the pause came is interrupted and the task is `paused`, with its worktree and branch kept; after the resume it goes on in the same session (a new session on the same branch if the worktree is gone) |
 | `#N failed unexpectedly: …` | the runner itself threw (a bug, not the task) | nothing: the task went back to pending with an `error` run; the third error in a row blocks it as `runner error (3 in a row)` |
 | `… is merged into main; it will be recorded as done on the next run` | main moved but the context could not hear it | run `run` again: it records the merge first |
+| `SIGINT: stopping the runner and its sessions; …` | you pressed Ctrl-C (or the runner got a SIGTERM) | nothing: the sessions and the docs agent are killed with it (a second Ctrl-C exits at once). The next `run` puts the task back to pending with its work as WIP on its branch (`#N was left running by a runner that stopped`), and the task starts from it |
+| `another runner is already running for <project> (pid N); stop it first` | one runner per project on a machine (`~/.autonome/state/run-<project>.lock`) | stop the other one, or let it work; a lock left by a runner that died is taken over |
 | `autonome doctor found problems; not starting` | see "Before a run" | |
 | `nothing to run` | no approved task is ready | approve a plan, or check Approvals for what blocks |
 

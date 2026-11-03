@@ -7,12 +7,12 @@
 import { bench, parseConfigs, table } from "./bench.js";
 import { main } from "./cli.js";
 import { doctor, report } from "./doctor.js";
-import { run } from "./run.js";
+import { runExclusive } from "./run.js";
 import { schedules } from "./schedules.js";
 import { watch } from "./watch.js";
 
 const code = await main(process.argv.slice(2), {
-  run,
+  run: (opts) => runExclusive(opts),
   schedules,
   doctor: async (project, repo) => {
     const checks = await doctor(project, repo);

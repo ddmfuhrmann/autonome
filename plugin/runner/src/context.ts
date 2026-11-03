@@ -346,6 +346,10 @@ export const context = {
     (await call<{ tasks: { id: number; title: string; status: string; feature: string | null; pr_url?: string }[] }>(
       `/api/projects/${project}/state`)).tasks
       ?.flatMap((t) => (t.status === "in_pr" && t.pr_url ? [{ id: t.id, title: t.title, feature: t.feature, pr_url: t.pr_url }] : [])) ?? [],
+  /** The tasks the context has as `running`; with the run lock held, a runner that died left them. */
+  tasksRunning: async (project: string): Promise<{ id: number; title: string }[]> =>
+    (await call<{ tasks: { id: number; title: string; status: string }[] }>(`/api/projects/${project}/state`)).tasks
+      ?.flatMap((t) => (t.status === "running" ? [{ id: t.id, title: t.title }] : [])) ?? [],
   runnerStatus: (project: string, triageKey: boolean) =>
     call<{ ok: boolean }>(`/api/projects/${project}/runner-status`, {
       method: "POST", body: JSON.stringify(runnerStatusBody(triageKey)) }),

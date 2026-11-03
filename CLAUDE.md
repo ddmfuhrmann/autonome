@@ -108,7 +108,8 @@ plugin/runner/  the runner (TypeScript, Claude Agent SDK): one session + worktre
   Only run writes code.
 - **Infrastructure is not the task's fault.** A context outage, a restart or the account's usage
   limit hands the task back to pending (waiting where it can); it never blocks a task. The same goes for
-  the monthly spend limit and for any exception of the runner itself; only the third exception in a
+  the monthly spend limit, for a runner stopped by hand (Ctrl-C kills its sessions; the next run, alone on
+  the project by a lock, puts the task back with its work as WIP) and for any exception of the runner itself; only the third exception in a
   row blocks the task, as `runner error`, so a bug does not hide. A merge the
   context could not record is journaled and recorded by the next run.
 - **Projects opt in.** The hooks act only in a project with a saved gate config, approved plans that

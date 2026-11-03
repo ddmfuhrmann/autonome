@@ -7,7 +7,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { query } from "./models.js";
 import { consult } from "./agents.js";
-import { withSessionProcess } from "./processes.js";
+import { killLiveGroups, trackGroup, untrackGroup, withSessionProcess } from "./processes.js";
+import { acquireRunLock } from "./runlock.js";
 import { CONTEXT_URL, ContextError, context, languageRule, roleModel, sdkModel, waitForContext, type Effort, type GateConfig, type Plan, type Preflight, type ReviewResult, type Run, type Task } from "./context.js";
 import { doctor, report } from "./doctor.js";
 import { bashPrefixes, scopedFileCommands } from "./fsguard.js";
@@ -368,6 +369,7 @@ export function updateDocsAsync(repo: string, project: string, args: string[], l
   const cwd = mainCheckout(repo) ?? repo;
   return new Promise((resolveDocs) => {
     const child = spawn(join(PLUGIN_ROOT, "bin", "autonome-docs"), ["--project", project, ...args], { cwd, env: sessionEnv(), detached: true });
+    trackGroup(child.pid);
     let out = "";
     let err = "";
     child.stdout?.on("data", (d) => (out += d));
@@ -388,6 +390,7 @@ export function updateDocsAsync(repo: string, project: string, args: string[], l
     child.on("close", (code) => {
       signal?.removeEventListener("abort", kill);
       kill(); // nothing the docs agent left behind outlives it
+      untrackGroup(child.pid);
       log(code === 0 ? `  docs: ${out.trim()}` : `  docs update failed: ${err.slice(-400)}`);
       resolveDocs();
     });
@@ -584,6 +587,91 @@ async function replayJournal(opts: RunOptions): Promise<void> {
     });
     rmSync(join(dir, f));
     opts.log(`#${task_id} merged earlier; recorded as done now`);
+  }
+}
+
+/** The worktrees of a task's branches (`autonome/task-<id>-<time>`), oldest first. */
+export function taskWorktrees(repo: string, taskId: number): { path: string; branch: string }[] {
+  const prefix = `autonome/task-${taskId}-`;
+  const found: { path: string; branch: string; time: number }[] = [];
+  let path = "";
+  for (const line of tryGit(repo, "worktree", "list", "--porcelain").out.split("\n")) {
+    if (line.startsWith("worktree ")) path = line.slice(9);
+    const branch = line.startsWith("branch refs/heads/") ? line.slice(18) : "";
+    if (branch.startsWith(prefix) && existsSync(path)) {
+      found.push({ path, branch, time: parseInt(branch.slice(prefix.length), 36) || 0 });
+    }
+  }
+  return found.sort((a, b) => a.time - b.time).map(({ path, branch }) => ({ path, branch }));
+}
+
+export const INTERRUPTED = "the runner stopped mid-task";
+
+/** Tasks a runner that died left `running` (the run lock says no other runner is alive): their work is
+ * committed as WIP on the branch and they go back to pending, so the next attempt starts from it, as
+ * Try again does. A worktree whose WIP cannot be committed stays where it is. */
+export async function recoverInterrupted(opts: RunOptions): Promise<void> {
+  for (const t of await context.tasksRunning(opts.project)) {
+    const wt = taskWorktrees(opts.repo, t.id).at(-1);
+    if (!wt) {
+      await context.transition(t.id, "pending");
+      opts.log(`#${t.id} was left running by a runner that stopped; back to pending (no worktree found)`);
+      continue;
+    }
+    let sha: string | null;
+    try {
+      sha = (opts.seams?.commitWip ?? commitWip)(wt.path, wipMessage(t.id, INTERRUPTED));
+    } catch (e) {
+      await context.transition(t.id, "pending");
+      opts.log(`#${t.id} was left running; could not commit its WIP, keeping ${wt.path}: ${String(e).split("\n")[0]}`);
+      continue;
+    }
+    const forkPoint = tryGit(wt.path, "merge-base", "main", "HEAD");
+    const base = forkPoint.ok ? forkPoint.out : "";
+    // Committed already but not merged: that commit is the work.
+    const head = tryGit(wt.path, "rev-parse", "HEAD").out;
+    sha ??= base && head && head !== base ? head : null;
+    await context.transition(t.id, "pending", sha
+      ? { at: now(), branch: wt.branch, worktree: wt.path, base, outcome: "interrupted", reason: INTERRUPTED, wip_sha: sha }
+      : undefined);
+    tryGit(opts.repo, "worktree", "remove", "--force", wt.path);
+    if (!sha) tryGit(opts.repo, "branch", "-D", wt.branch);
+    opts.log(`#${t.id} was left running by a runner that stopped; back to pending${sha ? `, its work kept as WIP on ${wt.branch}` : ""}`);
+  }
+}
+
+/** Ctrl-C or a SIGTERM: the sessions and the docs agent run in their own process groups and would
+ * outlive the runner, so they are killed first; the task they were on is recovered on the next run. */
+function onStopSignals(opts: RunOptions, release: () => void): () => void {
+  let stopping = false;
+  const handler = (sig: NodeJS.Signals) => {
+    if (stopping) process.exit(sig === "SIGINT" ? 130 : 143); // a second Ctrl-C does not wait
+    stopping = true;
+    opts.log(`${sig}: stopping the runner and its sessions; the task in progress goes back to pending on the next run`);
+    void killLiveGroups().finally(() => {
+      release();
+      process.exit(sig === "SIGINT" ? 130 : 143);
+    });
+  };
+  process.on("SIGINT", handler);
+  process.on("SIGTERM", handler);
+  return () => { process.off("SIGINT", handler); process.off("SIGTERM", handler); };
+}
+
+/** `run` as the CLI starts it: alone on the project (the run lock), after putting back the tasks a runner
+ * that died left `running`, and with Ctrl-C killing the sessions instead of leaving them behind. */
+export async function runExclusive(opts: RunOptions, home = AUTONOME_HOME, runner: typeof run = run): Promise<number> {
+  const release = acquireRunLock(home, opts.project);
+  const unhook = onStopSignals(opts, release);
+  try {
+    if (!(await waitForContext(Number(process.env.AUTONOME_CONTEXT_WAIT_S ?? 30)))) {
+      throw new Error("autonome-context is unreachable; the runner does not run tasks without it");
+    }
+    await recoverInterrupted(opts);
+    return await runner(opts);
+  } finally {
+    unhook();
+    release();
   }
 }
 
