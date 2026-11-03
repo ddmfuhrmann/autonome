@@ -220,15 +220,14 @@ test("the reviewer's verdict reads as a short list in the live view", () => {
     "**pass**, 1 finding:\n- low missing in `gradle/libs.versions.toml`: No note on the check.");
 });
 
-test("medium findings go back while rounds remain; high ones always; low ones never", () => {
+test("medium findings go back while rounds remain; high ones always; low ones only alongside", () => {
   const f = (severity: "high" | "medium" | "low", issue: string) => ({ kind: "missing" as const, severity, issue });
-  const mediumOnly = { verdict: "pass" as const, findings: [f("medium", "weak test"), f("low", "nit")] };
-  assert.match(retryMessage(mediumOnly, true)!, /passed your diff[\s\S]*- weak test$/);
-  assert.ok(!retryMessage(mediumOnly, true)!.includes("nit"));
+  const mediumOnly = { verdict: "pass" as const, findings: [f("medium", "weak test"), f("low", "no edge test")] };
+  assert.match(retryMessage(mediumOnly, true)!, /passed your diff[\s\S]*- weak test\n- no edge test$/);
   assert.equal(retryMessage(mediumOnly, false), null); // rounds spent: it becomes a loose end at merge
-  assert.equal(retryMessage({ verdict: "pass", findings: [f("low", "nit")] }, true), null);
-  const both = retryMessage({ verdict: "fail", findings: [f("high", "stray file"), f("medium", "weak test")] }, false)!;
-  assert.match(both, /blocking issues[\s\S]*stray file[\s\S]*Also worth fixing now[\s\S]*weak test/);
+  assert.equal(retryMessage({ verdict: "pass", findings: [f("low", "no edge test")] }, true), null);
+  const all = retryMessage({ verdict: "fail", findings: [f("high", "stray file"), f("medium", "weak test"), f("low", "no edge test")] }, false)!;
+  assert.match(all, /blocking issues[\s\S]*stray file[\s\S]*Also worth fixing now[\s\S]*weak test\n- no edge test$/);
 });
 
 function errorsFor(outcomes: string[]) {

@@ -177,6 +177,58 @@ export function advisoryLine(findings: Rated[], skipped?: string): string | null
   return `triage advisory: ${checked.length} high finding${checked.length > 1 ? "s" : ""} checked (${parts.join(", ")})`;
 }
 
+export const REQUIRED_QUESTION =
+  "The `finding` is about something one of the task's `acceptance` criteria requires: the criterion is not met, or nothing tests it.";
+
+/** Probability that a reviewer finding names something the task's acceptance requires. Throws on a
+ * failed or malformed call. */
+export async function requiredByAcceptance(finding: { kind?: string; file?: string; issue: string }, acceptance: string[],
+  key: string, ask: typeof askJev = askJev): Promise<number> {
+  const raw = await ask({ finding: { kind: finding.kind, file: finding.file, issue: finding.issue }, acceptance },
+    [{ name: "required", question: REQUIRED_QUESTION }], key);
+  const v = (raw as Record<string, unknown> | null | undefined)?.required;
+  if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 1) {
+    throw new Error('jev: answer "required" is missing or outside 0..1');
+  }
+  return v;
+}
+
+export const RAISE_NOTE = " (blocking: the task's acceptance requires it)";
+
+interface Raisable extends Rated { required?: number; required_error?: string; raised?: boolean }
+
+/** The other way round from `downgradeAdvisory`: a medium or low finding about something the task's
+ * acceptance requires blocks. A cheap reviewer rates these low and they merge (gastos: "the task
+ * requires a log test" rated low, eight times). Only with Jev and a task with acceptance; a failed
+ * call leaves the finding as it was, a finding just downgraded is not sent back up, and every
+ * finding it checks keeps the answer (`required`) or the failure (`required_error`). */
+export async function raiseRequired<F extends Raisable>(findings: F[], acceptance: string[], cfg: Triage | null | undefined,
+  key: string | undefined, ask: (f: F, acceptance: string[], key: string) => Promise<number> = requiredByAcceptance): Promise<F[]> {
+  if (cfg?.model !== "jev-latest" || !key || !acceptance.length) return findings;
+  return Promise.all(findings.map(async (f) => {
+    if (f.severity === "high" || f.downgraded) return f;
+    let p: number;
+    try {
+      p = await ask(f, acceptance, key);
+    } catch (e) {
+      console.error("triage: acceptance check failed:", e);
+      return { ...f, required_error: String(e instanceof Error ? e.message : e).slice(0, 200) };
+    }
+    if (p < cfg.reject_at) return { ...f, required: p };
+    return { ...f, severity: "high" as const, issue: f.issue + RAISE_NOTE, raised: true, required: p };
+  }));
+}
+
+/** One line for the live view on what the acceptance check did in a review round, or null when it
+ * raised nothing and nothing failed. */
+export function raisedLine(findings: Raisable[]): string | null {
+  const raised = findings.filter((f) => f.raised).length;
+  const failed = findings.filter((f) => f.required_error !== undefined).length;
+  if (!raised && !failed) return null;
+  const parts = [raised && `${raised} raised to high`, failed && `${failed} failed`].filter(Boolean);
+  return `triage acceptance: ${parts.join(", ")}`;
+}
+
 /** What `enforceConventions` raises, or a reviewer's own missing finding against a named convention. */
 function isConventionRequired(f: Rated): boolean {
   return (f.kind === "missing" && !!f.convention) || f.issue.includes("(blocking: required by the convention");

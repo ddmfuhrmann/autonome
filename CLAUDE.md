@@ -99,6 +99,10 @@ plugin/runner/  the runner (TypeScript, Claude Agent SDK): one session + worktre
   The triage has its own model setting, `triage` in the gate config: Jev (`jev-latest`) with Haiku as
   the fallback; it is not one of the `models` roles and `--model/--effort` do not change it.
   The `staff` role is Opus with high effort by default, the last stop before the human.
+  Jev also checks reviewer findings both ways: a high one whose text calls itself advisory drops to
+  medium, and a medium or low one the task's acceptance requires rises to high and blocks. Low
+  findings ride along whenever the implementer goes back, and those that merge reach the retro as
+  `open_debt` for its debt plan.
   Jev also judges what the staff proposes: that a task is already satisfied (questions on the commit
   in main that delivered it) and its revision of the task's spec (drops acceptance, adds out-of-scope,
   changes design). Jev only, no Haiku fallback: without the key the staff can still fix, but closing

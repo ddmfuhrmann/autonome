@@ -23,7 +23,7 @@ function retroPrompt(wave: Plan, project: string): string {
   return `Run the autonome retro skill for project ${project}, focused on wave #${wave.id} "${wave.body.title}" ` +
     `(plans ${features}), which just finished. Nobody will answer questions: do not ask, decide.\n\n` +
     "Run the retrospective the skill describes on what this wave left behind: insights_get (review_findings, " +
-    "loose_ends, retries, spent, heavy_conventions, repeated failures, blocked tasks, friction), the " +
+    "loose_ends, open_debt, retries, spent, heavy_conventions, repeated failures, blocked tasks, friction), the " +
     "handoffs of its features (search with type handoff), gate_config_get, and fix tasks that came from a " +
     "smoke test. Make the four kinds of proposal the skill lists, each only when the evidence supports it. " +
     "Never loosen an existing convention or gate. End with the report in the skill's format: the four " +

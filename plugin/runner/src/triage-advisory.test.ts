@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Finding, Triage } from "./context.js";
-import { advisory, advisoryLine, downgradeAdvisory, DOWNGRADE_NOTE } from "./triage.js";
+import { advisory, advisoryLine, downgradeAdvisory, DOWNGRADE_NOTE, RAISE_NOTE, raiseRequired, raisedLine, requiredByAcceptance } from "./triage.js";
 import { enforceConventions } from "./review.js";
 
 const cfg: Triage = { model: "jev-latest", fallback: "haiku", reject_at: 0.7, max_rounds: 2 };
@@ -85,4 +85,60 @@ test("advisory rejects a malformed answer instead of defaulting", async () => {
     assert.deepEqual(state, { finding: { kind: "diverges", file: "app/links.py", issue: f228.issue } });
     return { advisory: 0.8 };
   }), 0.8);
+});
+
+// gastos #1336: a requirement of the task, rated low by the reviewer and merged
+const f1336: Finding = { kind: "missing", severity: "low", file: "backend/src/test/java/ApiExceptionHandlerIT.java",
+  issue: "Still no test of the 500 log. The task requires an ERROR log with the code and no request body." };
+const acceptance = ["A 500 logs at ERROR with its code and never the request body"];
+
+test("a low finding the acceptance requires is raised to high, with the task's acceptance sent along", async () => {
+  const sent: string[][] = [];
+  const [out] = await raiseRequired([f1336], acceptance, cfg, "k", async (_f, a) => { sent.push(a); return 0.92; });
+  assert.deepEqual(sent, [acceptance]);
+  assert.equal(out.severity, "high");
+  assert.equal(out.raised, true);
+  assert.equal(out.issue, f1336.issue + RAISE_NOTE);
+  assert.equal(out.required, 0.92);
+});
+
+test("below reject_at, a high finding or a downgraded one stays as it was", async () => {
+  const [kept] = await raiseRequired([f1336], acceptance, cfg, "k", async () => 0.69);
+  assert.equal(kept.severity, "low");
+  assert.equal(kept.required, 0.69);
+  const asked: string[] = [];
+  const out = await raiseRequired([f228, { ...f228, severity: "medium", downgraded: true }], acceptance, cfg, "k",
+    async (f) => { asked.push(f.issue); return 1; });
+  assert.deepEqual(asked, []);
+  assert.deepEqual(out.map((f) => f.severity), ["high", "medium"]);
+});
+
+test("a failed acceptance check records the failure and keeps the severity", async () => {
+  silence();
+  const [out] = await raiseRequired([f1336], acceptance, cfg, "k", async () => { throw new Error("jev: HTTP 500"); });
+  assert.equal(out.severity, "low");
+  assert.equal(out.required_error, "jev: HTTP 500");
+});
+
+test("never with Haiku, without a key, with triage off or without acceptance", async () => {
+  const boom = async (): Promise<number> => { throw new Error("must not be asked"); };
+  for (const [c, key, a] of [[{ ...cfg, model: "haiku" }, "k", acceptance], [cfg, undefined, acceptance],
+    [{ ...cfg, model: "off" }, "k", acceptance], [cfg, "k", []]] as const) {
+    const [out] = await raiseRequired([f1336], [...a], c as Triage, key, boom);
+    assert.equal(out.severity, "low");
+  }
+});
+
+test("requiredByAcceptance sends the finding and the acceptance, and rejects a malformed answer", async () => {
+  let state: unknown;
+  const p = await requiredByAcceptance(f1336, acceptance, "k", async (s) => { state = s; return { required: 0.8 }; });
+  assert.equal(p, 0.8);
+  assert.deepEqual(state, { finding: { kind: "missing", file: f1336.file, issue: f1336.issue }, acceptance });
+  await assert.rejects(requiredByAcceptance(f1336, acceptance, "k", async () => ({ required: 2 })), /outside 0..1/);
+});
+
+test("the acceptance line counts what was raised and what failed", () => {
+  assert.equal(raisedLine([f1336, { ...f1336, required: 0.1 }]), null);
+  assert.equal(raisedLine([{ ...f1336, severity: "high", raised: true }, { ...f1336, required_error: "boom" }]),
+    "triage acceptance: 1 raised to high, 1 failed");
 });

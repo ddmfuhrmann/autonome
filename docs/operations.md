@@ -131,6 +131,8 @@ run: abandon or re-plan them too).
 - **Loose ends** (shown as review after merge): any merged task the reviewer passed with medium findings, or
   whose handoff reports a plan item partial or skipped ("not verified"). They used to vanish; now
   they wait here, and the retro turns the ones still open at the end of a wave into a debt plan.
+  Low findings that merged do not wait here (too many to read one by one): the retro reads them as
+  `open_debt` and folds the real ones into the same debt plan, grouped by file or feature.
 - **Conventions** proposed by plans or by the retro.
 - **Deviations** (decisions that departed from a plan or a convention) are here while the
   triage is off, and when it escalates one (below). With it off: accept (it becomes a rule later plans respect) or reject (a task to undo it is

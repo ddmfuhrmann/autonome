@@ -18,6 +18,7 @@ What `insights_get` gives you, beyond adherence and gates:
 
 - `review_findings`: what reviewers noted without blocking.
 - `loose_ends`: merged tasks whose medium findings or unverified plan items still wait for the user.
+- `open_debt`: the medium and low findings each merged task left in main, with its `plan_id` and `wave_id`.
 - `retries_per_task`: trips back to the implementer (failed gates and review rounds after the first).
 - `spent`: tokens and cost, and the costliest tasks with their review rounds.
 - `heavy_conventions`: active conventions taking more than a quarter of the session briefing.
@@ -48,11 +49,15 @@ A convention that does not hold is a problem of its own: fixing only the finding
 (the weak tests, say) repairs the symptom and leaves the rule as it was.
 `convention_propose` cites the evidence (ids, counts) in `why` and `evidence`.
 
-**2. Debt: what merged work left open.** Loose ends that are real defects in the code (a test that
-cannot fail, a probe in the wrong scope, a requirement not met) become tasks of one `plan_draft`
-with feature `maintenance`, each task citing the finding and the task it came from. Leave out what is
-only a record to keep (a deviation the handoff already explains) and what a later plan already
-covers. Never more than one debt plan per run.
+**2. Debt: what merged work left open.** `loose_ends` and the `open_debt` of the wave's plans that
+are real defects in the code (a test that cannot fail or is missing for a named case, a probe in the
+wrong scope, a requirement not met, duplicated code) become tasks of one `plan_draft` with feature
+`maintenance`, each task citing the findings and the tasks they came from. Group them by file or
+feature, so a task stays within `task_size`, never one task per finding. Leave out what is only a
+record to keep (a deviation the handoff already explains), a style nit, and what a later plan or an
+earlier debt plan already covers. A convention or gate for the same findings does not replace the
+debt plan: the rule stops new instances, the debt plan fixes the ones already in main. Never more
+than one debt plan per run.
 
 **3. Process config.** What the gate config should change, from the evidence: commands sessions keep
 being denied (`allowed_commands`), acceptance items nobody could verify because nothing runs the app
@@ -75,7 +80,8 @@ change that cannot be measured is an opinion.
 Before any `convention_propose` or `plan_draft`, list every friction cluster, repeated failure, loose
 end and finding you are using, and give each exactly one remedy: a convention, a gate or a plan task.
 When two proposals cite the same id, keep the one that fixes the cause (a gate over a convention over
-a task) and drop the other. Every proposal names the ids it comes from.
+a task) and drop the other; a debt task that fixes an instance already in main is not a second remedy
+for its cause and stays. Every proposal names the ids it comes from.
 
 ## 4. Report
 

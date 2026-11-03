@@ -4,7 +4,7 @@
 import { consult } from "./agents.js";
 import type { Finding, ReviewResult, RoleModel, Run, Task, Triage } from "./context.js";
 import { git } from "./git.js";
-import { downgradeAdvisory } from "./triage.js";
+import { downgradeAdvisory, raiseRequired } from "./triage.js";
 
 const REVIEWER_PROMPT = `You review one task of the autonome process before it merges. You did not write it.
 The gates (tests, linters, type checks, coverage) already ran and passed; their results are in the
@@ -85,7 +85,8 @@ export function earlierFindingsSection(previous: Finding[] | undefined): string 
 
 export async function review(task: Task, briefing: string, worktree: string, base: string, who: RoleModel & { language?: string },
   onMessage?: (msg: unknown) => void, previous?: Finding[],
-  triage?: { cfg?: Triage | null; key?: string; ask?: (f: Finding, key: string) => Promise<number> },
+  triage?: { cfg?: Triage | null; key?: string; ask?: (f: Finding, key: string) => Promise<number>;
+    askRequired?: (f: Finding, acceptance: string[], key: string) => Promise<number> },
   log?: (line: string) => void) {
   const diff = git(worktree, "diff", "--cached", base).slice(0, 80_000);
   const { answer, cost } = await consult<ReviewResult>({
@@ -104,7 +105,8 @@ export async function review(task: Task, briefing: string, worktree: string, bas
     ].filter(Boolean).join("\n\n"),
   });
   const enforced = enforceConventions(answer.findings, conventionTitles(briefing));
-  const findings = await downgradeAdvisory(enforced, triage?.cfg, triage?.key, triage?.ask);
+  const downgraded = await downgradeAdvisory(enforced, triage?.cfg, triage?.key, triage?.ask);
+  const findings = await raiseRequired(downgraded, task.body.acceptance ?? [], triage?.cfg, triage?.key, triage?.askRequired);
   // The verdict follows the findings, whatever the agent wrote in it.
   const verdict = findings.some((f) => f.severity === "high") ? "fail" : "pass";
   return { result: { verdict, findings } as ReviewResult, cost };
@@ -165,17 +167,19 @@ const FIX_OR_EXPLAIN = "Fix each one, or, when it is not a problem in the code (
 
 /** What goes back to the implementer after a review, or null when nothing does. High findings block;
  * medium ones go back too while review rounds remain, so debt is paid while the session has the
- * context, and become loose ends at merge once rounds run out. Low ones never go back. */
+ * context, and become loose ends at merge once rounds run out. Low ones ride along whenever the
+ * implementer goes back anyway (mostly a missing test, cheap to add with the context at hand), but
+ * never send it back on their own. */
 export function retryMessage(r: ReviewResult, roundsLeft: boolean): string | null {
   const high = findingsForRetry(r, "high");
-  const medium = findingsForRetry(r, "medium");
+  const rest = [findingsForRetry(r, "medium"), findingsForRetry(r, "low")].filter(Boolean).join("\n");
   if (high) {
     return "An independent reviewer read your diff and found blocking issues. Fix them, then end your turn:\n" + high
-      + (medium ? `\n\nAlso worth fixing now. ${FIX_OR_EXPLAIN}\n${medium}` : "");
+      + (rest ? `\n\nAlso worth fixing now. ${FIX_OR_EXPLAIN}\n${rest}` : "");
   }
-  if (medium && roundsLeft) {
+  if (findingsForRetry(r, "medium") && roundsLeft) {
     return `An independent reviewer passed your diff with findings worth fixing now. ${FIX_OR_EXPLAIN} ` +
-      "Then end your turn:\n" + medium;
+      "Then end your turn:\n" + rest;
   }
   return null;
 }

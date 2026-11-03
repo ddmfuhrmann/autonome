@@ -17,7 +17,7 @@ import { smokeTest } from "./smoke-test.js";
 import { findJevKey, jevKey, sessionEnv } from "./secrets.js";
 import { triagePending, triageRevisions } from "./triage-run.js";
 import type { askJev } from "./triage.js";
-import { advisoryLine, judgeSatisfied, judgeTaskRevision } from "./triage.js";
+import { advisoryLine, judgeSatisfied, judgeTaskRevision, raisedLine } from "./triage.js";
 
 /** How much of the delivering commit's diff the Jev sees when a task is closed as already satisfied. */
 const SATISFIED_DIFF_CAP = 20_000;
@@ -856,9 +856,10 @@ export async function judgeTask(input: JudgeInput, seams: JudgeSeams): Promise<{
     recordRound(run, rv.result, round + 1);
     opts.events?.push({ task_id: task.id, role: "reviewer", kind: "say", text: verdictLine(rv.result) });
     const checked = advisoryLine(rv.result.findings, cfg.triage?.model === "jev-latest" && !key ? "no Jev key" : undefined);
-    if (checked) {
-      log(`  ${checked}`);
-      opts.events?.push({ task_id: task.id, role: "triage", kind: "say", text: checked });
+    for (const line of [checked, raisedLine(rv.result.findings)]) {
+      if (!line) continue;
+      log(`  ${line}`);
+      opts.events?.push({ task_id: task.id, role: "triage", kind: "say", text: line });
     }
     run.cost_usd = (run.cost_usd ?? 0) + rv.cost;
     // Medium findings go back once when the project asks for it (`retry_medium`); otherwise only high

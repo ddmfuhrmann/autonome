@@ -239,6 +239,12 @@ export interface Finding {
   advisory?: number;
   /** The Jev check of this finding failed; the finding kept its severity. */
   advisory_error?: string;
+  /** Triage's Jev check found the finding required by the task's acceptance and raised it to high. */
+  raised?: boolean;
+  /** Jev's probability that the task's acceptance requires what the finding names, on every medium or low one it checked. */
+  required?: number;
+  /** That check failed; the finding kept its severity. */
+  required_error?: string;
   /** Set when the run ends: what became of the finding (see `settleOutcomes`). */
   outcome?: "resolved" | "repeated" | "merged" | "blocked";
 }

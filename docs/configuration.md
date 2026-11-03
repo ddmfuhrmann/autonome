@@ -103,9 +103,11 @@ merge: {mode: ff, pr: manual}            # ff: the runner fast-forwards main. pr
 review: {enabled: true, max_rounds: 2}   # an independent agent reviews each diff against the plan,
                                          # its edges and the conventions. High findings block and send the
                                          # implementer back up to max_rounds times (with the medium ones
-                                         # alongside); a pass with only medium or low findings merges and
-                                         # they wait as loose ends. `retry_medium: true` sends a pass with
-                                         # medium findings back once too ("fix, or explain in the handoff"):
+                                         # and low ones alongside); a pass with only medium or low findings
+                                         # merges: medium ones wait as loose ends, and both go to the
+                                         # retro's debt plan. `retry_medium: true` sends a pass with
+                                         # medium findings back once too, low ones alongside
+                                         # ("fix, or explain in the handoff"):
                                          # off by default, since that round cost ~3x a one-round task.
                                          # Later rounds check the earlier findings and raise only new
                                          # high ones
@@ -300,6 +302,11 @@ conventions and gates instead.
   `reject_at` or above it drops to medium (`downgraded`). Every checked finding keeps Jev's answer
   (`advisory`) or the failure (`advisory_error`) in the run's review rounds, and each round with a
   check adds a `triage advisory: …` line to the task's events (or `skipped, no Jev key`).
+  The other way round, each medium or low finding (not one just downgraded) gets one more question,
+  with the task's acceptance: is it about something an acceptance criterion requires (not met, or
+  not tested)? At `reject_at` or above it rises to high (`raised`) and blocks, since a cheap reviewer
+  rates these low and they merge. Every checked finding keeps the answer (`required`) or the failure
+  (`required_error`); a round that raised or failed adds a `triage acceptance: …` line.
 - **Preflight revisions**: with `model: jev-latest` and a key, the runner also judges the revision a
   preflight proposes for a held plan (only the tasks that changed, in the same position), after the
   preflight and at the start of `run`. Three questions, `drops_acceptance`, `adds_out_of_scope`
