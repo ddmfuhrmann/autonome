@@ -124,6 +124,7 @@ docker compose up -d --build context            # after changing context code
 echo 'COMPOSE_FILE=compose.yml:compose.native.yml' >> .env   # embeddings from the host's Ollama (GPU on a Mac)
 cd context && uv run autonome-context           # or run the context natively (stop its container first)
 claude plugin marketplace add . && claude plugin install autonome@autonome   # use it for real
+# in a project's repo, in Claude Code: /autonome:init (see docs/quickstart.md), then /autonome:plan
 cd context && uv run pytest                     # the gate; DB tests skip if postgres is down
 uv run --project context pytest plugin/tests    # plugin (stdlib code, tested with the context's pytest)
 pnpm --dir plugin/runner test                   # the runner (TypeScript, Agent SDK)

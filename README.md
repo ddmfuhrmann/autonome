@@ -56,6 +56,7 @@ The human doesn't need to be in every loop.
 | Doc | Read it to… |
 |---|---|
 | [plugin/README.md](plugin/README.md) | understand the cycle step by step: plan, approve, run (preflight, review, smoke test, review after merge), retro, schedules, and what the gate hook does |
+| [docs/quickstart.md](docs/quickstart.md) | go from zero to a first run: start the context, install the plugin, `/autonome:init`, plan, run, watch |
 | [docs/configuration.md](docs/configuration.md) | set a project up and adjust it: what activates it, every key of the gate config (gates, review, models, triage, hold_before_merge, review_after_merge, smoke_test, schedules), the commands and environment variables, backup and restore |
 | [docs/conventions.md](docs/conventions.md) | write the rules agents follow and the reviewer enforces: where they come from, who reads them, convention vs. gate vs. decision, how to write good ones |
 | [docs/operations.md](docs/operations.md) | know what to do when something stops: doctor failures, blocked tasks and their reasons, held plans, the review queue, why a run stopped, and cleaning up worktrees and branches |
@@ -86,13 +87,19 @@ claude plugin marketplace add ddmfuhrmann/autonome
 claude plugin install autonome@autonome
 ```
 
-The plugin registers the context's MCP server by itself. From any project, `/autonome:plan`
-starts a plan; see [plugin/README.md](plugin/README.md) for the rest.
+The plugin registers the context's MCP server by itself.
 
-**3. Set your project up**: save a gate config in the UI, and adjust gates, review, models, hold before merge,
-review after merge and the smoke test as described in the [configuration guide](docs/configuration.md). How
-the memory stores, indexes and serves everything is in [docs/memory.md](docs/memory.md).
-Benchmarks of real runs are in [docs/benchmarks](docs/benchmarks).
+**3. Set your project up**: open Claude Code in the project's repo and run `/autonome:init`. It reads
+the repo, checks the machine (Docker, the Jev key, `gh`) and proposes the settings, the feature
+catalog and the first conventions. Review and save the settings in the Settings page, and accept the
+conventions in the UI.
+
+**4. Plan, run, watch**: `/autonome:plan`, then `/autonome:run`, then `/autonome:watch`.
+
+The full walkthrough, with what to do when the init finds something missing, is in the
+[quick start](docs/quickstart.md). Adjusting the settings later is in the
+[configuration guide](docs/configuration.md); how the memory works is in [docs/memory.md](docs/memory.md);
+benchmarks of real runs are in [docs/benchmarks](docs/benchmarks).
 
 ## Usage
 
@@ -100,6 +107,7 @@ Benchmarks of real runs are in [docs/benchmarks](docs/benchmarks).
 
 | Skill | When |
 |---|---|
+| `/autonome:init` | prepare a project: reads the repo, checks the machine, proposes settings, features and conventions |
 | `/autonome:plan` | plan a feature, a fix or a wave of features with the agent; ends in a draft you approve |
 | `/autonome:run` | run the approved tasks; when the run stops it tells you what merged and walks you through what waits |
 | `/autonome:watch` | follow a run from the session: notifications, and each waiting item discussed and decided in the chat |

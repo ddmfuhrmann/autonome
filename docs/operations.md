@@ -20,7 +20,7 @@ plugin/bin/autonome doctor --project <slug> --repo <path>
 | `✘ context … does not answer` | `docker compose up -d --wait` in the autonome repo |
 | `✘ ollama … does not answer` | `docker compose up -d --wait ollama`; with [embeddings on the host](configuration.md#embeddings-on-the-host), start the host's Ollama |
 | `✘ ollama … not pulled` | `docker compose run --rm ollama-pull` |
-| `✘ gates no gates configured` | save a gate config in Settings, or approve a plan that brings gates (see [configuration](configuration.md)) |
+| `✘ gates no gates configured` | run `/autonome:init` and save its proposal in Settings, or approve a plan that brings gates (see [quick start](quickstart.md) and [configuration](configuration.md)) |
 | `✘ gates not found in …: <cmd>` | install the tool, or fix the gate's `run` |
 | `✔ triage warning: no Jev key …` | the triage is on with `jev-latest` but the runner has no key; the fallback judges. Put `TYPESAFE_API_KEY` in `~/.autonome/secrets.env` (`chmod 600`) or the runner's environment |
 | `✘ main uncommitted changes` | commit or stash on the main checkout: the runner never merges over local work |
