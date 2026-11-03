@@ -86,6 +86,9 @@
   <section class="card" id="preflight">
     <div class="card__head"><h2 class="card__title">Preflight</h2>{{ ui.st(r.verdict, sm=true) }}<span class="push muted mono" style="font-size: 12px">{{ r.at|when }}</span></div>
     <div class="card__body">
+      {% set outcome = r|preflight_outcome %}
+      {% if outcome %}<p>{{ outcome }}</p>{% endif %}
+      {% if r.triage %}<p class="muted" style="font-size: 13px">{{ r.triage.model }} · {{ r.triage.verdict }}{% if r.triage.answers %} · {% for q, n in r.triage.answers.items() %}{{ q }}: {{ n }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}{% if r.triage.at %} · {{ r.triage.at|when }}{% endif %}</p>{% endif %}
       {% if r.notes %}<div class="prose">{{ r.notes|md }}</div>{% else %}<p class="muted">No notes.</p>{% endif %}
       {% if r.plan %}
       <div class="split">

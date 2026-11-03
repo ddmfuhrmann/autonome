@@ -291,6 +291,20 @@ def revision_triage_line(triage: dict | None) -> str:
 templates.env.filters["revision_triage"] = revision_triage_line
 
 
+def preflight_outcome(preflight: dict | None) -> str | None:
+    """Who settled a preflight revision. Only the runner accepts without the human, and only on the triage's `accept`."""
+    verdict = (preflight or {}).get("verdict")
+    if verdict == "revised":
+        if ((preflight or {}).get("triage") or {}).get("verdict") == "accept":
+            return "Accepted by the triage"
+        return "Decided by you: revision accepted"
+    # a held plan still stores the preflight's own verdict, `revise`
+    return {"kept": "Decided by you: original kept", "held": "Waiting on you", "revise": "Waiting on you"}.get(verdict)
+
+
+templates.env.filters["preflight_outcome"] = preflight_outcome
+
+
 def _triage_enabled(cfg: GateConfig | None) -> bool:
     return bool(cfg and cfg.triage and cfg.triage.model != "off")
 
