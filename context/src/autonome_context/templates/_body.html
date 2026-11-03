@@ -10,16 +10,20 @@
 {%- elif v is sequence and v is not string %}{{ v|join('; ') }}
 {%- else %}<span class="wrap">{{ v|mdi }}</span>{% endif %}
 {%- endmacro %}
+{% macro state_cell(v) -%}
+<details><summary class="more" style="cursor: pointer; list-style: none">State (JSON)</summary><pre class="code" style="margin-top: 10px">{{ v|state_text }}</pre></details>
+{%- endmacro %}
+{% set state_keys = ('triage', 'triage_history', 'screening', 'preflight') %}
 {% for key in keys if key not in hidden and body[key] not in (None, '', [], {}) %}{% set value = body[key] %}
 <section>
   <h2>{{ key|replace('_', ' ')|capitalize }}{% if value is sequence and value is not string %} <span class="n">{{ value|length }}</span>{% endif %}</h2>
   {% if value is string and key in code_keys %}<pre class="code">{{ value }}</pre>
   {% elif value is string %}<div class="prose">{{ value|md }}</div>
-  {% elif value is mapping %}<dl class="kv" style="padding-top: 6px">{% for k, v in value.items() %}<dt>{{ k|replace('_', ' ') }}</dt><dd>{{ cell(v) }}</dd>{% endfor %}</dl>
+  {% elif value is mapping %}<dl class="kv" style="padding-top: 6px">{% for k, v in value.items() %}<dt>{{ k|replace('_', ' ') }}</dt><dd>{% if k == 'state' and key in state_keys %}{{ state_cell(v) }}{% else %}{{ cell(v) }}{% endif %}</dd>{% endfor %}</dl>
   {% elif value is sequence and value[0] is mapping %}
     {% set cols = value|table_cols %}
     <div class="table-wrap" style="padding-top: 6px"><table class="table" style="font-size: 13px"><thead><tr>{% if key == 'tasks' %}<th>#</th>{% endif %}{% for c, w in cols %}<th class="col--{{ w }}">{{ c|replace('_', ' ') }}</th>{% endfor %}</tr></thead>
-    <tbody>{% for row in value %}<tr>{% if key == 'tasks' %}<td class="mono">{{ loop.index }}</td>{% endif %}{% for c, w in cols %}<td class="col--{{ w }}">{% if c == 'at' or c.endswith('_at') %}{{ row.get(c)|when }}{% else %}{{ cell(row.get(c)) }}{% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody>
+    <tbody>{% for row in value %}<tr>{% if key == 'tasks' %}<td class="mono">{{ loop.index }}</td>{% endif %}{% for c, w in cols %}<td class="col--{{ w }}">{% if c == 'at' or c.endswith('_at') %}{{ row.get(c)|when }}{% elif c == 'state' and key in state_keys and row.get(c) %}{{ state_cell(row.get(c)) }}{% else %}{{ cell(row.get(c)) }}{% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody>
     </table></div>
   {% elif value is sequence %}<div class="prose"><ul>{% for v in value %}<li>{{ v|mdi }}</li>{% endfor %}</ul></div>
   {% else %}<p>{{ cell(value) }}</p>{% endif %}

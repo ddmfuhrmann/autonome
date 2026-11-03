@@ -31,6 +31,19 @@ log = logging.getLogger(__name__)
 _HERE = Path(__file__).parent
 templates = Jinja2Templates(directory=_HERE / "templates")
 templates.env.filters["pretty"] = lambda v: json.dumps(v, indent=2, ensure_ascii=False, default=str)
+
+
+def _state_text(v) -> str:
+    """A triage `state` (JSON in a string) formatted for reading; anything else as it is."""
+    if isinstance(v, str):
+        try:
+            v = json.loads(v)
+        except ValueError:
+            return v
+    return json.dumps(v, indent=2, ensure_ascii=False, default=str)
+
+
+templates.env.filters["state_text"] = _state_text
 _LIST_ITEM = re.compile(r"^( *)([-*+]|\d+[.)]) ")
 
 
@@ -55,14 +68,22 @@ def _loose_lists(text: str) -> str:
 
 
 # Agent-written markdown: escape raw HTML, then render.
-templates.env.filters["md"] = lambda v: Markup(md.markdown(
-    _loose_lists(str(v or "").replace("<", "&lt;")), extensions=["tables", "fenced_code", "sane_lists"]))
+class _EscapeHtml(md.Extension):
+    """Raw HTML in agent text is plain text: the renderer escapes it once, code spans included (escaping
+    `<` before rendering would be escaped again inside code)."""
 
+    def extendMarkdown(self, m):
+        m.preprocessors.deregister("html_block")
+        m.inlinePatterns.deregister("html")
+
+
+templates.env.filters["md"] = lambda v: Markup(md.markdown(
+    _loose_lists(str(v or "")), extensions=["tables", "fenced_code", "sane_lists", _EscapeHtml()]))
 
 
 def _md_inline(v) -> Markup:
     """One line of agent-written markdown (a list item, a criterion): `code`, **bold**, links."""
-    html = md.markdown(str(v or "").replace("<", "&lt;"))
+    html = md.markdown(str(v or ""), extensions=[_EscapeHtml()])
     return Markup(html[3:-4] if html.startswith("<p>") and html.endswith("</p>") and html.count("<p>") == 1 else html)
 
 

@@ -8,7 +8,7 @@
 {% endif %}
 <header class="page-head">
   <div class="page-head__text">
-    <h1>{{ doc.body.title or (doc.body.summary.split('. ')[0]|truncate(140) if doc.body.summary) or doc.type|label }}</h1>
+    <h1>{{ (doc.body.title or (doc.body.summary.split('. ')[0]|truncate(140) if doc.body.summary) or doc.type|label)|mdi }}</h1>
     <p class="subtitle" style="font-size: 15px">
       <span>{{ doc.type|label|lower }} {{ doc|ref }}</span>
       {% if doc.status %}{{ ui.st(doc.status) }}{% endif %}

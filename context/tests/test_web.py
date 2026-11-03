@@ -1,3 +1,5 @@
+import json
+import re
 from datetime import UTC, datetime
 
 import psycopg_pool
@@ -116,6 +118,41 @@ def test_one_line_markdown_renders_in_lists_and_escapes_html(client, project, ru
     page = client.get(f"/ui/p/{project}/features/links").text
     assert "<code>uv run uvicorn shortlink.app:app --reload</code>: starts the API" in page
     assert "<script>alert(1)" not in page and "&lt;script&gt;" in page
+
+
+def _decision_page(client, project, run_db, indexer, **body):
+    async def go(conn):
+        async with conn.transaction():
+            return await store.create_document(conn, indexer, project=project, type="decision", status="accepted",
+                                               body={"title": "A decision", "rationale": "because", **body})
+    return client.get(f"/ui/p/{project}/documents/{run_db(go)}").text
+
+
+def test_the_triage_state_is_folded_in_a_closed_details(client, project, run_db, indexer):
+    spec = "Task spec line. " * 320
+    state = json.dumps({"task": spec})
+    page = _decision_page(client, project, run_db, indexer, triage={"verdict": "accepted", "state": state})
+    assert len(state) > 5000
+    assert "<details><summary" in page and "State (JSON)" in page and "<details open" not in page
+    inside = page.partition("State (JSON)")[2].partition("</details>")[0]
+    outside = re.sub(r"<details.*?</details>", "", page, flags=re.S)
+    assert "Task spec line." in inside and "Task spec line." not in outside
+
+
+def test_code_in_agent_text_is_escaped_once_and_raw_html_stays_text(client, project, run_db, indexer):
+    page = _decision_page(client, project, run_db, indexer,
+                          rationale="See `.../violation/<caso>/` and <script>alert(1)</script> here")
+    assert "<code>.../violation/&lt;caso&gt;/</code>" in page and "&amp;lt;" not in page
+    assert "<script>alert(1)" not in page and "&lt;script&gt;" in page
+
+
+def test_the_document_title_renders_code(client, project, run_db, indexer):
+    async def go(conn):
+        async with conn.transaction():
+            return await store.create_document(conn, indexer, project=project, type="decision", status="accepted",
+                                               body={"title": "Fix `.implement(...)` call", "rationale": "x"})
+    page = client.get(f"/ui/p/{project}/documents/{run_db(go)}").text
+    assert "<h1>Fix <code>.implement(...)</code> call</h1>" in page
 
 
 def test_tooling_features_and_development_notes_stay_apart_from_the_product(client, project, run_db, indexer):
