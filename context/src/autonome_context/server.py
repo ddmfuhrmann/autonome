@@ -477,9 +477,9 @@ async def plan_get(plan_id: int) -> dict:
 
 def plan_for_reading(body: dict) -> dict:
     """The plan as an agent reads it: without the copy of the plan from before a preflight revision
-    (`preflight.original`, ~10k characters; the UI and the triage read it from the store) nor the old
-    `rehearsal` key, which repeats the preflight. Every turn after the call re-reads what it returned."""
-    out = {k: v for k, v in body.items() if k != "rehearsal"}
+    (`preflight.original`, ~10k characters; the UI and the triage read it from the store). Every turn
+    after the call re-reads what it returned."""
+    out = dict(body)
     if isinstance(out.get("preflight"), dict):
         out["preflight"] = {k: v for k, v in out["preflight"].items() if k != "original"}
     return out
