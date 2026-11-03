@@ -343,17 +343,48 @@ export interface RevisionJudgment { model: string; answers: RevisionAnswers; ver
  * never becomes `accept` by default. */
 export async function judgeRevision(state: Record<string, unknown>, cfg: Triage, key: string | undefined,
   ask: typeof askJev = askJev): Promise<RevisionJudgment> {
-  if (cfg.model !== JEV_MODEL) throw new Error(`revision: triage model is "${cfg.model}", only ${JEV_MODEL} judges revisions`);
-  if (!key) throw new Error("revision: no Jev key");
-  const names = Object.keys(REVISION_QUESTIONS) as RevisionQuestionName[];
-  const raw = (await ask(state, names.map((name) => ({ name, question: REVISION_QUESTIONS[name] })), key) ?? {}) as Record<string, unknown>;
+  return holdOrAccept("revision", state, cfg, key, REVISION_QUESTIONS, ask) as Promise<RevisionJudgment>;
+}
+
+/** The staff's revision of one running task: the state carries that task's `original` and `revised`
+ * plus the plan's `out_of_scope` and `design`. Same questions and verdict rules as `judgeRevision`. */
+export async function judgeTaskRevision(state: Record<string, unknown>, cfg: Triage, key: string | undefined,
+  ask: typeof askJev = askJev): Promise<RevisionJudgment> {
+  return holdOrAccept("task revision", state, cfg, key, REVISION_QUESTIONS, ask) as Promise<RevisionJudgment>;
+}
+
+/** Questions on a task the staff closed as already satisfied: the state carries the `task` and the
+ * `delivered` diff of the commit that already reached main. */
+export const SATISFIED_QUESTIONS = {
+  unmet_acceptance: "Some acceptance criterion of `task` is not met by the code in `delivered` (the diff of the commit that already reached main).",
+  different_task: "The commit in `delivered` solves a different problem than `task`.",
+} as const;
+
+export type SatisfiedAnswers = Record<keyof typeof SATISFIED_QUESTIONS, number>;
+export type SatisfiedVerdict = "accept" | "hold";
+
+export interface SatisfiedJudgment { model: string; answers: SatisfiedAnswers; verdict: SatisfiedVerdict }
+
+/** Jev judges a close as already satisfied: `hold` when either answer reaches `reject_at`, else
+ * `accept`. Only Jev, with a key; anything else throws, never a verdict. */
+export async function judgeSatisfied(state: Record<string, unknown>, cfg: Triage, key: string | undefined,
+  ask: typeof askJev = askJev): Promise<SatisfiedJudgment> {
+  return holdOrAccept("satisfied", state, cfg, key, SATISFIED_QUESTIONS, ask) as Promise<SatisfiedJudgment>;
+}
+
+async function holdOrAccept(what: string, state: Record<string, unknown>, cfg: Triage, key: string | undefined,
+  questions: Record<string, string>, ask: typeof askJev): Promise<{ model: string; answers: Record<string, number>; verdict: "accept" | "hold" }> {
+  if (cfg.model !== JEV_MODEL) throw new Error(`${what}: triage model is "${cfg.model}", only ${JEV_MODEL} judges this`);
+  if (!key) throw new Error(`${what}: no Jev key`);
+  const names = Object.keys(questions);
+  const raw = (await ask(state, names.map((name) => ({ name, question: questions[name] })), key) ?? {}) as Record<string, unknown>;
   for (const n of names) {
     const v = raw[n];
     if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 1) {
       throw new Error(`jev: answer "${n}" is missing or outside 0..1`);
     }
   }
-  const answers = Object.fromEntries(names.map((n) => [n, raw[n] as number])) as RevisionAnswers;
+  const answers = Object.fromEntries(names.map((n) => [n, raw[n] as number]));
   const hold = names.some((n) => answers[n] >= cfg.reject_at);
   return { model: String((raw as { model?: unknown }).model ?? JEV_MODEL), answers, verdict: hold ? "hold" : "accept" };
 }

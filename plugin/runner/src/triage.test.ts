@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import type { consult } from "./agents.js";
 import type { Triage } from "./context.js";
-import { type Answers, haiku, jev, judge, judgeRevision, pingJev, QUESTIONS, REPEATS_QUESTION, REVISION_QUESTIONS, SCREEN_QUESTION, screen, screenHaiku, screenJev, verdict } from "./triage.js";
+import { type Answers, haiku, jev, judge, judgeRevision, judgeSatisfied, judgeTaskRevision, pingJev, QUESTIONS, REPEATS_QUESTION, REVISION_QUESTIONS, SATISFIED_QUESTIONS, SCREEN_QUESTION, screen, screenHaiku, screenJev, verdict } from "./triage.js";
 
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; });
@@ -292,4 +292,65 @@ test("pingJev proves the key and endpoint with one question and names the model 
   await assert.rejects(pingJev("k"), /HTTP 404/);
   fakeJev({});
   await assert.rejects(pingJev("k"), /billing/);
+});
+
+const taskRevState = { original: { title: "t", acceptance: ["a"] }, revised: { title: "t", acceptance: [] }, out_of_scope: [], design: [] };
+
+test("a task revision holds at or above reject_at and accepts below it", async () => {
+  fakeJev(rev(0.9, 0.1, 0.1));
+  assert.equal((await judgeTaskRevision(taskRevState, cfg, "k")).verdict, "hold");
+  fakeJev(rev(0.1, 0.1, 0.1));
+  const j = await judgeTaskRevision(taskRevState, cfg, "k");
+  assert.equal(j.verdict, "accept");
+  assert.deepEqual(j.answers, rev(0.1, 0.1, 0.1));
+  await assert.rejects(judgeTaskRevision(taskRevState, cfg, undefined), /key/);
+  await assert.rejects(judgeTaskRevision(taskRevState, { ...cfg, model: "haiku" }, "k"), /haiku/);
+});
+
+const sat = (a: number, b: number) => ({ unmet_acceptance: a, different_task: b });
+const satState = { task: { title: "502 on the health route" }, delivered: "diff of 4c9cb4a" };
+
+test("a task closed as satisfied: #1632 (0.1, 0.1) accepts; unmet_acceptance 0.8 or different_task 0.9 holds", async () => {
+  for (const [scores, want] of [[sat(0.1, 0.1), "accept"], [sat(0.8, 0.1), "hold"], [sat(0.1, 0.9), "hold"]] as const) {
+    fakeJev(scores);
+    const j = await judgeSatisfied(satState, cfg, "k");
+    assert.equal(j.verdict, want);
+    assert.deepEqual(j.answers, scores);
+  }
+});
+
+test("the satisfied request goes to systemone with the two questions as nouls, through an injected ask too", async () => {
+  const saved = process.env.TYPESAFE_URL;
+  delete process.env.TYPESAFE_URL;
+  try {
+    const calls = fakeJev(sat(0.1, 0.1));
+    await judgeSatisfied(satState, cfg, "secret");
+    const { url, body, auth } = calls[0];
+    assert.equal(url, "https://api.typesafe.ai/v1/systemone");
+    assert.equal(auth, "Bearer secret");
+    assert.deepEqual(body.state, satState);
+    assert.deepEqual(Object.keys(body.questions).sort(), Object.keys(SATISFIED_QUESTIONS).sort());
+    for (const [name, q] of Object.entries(body.questions) as [keyof typeof SATISFIED_QUESTIONS, any][]) {
+      assert.deepEqual(q, { type: "noul", instructions: SATISFIED_QUESTIONS[name] });
+    }
+    let asked: unknown;
+    const j = await judgeSatisfied(satState, cfg, "k", async (s) => { asked = s; return sat(0.2, 0.3); });
+    assert.equal(asked, satState);
+    assert.equal(j.verdict, "accept");
+  } finally {
+    if (saved !== undefined) process.env.TYPESAFE_URL = saved;
+  }
+});
+
+test("a satisfied judgment with no key, a haiku model, an HTTP error or a missing answer throws", async () => {
+  const calls = fakeJev(sat(0.1, 0.1));
+  await assert.rejects(judgeSatisfied(satState, cfg, undefined), /key/);
+  await assert.rejects(judgeSatisfied(satState, { ...cfg, model: "haiku" }, "k"), /haiku/);
+  assert.equal(calls.length, 0);
+  globalThis.fetch = (async () => new Response("no", { status: 500 })) as typeof fetch;
+  await assert.rejects(judgeSatisfied(satState, cfg, "k"), /500/);
+  fakeJev({ unmet_acceptance: 0.1 });
+  await assert.rejects(judgeSatisfied(satState, cfg, "k"), /different_task/);
+  fakeJev(sat(0.1, -1));
+  await assert.rejects(judgeSatisfied(satState, cfg, "k"), /different_task/);
 });
