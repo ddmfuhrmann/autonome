@@ -1,10 +1,12 @@
 import asyncio
+import json
 
 import httpx
 import psycopg
+import psycopg_pool
 import pytest
 
-from autonome_context import config, rules, store
+from autonome_context import config, rules, server, services, store
 from autonome_context.embed import OllamaEmbedder
 
 from autonome_context import plans
@@ -204,6 +206,75 @@ def test_features_get_lists_only_the_features_of_the_project(run_db, project, in
     [feature] = run_db(go)
     assert feature["slug"] == "wallet" and feature["paths"] == ["src/wallet/"]
     assert feature["last_activity"]
+
+
+@pytest.fixture
+def feature_add(db_url, indexer, monkeypatch):
+    """Calls the MCP tool `feature_add` through the server, so the argument schema is checked."""
+    def call(**args):
+        async def go():
+            pool = psycopg_pool.AsyncConnectionPool(db_url, open=False, min_size=1, max_size=2)
+            await pool.open()
+
+            async def get():
+                return pool, indexer
+
+            monkeypatch.setattr(services, "get", get)
+            try:
+                result = await server.mcp.call_tool("feature_add", args)
+                return json.loads(result.content[0].text)
+            finally:
+                await pool.close()
+
+        return asyncio.run(go())
+
+    return call
+
+
+def test_feature_add_creates_the_feature_and_features_get_lists_it(feature_add, run_db, project):
+    assert feature_add(project=project, slug="wallet", description="balance of the wallet ledger",
+                       paths=["src/wallet/**"]) == {"slug": "wallet"}
+
+    [feature] = run_db(lambda conn: store.catalog_with_activity(conn, project))
+    assert feature["slug"] == "wallet" and feature["paths"] == ["src/wallet/**"]
+
+
+def test_feature_add_with_a_similar_feature_names_it_and_creates_nothing(feature_add, run_db, project):
+    feature_add(project=project, slug="models", description="model and effort per agent role in config")
+
+    r = feature_add(project=project, slug="models-config", description="model and effort per agent role")
+
+    assert r == {"error": "similar", "similar_to": "models"}
+    assert [f["slug"] for f in run_db(lambda conn: store.catalog(conn, project))] == ["models"]
+
+
+@pytest.mark.parametrize("args", [
+    {"slug": "Foo Bar", "description": "a fine description"},
+    {"slug": "foo-bar", "description": "bad\x00description"},
+    {"slug": "foo-bar", "description": ""},
+    {"slug": "foo-bar", "description": "x" * 301},
+    {"slug": "foo-bar", "description": "ok", "paths": ["src/**"] * 31},
+])
+def test_feature_add_refuses_a_bad_slug_description_or_paths(feature_add, run_db, project, args):
+    with pytest.raises(Exception):
+        feature_add(project=project, **args)
+
+    assert run_db(lambda conn: store.catalog(conn, project)) == []
+
+
+@pytest.mark.parametrize("path", ["", "a\x00b", "x" * 201])
+def test_feature_add_refuses_a_bad_glob_with_an_error_and_creates_nothing(feature_add, run_db, project, path):
+    r = feature_add(project=project, slug="wallet", description="balance of the wallet ledger", paths=[path])
+
+    assert "error" in r
+    assert run_db(lambda conn: store.catalog(conn, project)) == []
+
+
+def test_feature_add_twice_leaves_one_row(feature_add, run_db, project):
+    args = dict(project=project, slug="wallet", description="balance of the wallet ledger")
+
+    assert feature_add(**args) == feature_add(**args) == {"slug": "wallet"}
+    assert len(run_db(lambda conn: store.catalog(conn, project))) == 1
 
 
 def test_enqueue_task_creates_the_maintenance_feature_with_its_fixed_description(run_db, project, indexer):

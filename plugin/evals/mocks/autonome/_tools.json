@@ -406,6 +406,50 @@
       }
     },
     {
+      "name": "feature_add",
+      "description": "Add a feature to the project's catalog, the same way a plan does. A known slug is returned as it\nis; one too similar to an existing feature is not created: `similar_to` names that one.",
+      "inputSchema": {
+        "properties": {
+          "project": {
+            "description": "Project slug",
+            "title": "Project",
+            "type": "string"
+          },
+          "slug": {
+            "description": "kebab-case slug of the feature",
+            "pattern": "^[a-z][a-z0-9-]{1,40}$",
+            "title": "Slug",
+            "type": "string"
+          },
+          "description": {
+            "description": "what the feature is, as a stable capability of the product (1 to 300 characters)",
+            "maxLength": 300,
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f]+$",
+            "title": "Description",
+            "type": "string"
+          },
+          "paths": {
+            "default": [],
+            "description": "code path globs of the feature",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 30,
+            "title": "Paths",
+            "type": "array"
+          }
+        },
+        "required": [
+          "project",
+          "slug",
+          "description"
+        ],
+        "title": "feature_addArguments",
+        "type": "object"
+      }
+    },
+    {
       "name": "features_get",
       "description": "The project's feature catalog: slug, description, code paths and last_activity of each feature.\nA feature is a stable capability of the product, not the change being made. Read it before\nplanning and pick the feature whose paths fit the work (the most specific wins).",
       "inputSchema": {

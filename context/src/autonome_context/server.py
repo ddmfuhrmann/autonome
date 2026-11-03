@@ -100,6 +100,30 @@ async def features_get(project: Annotated[str, Field(description="Project slug")
 
 
 @mcp.tool()
+async def feature_add(
+    project: Annotated[str, Field(description="Project slug")],
+    slug: Annotated[str, Field(pattern=r"^[a-z][a-z0-9-]{1,40}$", description="kebab-case slug of the feature")],
+    description: Annotated[str, Field(
+        min_length=1, max_length=300, pattern=r"^[^\x00-\x1f\x7f]+$",
+        description="what the feature is, as a stable capability of the product (1 to 300 characters)")],
+    paths: Annotated[list[str], Field(max_length=30, description="code path globs of the feature")] = [],
+) -> dict:
+    """Add a feature to the project's catalog, the same way a plan does. A known slug is returned as it
+    is; one too similar to an existing feature is not created: `similar_to` names that one."""
+    if any(not p or len(p) > 200 or any(ord(c) < 32 or ord(c) == 127 for c in p) for p in paths):
+        return {"error": "paths must be non-empty globs of at most 200 characters, without control characters"}
+    pool, indexer = await services.get()
+    async with pool.connection() as conn:
+        try:
+            r = await store.resolve_feature(conn, indexer.embedder, project, slug, description, paths)
+        except rules.Forbidden as e:
+            return {"error": str(e)}
+    if r["similar_to"]:
+        return {"error": "similar", "similar_to": r["similar_to"]}
+    return {"slug": r["slug"]}
+
+
+@mcp.tool()
 async def plan_draft(
     project: str,
     plan: plans.PlanBody,

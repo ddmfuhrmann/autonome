@@ -30,6 +30,7 @@ All take `project` (the project slug) unless noted. Ids are document ids.
 
 | Tool | Arguments | Returns |
 |---|---|---|
+| `feature_add` | `project`, `slug`, `description`, `paths?` | adds a feature to the catalog through the same path as a plan (`store.resolve_feature`); `slug` kebab-case (`^[a-z][a-z0-9-]{1,40}$`), `description` 1 to 300 characters without control characters, `paths` up to 30 globs. Returns `{slug}` (also for a known slug, so repeating the call is safe), or `{error: "similar", similar_to}` and nothing is created |
 | `features_get` | `project` | the feature catalog: `[{slug, description, paths, last_activity}]`; a feature is a stable capability of the product, not a change |
 | `plan_draft` | `project`, `plan` (title, goal, context, scope, out_of_scope, acceptance, risks, tasks, gates, conventions, design, discussion, backlog_items), `feature?`, `layers?`, `plan_id?` to revise a draft, `feature_description?` and `feature_paths?` to create a feature | `{plan_id, status: draft, approve_at}`; a feature outside the catalog without a description, or similar to one in it, is an `{error}` naming the catalog or the similar feature, and no plan is created. Revising a draft does not check the feature again |
 | `wave_draft` | `project`, `wave` (title, goal, out_of_scope, features: [{plan_id, depends_on}], discussion), `wave_id?` | `{wave_id, status: draft, approve_at}` |
