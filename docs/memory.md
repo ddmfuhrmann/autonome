@@ -49,7 +49,7 @@ each one is a new **version**, and search only sees the latest.
 | `decision` | a choice and why (imported ADRs too); a deviation also keeps its `triage_history` | handoffs, `decision_propose`, imports, the runner's triage |
 | `convention` | a rule per layer the agents follow and the reviewer enforces | the human, plans, retro |
 | `gate_config` | the project's gates, review, models, review after merge… ([guide](configuration.md)) | the human, in the UI |
-| `feature_doc` | the living doc of a feature, and the system overview | the docs writer, after merges |
+| `feature_doc` | the living doc of a feature, and the system overview | the docs writer, once the queue runs dry after merges |
 | `backlog` | the roadmap's waves, not yet planned | imports |
 
 Plus two tables outside the documents: **gate runs** (every gate result, the facts behind the

@@ -154,11 +154,12 @@ When the implementer finishes and the work is committed, the runner goes through
    comes after step 3 and before the merge.
 5. **Merge**: fast-forward of `main` (or the pull request, in PR mode). A pause is checked before
    this step, as before each of the others.
-6. **Living doc** of the feature, rewritten in the background. The runner takes the next task without
-   waiting for it.
+6. **Living doc**: the merge only marks the feature. Its doc is rewritten once the queue runs dry
+   (the run ends, or `--watch` has nothing to play), once per feature however many of its tasks merged,
+   and the system overview after it. A plan of ten tasks costs one doc, not ten.
 
-A task that fails or blocks does not take this path: it stays sequential. When the run ends, the runner
-waits for the pending docs, up to 5 minutes, so no process is left behind. A doc that fails or is cut off
+A task that fails or blocks does not take this path: it stays sequential. When the queue runs dry, the
+runner waits for the docs, up to 5 minutes, so no process is left behind. A doc that fails or is cut off
 does not undo the merge; the `doc-drift` schedule catches it later.
 
 ## What the runner limits in a session

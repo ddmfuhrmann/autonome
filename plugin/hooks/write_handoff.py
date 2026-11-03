@@ -104,7 +104,7 @@ def write(condensed: str, cwd: str, facts: str) -> dict:
     project = common.project_slug(cwd)
     out = subprocess.run(
         ["claude", "-p", *common.model_args(common.project_slug(cwd), "handoff"), "--output-format", "json",
-         "--allowedTools", *READ_ONLY_TOOLS],
+         *common.lean_args(READ_ONLY_TOOLS)],
         input="\n\n".join(filter(None, [prompt(), common.language_rule(project), feature_catalog(project),
                                         facts, condensed])),
         cwd=cwd, env=env, capture_output=True, text=True, timeout=600,

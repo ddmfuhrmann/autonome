@@ -96,7 +96,7 @@ Gate config:
 def _ask(prompt: str, cwd: str, tools: list[str]) -> dict:
     out = subprocess.run(
         ["claude", "-p", *common.model_args(common.project_slug(cwd), "docs"), "--output-format", "json",
-         *(["--allowedTools", *tools] if tools else [])],
+         *common.lean_args(tools)],
         input="\n\n".join(filter(None, [prompt, common.language_rule(common.project_slug(cwd))])), cwd=cwd, capture_output=True, text=True, timeout=900,
         env={**os.environ, "AUTONOME_HANDOFF_CHILD": "1"},
     )

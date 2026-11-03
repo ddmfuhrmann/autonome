@@ -132,6 +132,8 @@ models:
 # or unavailable (Agent SDK `fallbackModel`, `claude -p --fallback-model`). It does not help with the
 # account's usage limit, which hands the task back to pending. Ignored when equal to the model.
 #   implementer: {model: sonnet, effort: medium, fallback: haiku}
+# The handoff and docs writers start lean: only the project's settings, no plugins, MCP servers or
+# skills, and only their read-only tools, so a session begins at ~12k tokens instead of ~55k.
 
 # Optional: try each finished feature in a running environment (fakes, never real services).
 smoke_test:

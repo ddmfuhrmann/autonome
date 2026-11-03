@@ -402,9 +402,11 @@ async function updateOverview(opts: RunOptions): Promise<void> {
   }
 }
 
-/** Living docs run in the background after a merge: one at a time per feature, and a merge that
- * lands while one runs only marks "again after", so it runs once more, not once per merge. */
+/** Living docs are rewritten once per feature when the queue runs dry, not once per merge: a merge
+ * only marks its feature, and `drain` (the queue is empty, or the runner leaves) writes each marked
+ * one, one at a time per feature. A merge that lands while its doc runs marks "again after". */
 export class DocsQueue {
+  private marked = new Set<string>();
   private running = new Map<string, Promise<void>>();
   private again = new Set<string>();
   private abort = new AbortController();
@@ -412,7 +414,14 @@ export class DocsQueue {
 
   constructor(private opts: RunOptions) {}
 
+  /** A merge into the feature: its doc is written at the next drain. */
   start(feature: string): void {
+    if (this.closed) return;
+    if (this.running.has(feature)) this.again.add(feature);
+    else this.marked.add(feature);
+  }
+
+  private launch(feature: string): void {
     if (this.closed) return;
     if (this.running.has(feature)) {
       this.again.add(feature);
@@ -426,14 +435,16 @@ export class DocsQueue {
         this.opts.log(`  docs update failed: ${String(e)}`);
       } finally {
         this.running.delete(feature);
-        if (this.again.delete(feature)) this.start(feature);
+        if (this.again.delete(feature)) this.launch(feature);
       }
     })();
     this.running.set(feature, p);
   }
 
-  /** Waits for the pending docs up to the ceiling, then kills what is left. */
+  /** Writes the marked docs and waits for them up to the ceiling, then kills what is left. */
   async drain(): Promise<void> {
+    for (const feature of this.marked) this.launch(feature);
+    this.marked.clear();
     if (!this.running.size) return;
     const ceiling = this.opts.docsWaitMs ?? DOCS_WAIT_MS;
     let timer: NodeJS.Timeout | undefined;

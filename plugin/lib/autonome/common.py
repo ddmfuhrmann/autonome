@@ -108,6 +108,15 @@ def model_args(project: str, role: str) -> list[str]:
     return ["--model", model, "--effort", effort, *(["--fallback-model", fallback] if fallback and fallback != model else [])]
 
 
+def lean_args(tools: list[str]) -> list[str]:
+    """`claude -p` flags that start a writer with only what it needs: no user settings, plugins, MCP
+    servers or skills, and only the tools it is allowed (patterns like `Bash(git log:*)` grant the
+    Bash tool). A default session starts at ~55k tokens on a machine with plugins; this one at ~12k."""
+    names = sorted({t.split("(")[0] for t in tools})
+    return ["--setting-sources", "project", "--strict-mcp-config", "--disable-slash-commands",
+            "--tools", *(names or [""]), *(["--allowedTools", *tools] if tools else [])]
+
+
 def language_rule(project: str) -> str:
     """The rule that keeps what agents write for people in the project's language; empty when none is set."""
     try:

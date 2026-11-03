@@ -11,32 +11,42 @@ function queue(docs: Docs, docsWaitMs?: number) {
   return { q: new DocsQueue(opts), log };
 }
 
-test("start returns at once: the next task begins before the doc ends", async () => {
-  let finished = false;
-  const { q } = queue(async () => { await sleep(80); finished = true; });
+test("a merge only marks the feature: its doc is written at the drain", async () => {
+  let calls = 0;
+  const { q } = queue(async () => { calls++; });
   q.start("f");
-  assert.equal(finished, false); // the caller is free to claim the next task
+  await sleep(20);
+  assert.equal(calls, 0); // nothing runs while tasks are still playing
   await q.drain();
-  assert.equal(finished, true);
+  assert.equal(calls, 1);
 });
 
-test("two merges of a feature while its doc runs make exactly one more doc", async () => {
+test("many merges of a feature before the drain make one doc", async () => {
+  const seen: string[] = [];
+  const { q } = queue(async (_r, _p, args) => { seen.push(args[1]); });
+  q.start("f");
+  q.start("f");
+  q.start("f");
+  q.start("other");
+  await q.drain();
+  assert.deepEqual(seen.sort(), ["f", "other"]);
+});
+
+test("a merge while its doc runs makes exactly one more doc", async () => {
   let calls = 0;
-  let active = 0;
-  let overlap = false;
+  let release: () => void = () => {};
   const { q } = queue(async () => {
     calls++;
-    if (++active > 1) overlap = true;
-    await sleep(40);
-    active--;
+    if (calls === 1) await new Promise<void>((r) => (release = r));
   });
   q.start("f");
+  const drained = q.drain();
+  await sleep(10);
   q.start("f");
   q.start("f");
-  q.start("other"); // another feature does not wait
-  await q.drain();
-  assert.equal(calls, 3); // f, f again, other
-  assert.equal(overlap, true); // f and other ran together, never f with f
+  release();
+  await drained;
+  assert.equal(calls, 2);
 });
 
 test("the same feature never runs twice at once", async () => {

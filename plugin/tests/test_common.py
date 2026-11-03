@@ -166,3 +166,13 @@ def test_the_language_rule_follows_the_gate_config(monkeypatch):
     assert "in pt-BR" in common.language_rule("p") and "JSON keys" in common.language_rule("p")
     monkeypatch.setattr(common, "get_json", lambda path, timeout=5: {"config": {}})
     assert common.language_rule("p") == ""
+
+
+def test_lean_args_grant_only_the_writers_tools():
+    from autonome import common
+    args = common.lean_args(["Read", "Bash(git log:*)", "Bash(git diff:*)"])
+    assert args[:4] == ["--setting-sources", "project", "--strict-mcp-config", "--disable-slash-commands"]
+    assert args[args.index("--tools") + 1:args.index("--allowedTools")] == ["Bash", "Read"]
+    assert args[args.index("--allowedTools") + 1:] == ["Read", "Bash(git log:*)", "Bash(git diff:*)"]
+    no_tools = common.lean_args([])
+    assert no_tools[no_tools.index("--tools") + 1:] == [""]

@@ -7,7 +7,7 @@ import { doctor } from "./doctor.js";
 import { git, tryGit } from "./git.js";
 import type { Run } from "./context.js";
 import { openPr, prState, type Gh } from "./pr.js";
-import { followPrs, resetPrFailures, run } from "./run.js";
+import { followPrs, resetPrFailures, run, type RunOptions } from "./run.js";
 
 process.env.AUTONOME_CONTEXT_RETRY_MS = "1";
 const realFetch = globalThis.fetch;
@@ -220,7 +220,9 @@ async function follow(repo: string, gh: Gh) {
   const transitions = fakeContext({ merge: PR_MANUAL, gh, inPr: waiting });
   const log: string[] = [];
   const docs: string[][] = [];
-  await followPrs({ project: "p", repo, maxTasks: 1, push: false, log: (l) => log.push(l), seams: { gh, docs: (_r, _p, a) => { docs.push(a); } } });
+  const opts: RunOptions = { project: "p", repo, maxTasks: 1, push: false, log: (l) => log.push(l), seams: { gh, docs: (_r, _p, a) => { docs.push(a); } } };
+  await followPrs(opts);
+  await opts.docsQueue?.drain(); // what run does once the queue is empty
   return { transitions, log, docs };
 }
 
@@ -384,19 +386,18 @@ const twoTasks = [{ task, preflight: null, smoke_test: null }, { task: task2, pr
 let n = 0;
 const uniqueFile = (cwd: string) => writeFileSync(join(cwd, `f${++n}.txt`), "x\n");
 
-test("the next task starts while the merged task's doc still runs, and run waits for the doc before it returns", async () => {
+test("docs wait for the queue to run dry: none while tasks play, one per feature and the overview before run returns", async () => {
   const { repo } = makeRepo();
   const { gh } = fakeGh();
-  let docFinished = false;
-  let docStarted = false;
-  let sessionsAfterDocStart = 0;
-  const docs = async () => { docStarted = true; await new Promise((r) => setTimeout(r, 300)); docFinished = true; };
+  const written: string[] = [];
+  let docDuringSession = false;
+  const docs = async (_r: string, _p: string, a: string[]) => { await new Promise((r) => setTimeout(r, 100)); written.push(a.join(" ")); };
   const { transitions, error } = await play(repo, { gh, claims: twoTasks, maxTasks: 2, docs, docsWaitMs: 5000 },
-    (cwd) => { if (docStarted && !docFinished) sessionsAfterDocStart++; uniqueFile(cwd); });
+    (cwd) => { if (written.length) docDuringSession = true; uniqueFile(cwd); });
   assert.equal(error, undefined);
   assert.deepEqual(transitions.map((t) => t.to), ["done", "done"]);
-  assert.ok(sessionsAfterDocStart >= 1, "the second task began while the first doc ran");
-  assert.equal(docFinished, true, "run did not return before the pending doc ended");
+  assert.equal(docDuringSession, false, "a doc ran while tasks were still playing");
+  assert.deepEqual(written, ["--feature links", "--overview"]); // both tasks are in links: one doc, then the overview
 });
 
 test("a failing doc only logs: the merge stays recorded", async () => {
