@@ -35,6 +35,37 @@ test("an environment that does not start blocks with nothing to fix, and is stil
   assert.equal(readFileSync(join(dir, "state"), "utf8"), "down\n");
 });
 
+test("what `up` and `down` leave running in their group is killed when they finish", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "smoke-test-"));
+  await smokeTest(plan, {
+    ...base, checks: [],
+    up: "(sleep 30 & echo $! > up.pid; wait) >/dev/null 2>&1 & sleep 0.5; exit 0",
+    down: "(sleep 30 & echo $! > down.pid; wait) >/dev/null 2>&1 & sleep 0.5; exit 0",
+  }, dir, undefined, () => {});
+  const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  for (const f of ["up.pid", "down.pid"]) {
+    const pid = Number(readFileSync(join(dir, f), "utf8"));
+    for (let i = 0; i < 50 && alive(pid); i++) await new Promise((r) => setTimeout(r, 100));
+    assert.equal(alive(pid), false, `${f} survived`);
+  }
+});
+
+test("an app `up` leaves outside its group (setsid, a detached daemon) survives", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "smoke-test-"));
+  let pid = 0;
+  try {
+    await smokeTest(plan, {
+      ...base, checks: [], down: "true",
+      up: "node -e \"const c=require('child_process').spawn('sleep',['30'],{detached:true,stdio:'ignore'});" +
+        "require('fs').writeFileSync('app.pid',String(c.pid));c.unref()\"",
+    }, dir, undefined, () => {});
+    pid = Number(readFileSync(join(dir, "app.pid"), "utf8"));
+    assert.doesNotThrow(() => process.kill(pid, 0));
+  } finally {
+    if (pid) try { process.kill(pid, "SIGKILL"); } catch { /* already gone */ }
+  }
+});
+
 test("the Jev key does not reach the smoke test commands", async () => {
   const dir = mkdtempSync(join(tmpdir(), "smoke-test-"));
   const was = process.env.TYPESAFE_API_KEY;

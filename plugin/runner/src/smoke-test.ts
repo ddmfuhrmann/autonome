@@ -103,8 +103,8 @@ export function testerPermissions(gc: GateConfig, dir: string): NonNullable<Cons
 }
 
 /** Runs a command in its own process group; at the ceiling the whole group is killed, not just the shell,
- * and so it is when a check (`killAtEnd`) finishes. */
-async function sh(cmd: string, cwd: string, env: Record<string, string>, timeoutS = 900, killAtEnd = false) {
+ * and so it is when the command finishes (`up`, `seed`, checks and `down` alike). */
+async function sh(cmd: string, cwd: string, env: Record<string, string>, timeoutS = 900) {
   return new Promise<{ ok: boolean; output: string }>((resolve) => {
     const child = spawn("sh", ["-c", cmd], { cwd, env: sessionEnv(env), detached: true });
     let out = "";
@@ -123,7 +123,7 @@ async function sh(cmd: string, cwd: string, env: Record<string, string>, timeout
     child.on("error", (e) => { clearTimeout(timer); resolve({ ok: false, output: `${String(e)}\n${out}` }); });
     child.on("close", (code) => {
       clearTimeout(timer);
-      if (killAtEnd) killGroup("SIGKILL"); // a check's leftovers; `up` is meant to leave the app running
+      killGroup("SIGKILL"); // whatever the command left in its group
       resolve(timedOut
         ? { ok: false, output: `${out}\ntimed out after ${timeoutS}s (killed the process group)`.slice(-4000) }
         : { ok: code === 0, output: out });
@@ -149,7 +149,7 @@ export async function smokeTest(
     }
     const checks: SmokeTestResult["checks"] = [];
     for (const c of cfg.checks) {
-      const r = await sh(c.run, cwd, env, c.timeout_s, true);
+      const r = await sh(c.run, cwd, env, c.timeout_s);
       log(`  check ${c.name}: ${r.ok ? "passed" : "failed"}`);
       checks.push({ name: c.name, passed: r.ok, output: r.output });
     }
