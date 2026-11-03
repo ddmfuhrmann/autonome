@@ -74,3 +74,16 @@ export async function consult<T>(c: Consult): Promise<{ answer: T; cost: number 
   if (answer === undefined) throw new Error("the agent returned no answer");
   return { answer, cost };
 }
+
+/** What the machine the session runs on is like, so commands work the first time (gastos: dozens of
+ * GNU `sed -i`, unquoted zsh globs and a `cd` that carried over to the next call). */
+export function machineRule(platform: string = process.platform, shell: string = process.env.SHELL ?? ""): string {
+  const where = "Every Bash call starts where the last one left off, and you start at the worktree root: " +
+    "give paths from the root (`pnpm --dir frontend test`, `./gradlew -p backend build`) instead of `cd`, " +
+    "and do not `cd` into a directory you are already in.";
+  const bsd = platform === "darwin" ? " This is macOS, so the command-line tools are BSD: `sed -i ''` " +
+    "(the empty backup suffix is required), no `\\n` in a `sed` replacement, no `grep -P`." : "";
+  const zsh = shell.endsWith("/zsh") ? " The shell is zsh: quote globs (`--include='*.ts'`), since an " +
+    "unmatched one fails the whole command." : "";
+  return `${where}${bsd}${zsh}`;
+}

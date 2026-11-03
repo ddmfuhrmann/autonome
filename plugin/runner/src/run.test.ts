@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { consult } from "./agents.js";
+import { consult, machineRule } from "./agents.js";
 import { git } from "./git.js";
 import { UsageLimitError } from "./limits.js";
 import { implement, implementerPermissions, implementerPrompt,implementerTools, judgeTask,preflightPlan, recordRunnerError, runTask, verdictLine, type JudgeSeams, type RunOptions } from "./run.js";
@@ -345,6 +345,18 @@ test("the implementer's query gets what implementerPermissions returns, and the 
     assert.equal(seen.env.BASH_MAX_TIMEOUT_MS, "300000", mode);
     assert.equal(seen.env.BASH_DEFAULT_TIMEOUT_MS, "120000", mode);
   }
+});
+
+test("the implementer's prompt says how the machine's shell and tools behave", () => {
+  const mac = machineRule("darwin", "/bin/zsh");
+  assert.match(mac, /start at the worktree root[\s\S]*instead of `cd`/);
+  assert.match(mac, /`sed -i ''`/);
+  assert.match(mac, /quote globs/);
+  const linux = machineRule("linux", "/bin/bash");
+  assert.ok(!linux.includes("sed -i") && !linux.includes("zsh"), linux);
+  const prompt = implementerPrompt(gcWith("auto"), mac);
+  assert.ok(prompt.includes(mac) && !prompt.includes("{{MACHINE}}"));
+  assert.match(prompt, /Copy an Edit's old_string from a Read of those exact lines/);
 });
 
 test("the implementer's prompt asks for a last `Commit: <subject>` line in the project's language", () => {

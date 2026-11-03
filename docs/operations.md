@@ -211,6 +211,20 @@ A command stuck in the implementer's session must not just be waited on:
 - In autonome's own tests, pytest prints the traceback of a test stuck for more than 60 s
   (`faulthandler_timeout`). It only prints; the test is not failed.
 
+## What the session is told about its machine
+
+Commands that fail only because of where they run cost turns in every task. So:
+
+- The implementer's and the staff's prompts say the session starts at the worktree root, and paths
+  are given from there instead of `cd`. On macOS they also say the tools are BSD (`sed -i ''`). With
+  zsh as the shell they say to quote globs. The runner reads these from the machine it runs on.
+- The implementer's prompt says to copy an Edit's `old_string` from a Read of those lines.
+- The session start hook checks the files the briefing names in code spans against the worktree. A
+  file the briefing names from another directory (`telas/painel.html` for
+  `docs/prototipo-ui/telas/painel.html`) gets its real path. A file the repo does not have is listed
+  as not there: the implementer creates it only when the task asks for it, and otherwise does not
+  look for it.
+
 ## Pausing the queue
 
 Pause when something wrong is about to merge or you need the runner to stop touching the project

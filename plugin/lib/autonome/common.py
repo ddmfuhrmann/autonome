@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import subprocess
 import time
 import urllib.error
@@ -147,3 +148,42 @@ def project_active(cwd: str | Path) -> bool:
         return True
     cfg = get_json(f"/api/projects/{project_slug(cwd)}/gate-config", timeout=2)
     return bool(cfg and (cfg.get("version") is not None or cfg.get("pending")))
+
+
+_CODE_SPAN = re.compile(r"`([^`\n]+)`")
+_FILE = re.compile(r"^[\w.()+@-]+(/[\w.()+@\[\]-]+)*/[\w()+@\[\]-]+\.[A-Za-z][\w]*$")
+
+
+def missing_paths(text: str, root: str | Path, limit: int = 20) -> dict[str, str | None]:
+    """Files a briefing names in code spans (a path with a `/` and an extension) that are not at that
+    path under `root`: each maps to the one tracked file it ends (the briefing gave a path from another
+    directory), or to None when the repo has no such file. Several candidates count as found. A plan
+    written against another checkout cites files that are not there (gastos: `telas/painel.html`, in
+    `docs/prototipo-ui/`), and the agent spends turns looking for them."""
+    tracked = subprocess.run(["git", "ls-files", "--cached", "--others", "--exclude-standard"], cwd=root,
+                             capture_output=True, text=True).stdout.splitlines()
+    out: dict[str, str | None] = {}
+    for span in _CODE_SPAN.findall(text):
+        p = re.sub(r":\d+(-\d+)?$", "", span.strip()).removeprefix("./")
+        if not _FILE.match(p) or p in out or (Path(root) / p).exists():
+            continue
+        ends = [f for f in tracked if f.endswith("/" + p)]
+        if len(ends) <= 1:
+            out[p] = ends[0] if ends else None
+        if len(out) == limit:
+            break
+    return out
+
+
+def missing_paths_note(paths: dict[str, str | None]) -> str:
+    if not paths:
+        return ""
+    moved = [f"- `{p}` is at `{at}`" for p, at in paths.items() if at]
+    gone = [f"- `{p}`" for p, at in paths.items() if not at]
+    parts = ["## Paths not where the briefing says"]
+    if moved:
+        parts.append("These are elsewhere in this worktree:\n" + "\n".join(moved))
+    if gone:
+        parts.append("These do not exist here. Create one only if the task asks for it; otherwise the "
+                     "reference is out of date, so do not look for it:\n" + "\n".join(gone))
+    return "\n".join(parts)

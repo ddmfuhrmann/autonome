@@ -176,3 +176,24 @@ def test_lean_args_grant_only_the_writers_tools():
     assert args[args.index("--allowedTools") + 1:] == ["Read", "Bash(git log:*)", "Bash(git diff:*)"]
     no_tools = common.lean_args([])
     assert no_tools[no_tools.index("--tools") + 1:] == [""]
+
+
+def test_missing_paths_says_where_a_cited_file_is_or_that_it_is_not_there(tmp_path):
+    from autonome import common
+
+    repo = _repo(tmp_path, "gastos")
+    for f in ["frontend/src/lib/api/client.ts", "docs/prototipo-ui/telas/painel.html", "a/x/util.ts", "b/x/util.ts"]:
+        (repo / f).parent.mkdir(parents=True, exist_ok=True)
+        (repo / f).write_text("")
+    text = ("Follow `telas/painel.html`, change `frontend/src/lib/api/client.ts:12`, `./src/lib/api/client.ts` "
+            "and `x/util.ts`; add `frontend/src/lib/format.ts`. Not files: `pnpm --dir frontend test`, "
+            "`$lib/server/proxy`, `/api/login`, `https://x.io/a.js`, `src/**/*.ts`, `package.json`, "
+            "`01/10/2026`, `adapter/in/web`, `../docs/...`. Twice: `telas/painel.html`.")
+    found = common.missing_paths(text, repo)
+    assert found == {"telas/painel.html": "docs/prototipo-ui/telas/painel.html",
+                     "src/lib/api/client.ts": "frontend/src/lib/api/client.ts",
+                     "frontend/src/lib/format.ts": None}  # x/util.ts: two candidates, left alone
+    note = common.missing_paths_note(found)
+    assert "- `telas/painel.html` is at `docs/prototipo-ui/telas/painel.html`" in note
+    assert "Create one only if the task asks for it" in note and "- `frontend/src/lib/format.ts`" in note
+    assert common.missing_paths_note({}) == ""

@@ -6,7 +6,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { query } from "./models.js";
-import { consult } from "./agents.js";
+import { consult, machineRule } from "./agents.js";
 import { killLiveGroups, trackGroup, untrackGroup, withSessionProcess } from "./processes.js";
 import { acquireRunLock } from "./runlock.js";
 import { CONTEXT_URL, ContextError, context, languageRule, roleModel, sdkModel, waitForContext, type Effort, type GateConfig, type Plan, type Preflight, type ReviewResult, type Run, type Task } from "./context.js";
@@ -77,6 +77,9 @@ the start of this session has the task, its plan, the conventions for its layers
   build output, a local database) out, add it to .gitignore.
 - Never edit, weaken or skip a gate or the rules behind it to make it pass.
 - {{SHELL}}
+- {{MACHINE}}
+- Copy an Edit's old_string from a Read of those exact lines: tabs, indentation and characters such as
+  \`·\` must match, and a guessed string is not found.
 - Run tools exactly the way the gates do (e.g. \`uv run pytest\`, \`uv run ruff format .\`), never a bare
   \`python\`, \`pytest\` or \`ruff\`. One plain command per Bash call: no subshells, \`;\` chains or
   \`cd\`. Read and search with the Read, Grep and Glob tools, not \`cat\`, \`grep\` or \`find\`. The gate
@@ -102,8 +105,9 @@ const SHELL_RULE: Record<"allowlist" | "auto", string> = {
 };
 
 /** The implementer's system prompt for the project's permissions mode. */
-export function implementerPrompt(gc: GateConfig): string {
-  return IMPLEMENTER_PROMPT.replace("{{SHELL}}", SHELL_RULE[gc.config.permissions === "auto" ? "auto" : "allowlist"]);
+export function implementerPrompt(gc: GateConfig, machine: string = machineRule()): string {
+  return IMPLEMENTER_PROMPT.replace("{{SHELL}}", SHELL_RULE[gc.config.permissions === "auto" ? "auto" : "allowlist"])
+    .replace("{{MACHINE}}", machine);
 }
 
 /**

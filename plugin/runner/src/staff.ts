@@ -1,6 +1,7 @@
 // The staff: a senior agent the runner calls once, before it blocks a task for a reason that is not
 // infrastructure. It looks from outside (a new session in the task's worktree) and says what it did.
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
+import { machineRule } from "./agents.js";
 import type { RoleModel, Run, Task } from "./context.js";
 import { sdkModel } from "./context.js";
 import { tryGit } from "./git.js";
@@ -157,7 +158,7 @@ export async function runStaff(s: StaffSession): Promise<StaffRun> {
           ...s.permissions,
           settingSources: ["project"],
           plugins: [{ type: "local", path: s.pluginRoot }],
-          systemPrompt: { type: "preset", preset: "claude_code", append: [STAFF_PROMPT, s.language].filter(Boolean).join("\n\n") },
+          systemPrompt: { type: "preset", preset: "claude_code", append: [STAFF_PROMPT, machineRule(), s.language].filter(Boolean).join("\n\n") },
           outputFormat: { type: "json_schema", schema: STAFF_SCHEMA as unknown as Record<string, unknown> },
           env: sessionEnv(s.env),
         },
