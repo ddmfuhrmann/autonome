@@ -18,7 +18,7 @@ def main() -> int:
     if os.getenv("AUTONOME_HANDOFF_CHILD"):
         return 0
     event = json.load(sys.stdin)
-    cwd, session_id = event.get("cwd") or os.getcwd(), event["session_id"]
+    cwd, session_id = gate_hook.repo_root(event.get("cwd") or os.getcwd()), event["session_id"]
     in_run = os.getenv("AUTONOME_RUN") == "1"
 
     fetched = gate_hook.fetch_config(cwd)

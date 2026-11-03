@@ -38,6 +38,30 @@ def check(repo, session, config=CONFIG):
     return gate_hook.check(str(repo), session, config, record=False)
 
 
+def test_gate_runs_at_the_repo_root_when_cwd_is_a_subfolder(repo):
+    (repo / "context").mkdir()
+    (repo / "context" / "marker").write_text("x\n")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "sub"], cwd=repo, check=True)
+    (repo / "app.txt").write_text("changed\n")
+    config = {"gates": [{"name": "sub", "run": "cd context && test -f marker"}], "retries": {"max": 2}}
+    v = gate_hook.check(str(repo / "context"), "s", config, record=False)
+    assert v.status == "green" and [o.gate for o in v.outcomes] == ["sub"]
+
+
+def test_repo_root_of_a_worktree_is_the_worktree(repo, tmp_path):
+    wt = tmp_path / "wt"
+    subprocess.run(["git", "worktree", "add", "-q", "-b", "other", str(wt)], cwd=repo, check=True)
+    (wt / "deep").mkdir()
+    assert Path(gate_hook.repo_root(str(wt / "deep"))).resolve() == wt.resolve()
+    assert Path(gate_hook.repo_root(str(repo))).resolve() == repo.resolve()
+
+
+def test_repo_root_outside_a_repo_is_the_cwd(tmp_path):
+    assert gate_hook.repo_root(str(tmp_path)) == str(tmp_path)
+    assert gate_hook.repo_root(str(tmp_path / "missing")) == str(tmp_path / "missing")
+
+
 def test_nothing_changed_is_skipped(repo):
     assert check(repo, "s").status == "skipped"
 

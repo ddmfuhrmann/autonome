@@ -30,6 +30,17 @@ class Verdict:
     outcomes: list[Outcome] = field(default_factory=list)
 
 
+def repo_root(cwd: str) -> str:
+    """The root of the repo (or linked worktree) holding cwd, so gates never depend on where the
+    session happens to be. Outside a repo, or if git fails, cwd itself."""
+    try:
+        out = subprocess.run(["git", "-C", cwd, "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True).stdout.strip()
+    except OSError:
+        return cwd
+    return out or cwd
+
+
 def changed_files(cwd: str, base: str) -> list[str]:
     tracked = common.git(cwd, "diff", "--name-only", base).splitlines()
     untracked = common.git(cwd, "ls-files", "--others", "--exclude-standard").splitlines()
@@ -106,6 +117,7 @@ def check(
     task_id: int | None = None, record: bool = True,
 ) -> Verdict:
     """One run of the gate hook at the end of an agent turn. Keeps retry state per session."""
+    cwd = repo_root(cwd)
     state = load_state(session_id)
     files = changed_files(cwd, base)
     fp = fingerprint(cwd, base)

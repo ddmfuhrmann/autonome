@@ -25,7 +25,7 @@ def main() -> int:
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
-    cwd = os.getcwd()
+    cwd = gate_hook.repo_root(os.getcwd())
     fetched = gate_hook.fetch_config(cwd)
     if fetched is None:
         print("autonome-context is unreachable", file=sys.stderr)
