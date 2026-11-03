@@ -86,6 +86,14 @@ def test_only_differing_roles_are_written():
     assert data == {"models": {"docs": {"model": "haiku", "effort": "low"}}}
 
 
+def test_form_shows_and_saves_the_staff_role():
+    form = config_to_form(GateConfig())
+    assert (form["models-staff-model"], form["models-staff-effort"]) == ("opus", "high")
+    data, errors = form_to_config(form | {"models-staff-model": "sonnet", "models-staff-effort": "max"}, CATALOG)
+    assert not errors
+    assert data["models"] == {"staff": {"model": "sonnet", "effort": "max"}}
+
+
 def test_budget_units_and_bad_numbers():
     data, errors = form_to_config(BASE | {"budget-task_tokens": "400k", "budget-plan_tokens": "3M"}, CATALOG)
     assert (data, errors) == ({}, {})  # both are the defaults

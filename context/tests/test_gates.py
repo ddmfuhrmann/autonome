@@ -79,8 +79,25 @@ def test_merge_defaults_to_fast_forward_and_refuses_other_modes():
 
 def test_the_default_models_are_the_product_roles():
     assert set(DEFAULT_MODELS) == {"implementer", "reviewer", "preflight", "tester", "retro", "handoff", "docs",
-                                   "simplifier"}
+                                   "simplifier", "staff"}
     assert set(GateConfig().models) == set(DEFAULT_MODELS)
+
+
+def test_models_without_staff_use_opus_high():
+    cfg = GateConfig.from_yaml("models:\n  docs: {model: haiku, effort: low}\n")
+    assert (cfg.models["staff"].model, cfg.models["staff"].effort, cfg.models["staff"].fallback) == ("opus", "high", None)
+    assert GateConfig().models["staff"].model == "opus"
+
+
+def test_staff_model_is_accepted_and_saved():
+    cfg = GateConfig.from_yaml("models:\n  staff: {model: sonnet, effort: max}\n")
+    assert (cfg.models["staff"].model, cfg.models["staff"].effort) == ("sonnet", "max")
+    assert GateConfig.from_yaml(cfg.to_yaml()).models["staff"] == cfg.models["staff"]
+
+
+def test_unknown_model_role_is_still_rejected():
+    with pytest.raises(ValidationError, match="unknown model roles: boss"):
+        GateConfig.from_yaml("models:\n  boss: {model: opus, effort: high}\n")
 
 
 def test_models_without_the_simplifier_use_haiku_low():
