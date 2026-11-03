@@ -167,6 +167,23 @@ class PrOpened(BaseModel):
     pr_mode: Literal["manual", "auto"]
 
 
+class SatisfiedTriage(BaseModel):
+    """The Jev's verdict that closes a task as already satisfied; only an accept does."""
+    model_config = ConfigDict(extra="allow")
+    model: Annotated[str, StringConstraints(pattern=r"^jev-(latest|\d+(\.\d+)*)$")]
+    answers: dict[Annotated[str, StringConstraints(min_length=1, max_length=80)],
+                  Annotated[str, StringConstraints(min_length=1, max_length=32, pattern=r"^[A-Za-z0-9_.-]+$")]]
+    verdict: Literal["accept"]
+
+
+class AlreadySatisfied(BaseModel):
+    """The run that moves a task to done without a merge: the commit in main that delivered it, and the Jev's accept."""
+    model_config = ConfigDict(extra="allow")
+    outcome: Literal["already_satisfied"]
+    satisfied_by: Annotated[str, StringConstraints(pattern=r"^[0-9a-fA-F]{7,40}$")]
+    satisfied_triage: SatisfiedTriage
+
+
 async def task_transition(request: Request) -> JSONResponse:
     """Runner-side moves only; human moves exist in the UI, never here."""
     body = await request.json()
@@ -176,21 +193,38 @@ async def task_transition(request: Request) -> JSONResponse:
             PrOpened.model_validate(body.get("run") or {})
         except ValidationError as e:
             return _json({"error": "invalid_pr", "detail": e.errors(include_context=False, include_input=False)}, 422)
+    satisfied = body.get("to") == "done" and (body.get("run") or {}).get("outcome") == "already_satisfied"
+    if satisfied:
+        try:
+            AlreadySatisfied.model_validate(body["run"])
+        except ValidationError as e:
+            return _json({"error": "invalid_already_satisfied",
+                          "detail": e.errors(include_context=False, include_input=False)}, 422)
     pool, indexer = await services.get()
     async with pool.connection() as conn:
         async with conn.transaction():
+            # Equal transitions at once wait here; the second sees the new status and is refused.
+            await conn.execute("select 1 from document where id = %s for update", (doc_id,))
             current = await store.get_document(conn, doc_id)
             if current and current["status"] == "in_pr" and body.get("to") == "done" \
                     and not (body.get("run") or {}).get("merged_sha"):
                 return _json({"error": "invalid_pr", "detail": "a merged pull request needs run.merged_sha"}, 422)
+            if satisfied and current:
+                cfg = (await gate_config_body(conn, current["project"]))["config"]
+                if not cfg.get("triage") or cfg["triage"]["model"] != "jev-latest":
+                    return _json({"error": "closing a task as already satisfied needs the triage on jev-latest"}, 403)
+                if current["status"] != "running":
+                    return _json({"error": "only a running task is closed as already satisfied"}, 409)
             try:
                 task = await rules.transition(conn, doc_id, body["to"], "runner")
             except rules.Forbidden as e:
                 return _json({"error": str(e)}, 409)
-            ends = plans.loose_ends(body.get("run")) if body["to"] == "done" else []
-            if body.get("run") or (body["to"] == "done" and task["body"].get("after_merge")):
+            # No diff, no review after merge and no loose ends: nothing was merged.
+            ends = plans.loose_ends(body.get("run")) if body["to"] == "done" and not satisfied else []
+            after_merge = body["to"] == "done" and not satisfied and task["body"].get("after_merge")
+            if body.get("run") or after_merge:
                 new = {**task["body"], "runs": task["body"].get("runs", []) + ([body["run"]] if body.get("run") else [])}
-                if body["to"] == "done" and task["body"].get("after_merge"):
+                if after_merge:
                     new["after_merge_review"] = {"status": "pending"}  # merged; the human hears it when they like
                 # What the reviewer let through waits for the human too, instead of vanishing.
                 await store.add_version(conn, None, doc_id, plans.with_loose_ends(new, ends))

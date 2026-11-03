@@ -55,6 +55,12 @@
     "item": {"pr_url": "https://github.com/acme/app/pull/42", "pr_mode": "manual", "branch": "autonome/task-7"},
     "body": {"to": "in_pr", "run": {"outcome": "pr_opened", "pr_url": "https://github.com/acme/app/pull/42", "pr_mode": "manual", "branch": "autonome/task-7"}}
   },
+  "task_already_satisfied": {
+    "endpoint": "POST /api/tasks/{id}/transition",
+    "about": "Sent when the staff shows the task is already delivered: done without a merge. satisfied_by is a commit in main (7 to 40 hex); satisfied_triage is the Jev's accept (only with triage.model jev-latest, else 403).",
+    "item": {"satisfied_by": "a3f9c1e0"},
+    "body": {"to": "done", "run": {"outcome": "already_satisfied", "satisfied_by": "a3f9c1e0", "satisfied_triage": {"model": "jev-1.14.0", "answers": {"delivered_by_commit": "0.94"}, "verdict": "accept"}}}
+  },
   "smoke_test_untested": {
     "endpoint": "POST /api/plans/{id}/smoke-test",
     "about": "The tester passed but could not exercise two criteria: they travel as `untested` notes and do not fail the smoke test.",

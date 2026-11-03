@@ -149,7 +149,7 @@
     {% for t in columns.done %}{% set run = (t.body.runs or [none])[-1] %}
     <a class="entry entry--dense entry--quiet" style="--cols: 32px minmax(0, 1fr) auto" href="/ui/p/{{ project }}/documents/{{ t.id }}">
       <span class="entry__n" style="color: var(--ok)">✓</span>
-      <span class="entry__title">{{ t.body.title }} <span class="faint">· {{ t|ref }}{% if t.feature %} · {{ t.feature }}{% endif %}{% if run %} · {{ (run.tokens or 0)|tokens }} · {{ run.cost_usd|money }}{% endif %}</span></span>
+      <span class="entry__title">{{ t.body.title }} <span class="faint">· {{ t|ref }}{% if t.feature %} · {{ t.feature }}{% endif %}{% if run and run.satisfied_by %} · Already satisfied by <span class="mono">{{ run.satisfied_by }}</span>{% elif run %} · {{ (run.tokens or 0)|tokens }} · {{ run.cost_usd|money }}{% endif %}</span></span>
       <span class="entry__side">{{ t.updated_at|ago }}</span>
     </a>
     {% endfor %}

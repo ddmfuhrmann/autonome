@@ -188,6 +188,8 @@ async def build(conn: AsyncConnection, project: str, embedder: Embedder, limit: 
                    "loose_ends": t["body"]["after_merge_review"]["loose_ends"]}
                   for t in tasks if (t["body"].get("after_merge_review") or {}).get("status") == "pending"
                   and t["body"]["after_merge_review"].get("loose_ends")]
+    already_satisfied = [{"task_id": t["id"], "title": t["body"]["title"], "satisfied_by": r["satisfied_by"]}
+                         for t in tasks if t["status"] == "done" for r in runs_of(t)[-1:] if r.get("satisfied_by")]
     spent = sorted(({"task_id": t["id"], "title": t["body"]["title"],
                      "tokens": sum(r.get("tokens") or 0 for r in runs_of(t)),
                      "cost_usd": round(sum(r.get("cost_usd") or 0 for r in runs_of(t)), 2),
@@ -221,6 +223,7 @@ async def build(conn: AsyncConnection, project: str, embedder: Embedder, limit: 
                   # implementer and reviewer are the task's runs above; every other role is recorded apart
                   "other_roles": await store.spend_by_role(conn, project)},
         "loose_ends": loose_ends,
+        "already_satisfied": already_satisfied,
         "heavy_conventions": heavy,
         "convention_effects": await _convention_effects(conventions, tasks, friction, embedder),
         "task_outcomes": dict(outcomes),
