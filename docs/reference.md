@@ -20,9 +20,9 @@ All take `project` (the project slug) unless noted. Ids are document ids.
 | Tool | Arguments | Returns |
 |---|---|---|
 | `search` | `query`, `project`, `feature?`, `layer?`, `type?` (plan, task, handoff, decision, convention, backlog…), `mode?` (`vector` default, `fts` for exact names, `hybrid`), `k?` = 8 | the best chunk of each matching document: id, type, feature, section, text, score; vector hits below the similarity cutoff are left out, so an empty list means nothing relevant |
-| `history_get` | `project`, `subject`, `feature?` | what went off plan before on the subject and its related features: `plan_changes`, `deviations`, `deviation_decisions`, `preflight_revisions`, `review_blocks`, `fixes`, `blocked`, `smoke_test_failures`, `friction`, and `empty` |
+| `history_get` | `project`, `subject`, `feature?` | what went off plan before on the subject and its related features: `plan_changes`, `deviations`, `deviation_decisions`, `preflight_revisions`, `review_blocks`, `fixes`, `blocked`, `smoke_test_failures`, `friction`, and `empty`; the newest 8 of each, 240 characters per text |
 | `conventions_get` | `project`, `layers?` | active conventions for those layers (all when omitted): id, title, layers, rule |
-| `insights_get` | `project` | how the process is going: adherence, plan items changed or skipped, gate failure rates, repeated failures, retries (failed gates and review rounds after the first), blocked tasks, reviewer findings, loose ends still open, tokens and cost with the costliest tasks, conventions heavier than a quarter of the briefing, friction clusters |
+| `insights_get` | `project` | how the process is going: adherence, plan items changed or skipped, gate failure rates, repeated failures, retries (failed gates and review rounds after the first), blocked tasks, reviewer findings, loose ends still open, tokens and cost with the costliest tasks (implementer and reviewer) and, in `spent.other_roles`, what the handoff, docs, preflight, tester, retro and simplifier sessions cost, conventions heavier than a quarter of the briefing, friction clusters |
 | `gate_config_get` | `project` | `{version, config, pending}`: the gate config (null version when none is saved) and the gates approved plans will add |
 | `settings_propose` | `project`, `yaml`, `note?` | keeps a proposed gate config on the project (a new one replaces the previous; `note` up to 500 characters without control characters, `yaml` up to 64 KB). It is validated like a Settings save and is never the gate config: only the human turns it into a version, in the Settings. Returns `{ok, review_at}`, or `{error, problems}` and nothing is saved |
 
@@ -35,7 +35,7 @@ All take `project` (the project slug) unless noted. Ids are document ids.
 | `plan_draft` | `project`, `plan` (title, goal, context, scope, out_of_scope, acceptance, risks, tasks, gates, conventions, design, discussion, backlog_items), `feature?`, `layers?`, `plan_id?` to revise a draft, `feature_description?` and `feature_paths?` to create a feature | `{plan_id, status: draft, approve_at}`; a feature outside the catalog without a description, or similar to one in it, is an `{error}` naming the catalog or the similar feature, and no plan is created. Revising a draft does not check the feature again |
 | `wave_draft` | `project`, `wave` (title, goal, out_of_scope, features: [{plan_id, depends_on}], discussion), `wave_id?` | `{wave_id, status: draft, approve_at}` |
 | `plan_approve` / `wave_approve` | `project`, `plan_id` / `wave_id` | asks the human in a dialog the agent cannot answer; `{status: approved}` or `{status: draft, human: declined\|unavailable, approve_at}` |
-| `plan_get` | `plan_id` | the plan with its status and its tasks' statuses |
+| `plan_get` | `plan_id` | the plan with its status and its tasks' statuses; without the copy of the plan from before a preflight revision (`preflight.original`), which the UI shows |
 | `plan_list` | `project`, `status?` | plans, newest first: id, title, status, feature |
 
 A task in `plan.tasks`: `title`, `spec`, `layers`, `acceptance`, `depends_on` (1-based positions).
@@ -92,6 +92,7 @@ connection errors.
 | `GET /api/projects/{project}/briefing?task_id=` | `{text}`: what a session is told at start (the task, its plan, its layers' conventions, the feature doc, earlier friction, preflight notes, the gates); without `task_id`, the short pointer for interactive sessions |
 | `POST /api/gate-runs` | records gate runs: `{project, session_id, task_id?, config_version?, runs: [{gate, passed, duration_ms, signature?, output?}]}` |
 | `GET /api/gate-runs?project=&session_id=&task_id=` | recorded gate runs |
+| `POST /api/spend` | one agent session's cost, for the roles outside the task's runs: `{project, role, cost_usd, tokens?, task_id?, plan_id?, feature?}` |
 
 ### The runner
 

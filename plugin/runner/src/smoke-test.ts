@@ -11,7 +11,7 @@ import { tryGit } from "./git.js";
 import { isUsageLimit } from "./limits.js";
 import { HARD_DENIALS, SECRET_DENIALS } from "./run.js";
 import { sessionEnv } from "./secrets.js";
-import type { GateConfig, Plan, RoleModel, SmokeTest, SmokeTestResult } from "./context.js";
+import { context, type GateConfig, type Plan, type RoleModel, type SmokeTest, type SmokeTestResult } from "./context.js";
 
 const TESTER_PROMPT = `You are the tester of the autonome process. A feature was just merged, and the app
 is running with synthetic data. Try it the way a user or a client would, against the URL you are given:
@@ -174,7 +174,7 @@ export async function smokeTest(
     if (!added.ok) throw new TesterSetupError(`could not create the tester's worktree: ${added.out}`);
     const gc = extra.gc ?? ({ version: null, config: {} } as unknown as GateConfig);
     const mode = gc.config.permissions === "auto" ? "auto" : "allowlist";
-    const { answer } = await consult<Omit<SmokeTestResult, "checks">>({
+    const { answer, cost } = await consult<Omit<SmokeTestResult, "checks">>({
       cwd: scratch, ...who, onMessage, log, role: testerPrompt(mode), schema: SCHEMA, maxTurns: 60, env,
       permissions: testerPermissions(gc, scratch), query: extra.query,
       prompt: [
@@ -183,6 +183,7 @@ export async function smokeTest(
         `## Scripted checks\n${checks.map((c) => `### ${c.name}: ${c.passed ? "passed" : "FAILED"}\n${c.passed ? "" : c.output}`).join("\n") || "(none)"}`,
       ].join("\n\n"),
     });
+    await context.spend(plan.project, "tester", cost, { plan_id: plan.id, feature: plan.feature });
     return testerResult(answer, checks);
   } catch (e) {
     if (e instanceof TesterSetupError || isUsageLimit(String(e))) throw e; // not the feature's fault: the plan stays due

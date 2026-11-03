@@ -22,7 +22,7 @@ def _fake(monkeypatch, doc):
 
     def fake_run(cmd, input, **kwargs):
         seen["prompts"].append(input)
-        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps({"result": json.dumps(doc)}), stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps({"result": json.dumps(doc), "total_cost_usd": 0.27, "usage": {"input_tokens": 5, "output_tokens": 900, "cache_creation_input_tokens": 39000}}), stderr="")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
     monkeypatch.setattr(common, "project_slug", lambda cwd: "p")
@@ -32,6 +32,9 @@ def _fake(monkeypatch, doc):
     monkeypatch.setattr(common, "get_json", lambda path, timeout=5: {"doc": {"layers": ["docs"]}})
 
     def fake_put(path, body, method="POST", **kwargs):
+        if path == "/api/spend":
+            seen.setdefault("spend", []).append(body)
+            return {"recorded": 1}
         seen["puts"].append((path, body, method))
         return {"document_id": 7}
 
@@ -70,3 +73,9 @@ def test_feature_prompt_asks_for_product_and_technical(monkeypatch):
     prompt = seen["prompts"][0]
     assert '"product"' in prompt and '"technical"' in prompt
     assert '"catalog"' in prompt
+
+
+def test_a_docs_session_records_its_cost_by_feature(monkeypatch):
+    seen = _fake(monkeypatch, json.loads(json.dumps(DOC)))
+    docs.update_feature("p", "runner", "/tmp")
+    assert seen["spend"] == [{"project": "p", "role": "docs", "cost_usd": 0.27, "tokens": 39905, "feature": "runner"}]

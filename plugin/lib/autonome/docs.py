@@ -93,7 +93,7 @@ Gate config:
 """
 
 
-def _ask(prompt: str, cwd: str, tools: list[str]) -> dict:
+def _ask(prompt: str, cwd: str, tools: list[str], feature: str | None = None) -> dict:
     out = subprocess.run(
         ["claude", "-p", *common.model_args(common.project_slug(cwd), "docs"), "--output-format", "json",
          *common.lean_args(tools)],
@@ -102,7 +102,9 @@ def _ask(prompt: str, cwd: str, tools: list[str]) -> dict:
     )
     if out.returncode != 0:
         raise RuntimeError(f"claude -p failed: {out.stderr[-1500:]}")
-    result = json.loads(out.stdout)["result"]
+    session = json.loads(out.stdout)
+    common.record_spend(common.project_slug(cwd), "docs", session, feature=feature)
+    result = session["result"]
     return json.loads(result[result.find("{"): result.rfind("}") + 1])
 
 
@@ -112,7 +114,7 @@ def update_feature(project: str, feature: str, cwd: str) -> int:
         raise RuntimeError("autonome-context is unreachable")
     doc = _ask(FEATURE_PROMPT.format(feature=feature, project=project, shape=SHAPE, split=SPLIT,
                                      catalog_rule=CATALOG_RULE,
-                                     dossier=json.dumps(dossier, ensure_ascii=False)[:60_000]), cwd, READ_ONLY)
+                                     dossier=json.dumps(dossier, ensure_ascii=False)[:60_000]), cwd, READ_ONLY, feature)
     catalog = doc.pop("catalog", None) or {}
     layers = (dossier.get("doc") or {}).get("layers") or []
     body = {"doc": doc, "layers": layers, "commit_sha": common.git(cwd, "rev-parse", "HEAD")}

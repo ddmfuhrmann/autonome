@@ -835,6 +835,27 @@ async def record_gate_runs(
         )
 
 
+async def record_spend(conn: AsyncConnection, project: str, role: str, cost_usd: float, *,
+                       tokens: int | None = None, task_id: int | None = None, plan_id: int | None = None,
+                       feature: str | None = None) -> None:
+    project_id = await ensure_project(conn, project)
+    async with conn.cursor() as cur:
+        await cur.execute(
+            "insert into spend (project_id, role, task_id, plan_id, feature, cost_usd, tokens)"
+            " values (%s, %s, %s, %s, %s, %s, %s)",
+            (project_id, role, task_id, plan_id, feature, cost_usd, tokens))
+
+
+async def spend_by_role(conn: AsyncConnection, project: str) -> dict[str, dict]:
+    """What the roles outside the task's runs cost: {role: {sessions, cost_usd}}."""
+    async with conn.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            """select s.role, count(*) as sessions, round(sum(s.cost_usd), 2)::float as cost_usd
+               from spend s join project p on p.id = s.project_id and p.slug = %s
+               group by s.role order by sum(s.cost_usd) desc""", (project,))
+        return {r["role"]: {"sessions": r["sessions"], "cost_usd": r["cost_usd"]} for r in await cur.fetchall()}
+
+
 async def gate_runs(
     conn: AsyncConnection, *, project: str | None = None, session_id: str | None = None,
     task_id: int | None = None, limit: int = 500,

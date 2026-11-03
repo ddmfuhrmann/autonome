@@ -59,3 +59,14 @@ def test_the_history_of_a_subject_gathers_what_went_off_plan(run_db, project, in
     assert [b["issue"] for b in h["review_blocks"]] == ["updates a ledger row"]
     assert [b["reason"] for b in h["blocked"]] == ["ledger updated in place"]
     assert [(f["source"], f["title"]) for f in h["fixes"]] == [("after_merge", "Fix: Debit")]
+
+
+def test_plan_get_leaves_out_the_pre_revision_copy_and_the_old_rehearsal_key():
+    from autonome_context.server import plan_for_reading
+    body = {"title": "t", "tasks": [{"title": "a"}],
+            "preflight": {"verdict": "revised", "notes": "n", "original": {"tasks": ["big copy"]}},
+            "rehearsal": {"verdict": "revised", "original": {"tasks": ["big copy"]}}}
+    assert plan_for_reading(body) == {"title": "t", "tasks": [{"title": "a"}],
+                                      "preflight": {"verdict": "revised", "notes": "n"}}
+    assert body["preflight"]["original"]  # the stored plan is untouched
+    assert plan_for_reading({"title": "t"}) == {"title": "t"}

@@ -217,7 +217,9 @@ async def build(conn: AsyncConnection, project: str, embedder: Embedder, limit: 
         "retries_per_task": {"tasks": len(retries), "avg": sum(retries) / len(retries) if retries else 0,
                              "max": max(retries, default=0)},
         "spent": {"tokens": sum(s["tokens"] for s in spent), "cost_usd": round(sum(s["cost_usd"] for s in spent), 2),
-                  "costliest": spent[:5]},
+                  "costliest": spent[:5],
+                  # implementer and reviewer are the task's runs above; every other role is recorded apart
+                  "other_roles": await store.spend_by_role(conn, project)},
         "loose_ends": loose_ends,
         "heavy_conventions": heavy,
         "convention_effects": await _convention_effects(conventions, tasks, friction, embedder),

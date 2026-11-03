@@ -8,8 +8,8 @@ from . import store
 from .chunking import DEFAULT_STRATEGY, STRATEGIES
 from .embed import Embedder
 
-_TEXT = 300  # characters kept per item: enough to read, small enough for a briefing
-_PER_KIND = 12
+_TEXT = 240  # characters kept per item: enough to read, small enough for a briefing
+_PER_KIND = 8  # newest first; a plan session re-reads the whole answer on every turn after it
 
 
 def triage_entry(d: dict) -> dict | None:

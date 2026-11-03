@@ -24,7 +24,7 @@ export interface SimplifyOptions {
 }
 
 /** What the session gets: tests replace the SDK with a fake that records it and returns the agent's JSON. */
-export type SimplifySession = (req: { prompt: string; options: Record<string, unknown> }) => Promise<unknown>;
+export type SimplifySession = (req: { prompt: string; options: Record<string, unknown>; project: string }) => Promise<unknown>;
 
 const DEFAULT_MAX_TASKS = 3;
 const FIRST_RUN_DAYS = 7;
@@ -106,10 +106,11 @@ export function simplifyOptions(cfg: Parameters<typeof roleModel>[0], cwd: strin
   };
 }
 
-const sdkSession: SimplifySession = async ({ prompt, options }) => {
+const sdkSession: SimplifySession = async ({ prompt, options, project }) => {
   let answer: unknown;
   for await (const msg of query({ prompt, options })) {
     if (msg.type === "result") {
+      await context.spend(project, "simplifier", msg.total_cost_usd);
       if (msg.subtype !== "success") throw new Error(`the simplifier session stopped: ${msg.subtype}`);
       answer = msg.structured_output;
     }
@@ -129,7 +130,7 @@ export async function runSimplify(schedule: Schedule, cwd: string, opts: Simplif
   const cfg = (await context.gateConfig(opts.project)).config;
   let proposals: Proposal[];
   try {
-    proposals = parseProposals(await session({ prompt: simplifyPrompt(files, max, cfg), options: simplifyOptions(cfg, cwd, opts.project) }));
+    proposals = parseProposals(await session({ prompt: simplifyPrompt(files, max, cfg), options: simplifyOptions(cfg, cwd, opts.project), project: opts.project }));
   } catch (e) {
     opts.log(`error: schedule ${schedule.name}: simplify failed, nothing queued: ${String(e)}`);
     return "failed";

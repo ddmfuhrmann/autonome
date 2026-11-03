@@ -177,7 +177,7 @@ export function preflightPrompt(plan: Plan, project: string, gates: GateConfig["
 export async function preflight(plan: Plan, opts: RunOptions): Promise<Preflight> {
   const { gates } = (await context.gateConfig(opts.project)).config;
   const cfg = (await context.gateConfig(opts.project)).config;
-  const { answer } = await consult<Preflight>({
+  const { answer, cost } = await consult<Preflight>({
     cwd: mainCheckout(opts.repo) ?? opts.repo,
     ...roleModel(cfg, "preflight", opts),
     role: PREFLIGHT_PROMPT,
@@ -187,6 +187,7 @@ export async function preflight(plan: Plan, opts: RunOptions): Promise<Preflight
     onMessage: live(opts, "preflight", { plan_id: plan.id }),
     log: opts.log,
   });
+  await context.spend(opts.project, "preflight", cost, { plan_id: plan.id, feature: plan.feature });
   return answer;
 }
 

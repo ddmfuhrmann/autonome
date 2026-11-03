@@ -47,6 +47,18 @@ async def post_gate_runs(request: Request) -> JSONResponse:
     return _json({"recorded": len(body["runs"])}, 201)
 
 
+async def post_spend(request: Request) -> JSONResponse:
+    """`{project, role, cost_usd, tokens?, task_id?, plan_id?, feature?}`: one agent session's cost."""
+    b = await request.json()
+    if not b.get("project") or not b.get("role") or not isinstance(b.get("cost_usd"), (int, float)):
+        return _json({"error": "project, role and a numeric cost_usd are required"}, 400)
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        await store.record_spend(conn, b["project"], b["role"], float(b["cost_usd"]), tokens=b.get("tokens"),
+                                 task_id=b.get("task_id"), plan_id=b.get("plan_id"), feature=b.get("feature"))
+    return _json({"recorded": 1}, 201)
+
+
 async def get_gate_runs(request: Request) -> JSONResponse:
     p = request.query_params
     pool, _ = await services.get()
@@ -763,4 +775,5 @@ def routes() -> list:
         Route("/api/tasks/{doc_id:int}/events", get_events),
         Route("/api/gate-runs", post_gate_runs, methods=["POST"]),
         Route("/api/gate-runs", get_gate_runs),
+        Route("/api/spend", post_spend, methods=["POST"]),
     ]

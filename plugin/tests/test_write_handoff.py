@@ -29,6 +29,7 @@ def _captured_prompt(monkeypatch, features) -> str:
     monkeypatch.setattr(common, "model_args", lambda project, role: [])
     monkeypatch.setattr(common, "language_rule", lambda project: "")
     monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(common, "record_spend", lambda *a, **k: None)
     write_handoff.write("[user] hi", "/tmp", "facts")
     return seen["input"]
 
@@ -69,7 +70,7 @@ def _facts_sent(monkeypatch, tmp_path, event_extra) -> str:
     payload.write_text(json.dumps({"session_id": "s", "transcript_path": str(transcript), "cwd": str(tmp_path), **event_extra}))
     seen = {}
 
-    def fake_write(condensed, cwd, facts):
+    def fake_write(condensed, cwd, facts, task_id=None):
         seen["facts"] = facts
         return {}
 

@@ -1,6 +1,5 @@
 ---
 type: llm
-focus: transcript
 arm: with-only
 ---
 

@@ -99,7 +99,7 @@ def feature_catalog(project: str) -> str:
     return "Feature catalog (slug: description, paths):\n" + "\n".join(lines)
 
 
-def write(condensed: str, cwd: str, facts: str) -> dict:
+def write(condensed: str, cwd: str, facts: str, task_id: int | None = None) -> dict:
     env = {**os.environ, "AUTONOME_HANDOFF_CHILD": "1"}
     project = common.project_slug(cwd)
     out = subprocess.run(
@@ -111,7 +111,9 @@ def write(condensed: str, cwd: str, facts: str) -> dict:
     )
     if out.returncode != 0:
         raise RuntimeError(f"claude -p failed: {out.stderr[-2000:]}")
-    result = json.loads(out.stdout)["result"]
+    session = json.loads(out.stdout)
+    common.record_spend(project, "handoff", session, task_id=task_id)
+    result = session["result"]
     start, end = result.find("{"), result.rfind("}")
     return json.loads(result[start:end + 1])
 
@@ -129,7 +131,8 @@ def main(payload_path: str) -> None:
     cwd = event.get("cwd") or os.getcwd()
     transcript = Path(event["transcript_path"])
     handoff = write(condense(transcript), cwd,
-                    "\n\n".join(filter(None, [gate_facts(event["session_id"]), task_diff_fact(event.get("base"))])))
+                    "\n\n".join(filter(None, [gate_facts(event["session_id"]), task_diff_fact(event.get("base"))])),
+                    event.get("task_id"))
     handoff.update(project=common.project_slug(cwd), session_id=event["session_id"],
                    commit_sha=common.git(cwd, "rev-parse", "HEAD") or None)
     result = common.send_json("/api/handoffs", {

@@ -117,6 +117,18 @@ def lean_args(tools: list[str]) -> list[str]:
             "--tools", *(names or [""]), *(["--allowedTools", *tools] if tools else [])]
 
 
+def record_spend(project: str, role: str, claude_json: dict, **ids) -> None:
+    """Records what a `claude -p --output-format json` session cost (`ids`: task_id, plan_id, feature).
+    Best effort: a context that is out costs the record, never the writer's work."""
+    u = claude_json.get("usage") or {}
+    tokens = sum(u.get(k) or 0 for k in ("input_tokens", "output_tokens", "cache_creation_input_tokens"))
+    try:
+        send_json("/api/spend", {"project": project, "role": role, "cost_usd": claude_json.get("total_cost_usd") or 0,
+                                 "tokens": tokens, **{k: v for k, v in ids.items() if v is not None}}, timeout=10)
+    except OSError:
+        pass
+
+
 def language_rule(project: str) -> str:
     """The rule that keeps what agents write for people in the project's language; empty when none is set."""
     try:

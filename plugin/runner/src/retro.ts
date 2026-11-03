@@ -57,6 +57,7 @@ async function runRetro(wave: Plan, opts: RetroOptions): Promise<string> {
   const { PLUGIN_ROOT } = await import("./run.js");
   const cfg = (await context.gateConfig(opts.project)).config;
   let summary = "";
+  let cost = 0;
   for await (const msg of query({
     prompt: [retroPrompt(wave, opts.project), languageRule(cfg)].filter(Boolean).join("\n\n"),
     options: {
@@ -72,7 +73,11 @@ async function runRetro(wave: Plan, opts: RetroOptions): Promise<string> {
       maxTurns: 60,
     },
   })) {
-    if (msg.type === "result") summary = msg.subtype === "success" ? msg.result : `stopped: ${msg.subtype}`;
+    if (msg.type === "result") {
+      summary = msg.subtype === "success" ? msg.result : `stopped: ${msg.subtype}`;
+      cost = msg.total_cost_usd;
+    }
   }
+  await context.spend(opts.project, "retro", cost, { plan_id: wave.id });
   return summary.trim() || "no proposals";
 }

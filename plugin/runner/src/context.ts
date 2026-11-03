@@ -329,6 +329,12 @@ export function runnerStatusBody(triageKey: boolean): { triage_key: boolean } {
 
 export const context = {
   health: () => call<{ status: string }>("/health"),
+  /** One agent session's cost, for the roles outside the task's runs. Best effort: a record that does not
+   * land never fails the work it measures. */
+  spend: (project: string, role: string, cost_usd: number, ids: { task_id?: number; plan_id?: number; feature?: string | null } = {}) =>
+    cost_usd > 0
+      ? call("/api/spend", { method: "POST", body: JSON.stringify({ project, role, cost_usd, ...ids }) }).then(() => undefined, () => undefined)
+      : Promise.resolve(),
   claim: (project: string) =>
     call<{ task: Task | null; preflight: Plan | null; smoke_test: Plan | null; paused?: Pause }>(
       `/api/projects/${project}/tasks/claim`, { method: "POST", body: "{}" }),
