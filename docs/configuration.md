@@ -162,10 +162,10 @@ schedules:
 A worked example for a FastAPI service, smoke test included, is in
 [plugin/README.md](../plugin/README.md#the-smoke-test).
 
-Every smoke test command (`up`, `seed`, the checks and `down`) runs in its own process group, and the
-whole group is killed when the command ends or hits its ceiling. So `up` must leave the app running
-outside its group (`docker compose up -d`, a daemon that detaches itself, `setsid`); an app started as
-a plain child (`npm start &`) dies when `up` returns, before the seed, the checks and the tester.
+Every smoke test command (`up`, `seed`, the checks and `down`) runs in its own process group. The
+checks have the whole group killed when they end and at their ceiling; `up`, `seed` and `down` only at
+their ceiling. So the app `up` leaves running (`nohup app &`, `npm start &`) lives until `down`, which
+is what stops it (kill the saved pid, `docker compose down`).
 
 ### The `simplify` schedule
 

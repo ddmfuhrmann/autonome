@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import type { GateConfig, Plan } from "./context.js";
 import { conventionTitles, enforceConventions, findingsForRetry } from "./review.js";
-import { smokeTest, testerPermissions, testerPrompt, testerResult } from "./smoke-test.js";
+import { sh, smokeTest, testerPermissions, testerPrompt, testerResult } from "./smoke-test.js";
 
 const plan: Plan = { id: 7, project: "p", status: "approved", feature: "links", body: { title: "Links", tasks: [] } };
 const base = { url: "http://127.0.0.1:1", seed: null, tester: false, max_fixes: 2 };
@@ -35,19 +35,44 @@ test("an environment that does not start blocks with nothing to fix, and is stil
   assert.equal(readFileSync(join(dir, "state"), "utf8"), "down\n");
 });
 
-test("what `up` and `down` leave running in their group is killed when they finish", async () => {
+const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+const gone = async (pid: number) => {
+  for (let i = 0; i < 50 && alive(pid); i++) await new Promise((r) => setTimeout(r, 100));
+  return !alive(pid);
+};
+
+test("the app `up` leaves in its group is alive when the first check starts, and `down` kills it", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "smoke-test-"));
+  let pid = 0;
+  try {
+    await smokeTest(plan, {
+      ...base,
+      up: "sleep 300 >/dev/null 2>&1 & echo $! > app.pid; exit 0",
+      checks: [{ name: "alive", run: 'kill -0 "$(cat app.pid)"', timeout_s: 10 }],
+      down: 'kill "$(cat app.pid)"',
+    }, dir, undefined, () => {}).then((r) => assert.equal(r.passed, true, r.report));
+    pid = Number(readFileSync(join(dir, "app.pid"), "utf8"));
+    assert.equal(await gone(pid), true, "down did not kill the app");
+  } finally {
+    if (pid) try { process.kill(pid, "SIGKILL"); } catch { /* already gone */ }
+  }
+});
+
+test("a check that leaves a grandchild sleeping has its group killed when it ends", async () => {
   const dir = mkdtempSync(join(tmpdir(), "smoke-test-"));
   await smokeTest(plan, {
-    ...base, checks: [],
-    up: "(sleep 30 & echo $! > up.pid; wait) >/dev/null 2>&1 & sleep 0.5; exit 0",
-    down: "(sleep 30 & echo $! > down.pid; wait) >/dev/null 2>&1 & sleep 0.5; exit 0",
+    ...base, up: "true", down: "true",
+    checks: [{ name: "leaky", run: "sleep 300 >/dev/null 2>&1 & echo $! > check.pid; exit 0", timeout_s: 10 }],
   }, dir, undefined, () => {});
-  const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
-  for (const f of ["up.pid", "down.pid"]) {
-    const pid = Number(readFileSync(join(dir, f), "utf8"));
-    for (let i = 0; i < 50 && alive(pid); i++) await new Promise((r) => setTimeout(r, 100));
-    assert.equal(alive(pid), false, `${f} survived`);
-  }
+  assert.equal(await gone(Number(readFileSync(join(dir, "check.pid"), "utf8"))), true, "check.pid survived");
+});
+
+test("an `up` that passes its ceiling has the whole group killed", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "smoke-test-"));
+  const r = await sh("sleep 300 & echo $! > up.pid; wait", dir, {}, 1);
+  assert.equal(r.ok, false);
+  assert.match(r.output, /timed out/);
+  assert.equal(await gone(Number(readFileSync(join(dir, "up.pid"), "utf8"))), true, "up.pid survived");
 });
 
 test("an app `up` leaves outside its group (setsid, a detached daemon) survives", async () => {

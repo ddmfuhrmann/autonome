@@ -102,9 +102,10 @@ export function testerPermissions(gc: GateConfig, dir: string): NonNullable<Cons
   return { permissionMode: "dontAsk", allowedTools: TESTER_TOOLS, disallowedTools, hooks };
 }
 
-/** Runs a command in its own process group; at the ceiling the whole group is killed, not just the shell,
- * and so it is when the command finishes (`up`, `seed`, checks and `down` alike). */
-async function sh(cmd: string, cwd: string, env: Record<string, string>, timeoutS = 900) {
+/** Runs a command in its own process group; at the ceiling the whole group is killed, not just the shell.
+ * With `killAtEnd` (the checks) it is killed when the command finishes too; `up`, `seed` and `down` leave
+ * it alone, so the app `up` starts lives until `down`. */
+export async function sh(cmd: string, cwd: string, env: Record<string, string>, timeoutS = 900, killAtEnd = false) {
   return new Promise<{ ok: boolean; output: string }>((resolve) => {
     const child = spawn("sh", ["-c", cmd], { cwd, env: sessionEnv(env), detached: true });
     let out = "";
@@ -123,7 +124,7 @@ async function sh(cmd: string, cwd: string, env: Record<string, string>, timeout
     child.on("error", (e) => { clearTimeout(timer); resolve({ ok: false, output: `${String(e)}\n${out}` }); });
     child.on("close", (code) => {
       clearTimeout(timer);
-      killGroup("SIGKILL"); // whatever the command left in its group
+      if (killAtEnd) killGroup("SIGKILL"); // whatever the check left in its group
       resolve(timedOut
         ? { ok: false, output: `${out}\ntimed out after ${timeoutS}s (killed the process group)`.slice(-4000) }
         : { ok: code === 0, output: out });
@@ -149,7 +150,7 @@ export async function smokeTest(
     }
     const checks: SmokeTestResult["checks"] = [];
     for (const c of cfg.checks) {
-      const r = await sh(c.run, cwd, env, c.timeout_s);
+      const r = await sh(c.run, cwd, env, c.timeout_s, true);
       log(`  check ${c.name}: ${r.ok ? "passed" : "failed"}`);
       checks.push({ name: c.name, passed: r.ok, output: r.output });
     }
