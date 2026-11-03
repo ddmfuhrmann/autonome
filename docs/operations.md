@@ -139,6 +139,26 @@ edits code; the task does, through the runner. If it queues nothing, check the r
 | `autonome doctor found problems; not starting` | see "Before a run" | |
 | `nothing to run` | no approved task is ready | approve a plan, or check Approvals for what blocks |
 
+## How a task ends
+
+When the implementer finishes and the work is committed, the runner goes through these steps in order:
+
+1. **Commit** the task's work on its branch.
+2. **Rebase** onto the current `main`.
+3. **Gates and handoff together**: all the gates run on top of `main` while the handoff writer reads the
+   task's diff and writes the handoff. Nothing changes in the worktree meanwhile, so the handoff sees
+   the task's own diff. The two run side by side, so the task waits for the slower one, not both.
+4. **Triage** screens the decisions the handoff brought (when it is on). It needs the handoff, so it
+   comes after step 3 and before the merge.
+5. **Merge**: fast-forward of `main` (or the pull request, in PR mode). A pause is checked before
+   this step, as before each of the others.
+6. **Living doc** of the feature, rewritten in the background. The runner takes the next task without
+   waiting for it.
+
+A task that fails or blocks does not take this path: it stays sequential. When the run ends, the runner
+waits for the pending docs, up to 5 minutes, so no process is left behind. A doc that fails or is cut off
+does not undo the merge; the `doc-drift` schedule catches it later.
+
 ## What the runner limits in a session
 
 A command stuck in the implementer's session must not just be waited on:
