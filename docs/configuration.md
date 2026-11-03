@@ -192,6 +192,11 @@ does it: no agent can. The old address `/ui/p/<project>/config` redirects there.
   the two will be written. Saving from the form writes the config in a canonical layout, so
   **comments and the order of keys in your YAML are lost**. Saving from the YAML view writes
   your text as it is, comments included.
+- **Proposal** (`/ui/p/<project>/settings/proposal`): when the init has proposed settings, the
+  Settings shows "init proposed new settings · Review". The review is the usual one (changes,
+  diff, note) against the current version. Saving writes a new version from you with the init's
+  note and clears the proposal; if the config changed meanwhile, or the proposal is no longer
+  valid, nothing is saved. Discard clears it without writing.
 - **Versions** (`/ui/p/<project>/settings/versions`): every save is a new version; none is
   overwritten. Open one to see it and its diff against the previous or the current version. A
   version the current schema no longer reads (old keys) is listed and can still be opened.

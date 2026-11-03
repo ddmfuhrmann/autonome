@@ -6,6 +6,7 @@
     <p class="subtitle">This project has no gates yet. Pick the stack, untick what you do not want and review before saving v1.</p></div>
 </header>
 
+{% if has_proposal %}<div class="callout callout--hold"><div class="wrap"><strong>init proposed new settings</strong> · <a href="/ui/p/{{ project }}/settings/proposal">Review</a></div></div>{% endif %}
 {% if error %}<p class="notice notice--error" role="alert">{{ error }}</p>{% endif %}
 
 {% for key, preset in presets.items() %}

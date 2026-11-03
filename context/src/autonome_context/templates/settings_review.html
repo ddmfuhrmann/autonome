@@ -8,6 +8,7 @@
 
 {% if stale %}<div class="callout callout--block"><div class="wrap"><strong>The configuration changed while you were reviewing</strong> (a plan gate may have come in). Nothing was saved; review again against v{{ base_version }}.</div></div>{% endif %}
 {% if note_error %}<div class="callout callout--block"><div class="wrap"><strong>Note refused.</strong> {{ note_error }}</div></div>{% endif %}
+{% if proposal_error %}<div class="callout callout--block"><div class="wrap"><strong>The proposal is not valid.</strong> Nothing was saved. <pre class="code">{{ proposal_error }}</pre></div></div>{% endif %}
 
 <section class="section">
   <h2>Changes</h2>
@@ -35,17 +36,18 @@
 </section>
 {% endif %}
 
-<form class="section" method="post" action="/ui/p/{{ project }}/settings">
-  <textarea name="yaml" hidden>{{ text }}</textarea>
-  <input type="hidden" name="origin" value="{{ origin }}">
+<form class="section" method="post" action="/ui/p/{{ project }}/settings{% if proposal %}/proposal{% endif %}">
+  {% if not proposal %}<textarea name="yaml" hidden>{{ text }}</textarea>
+  <input type="hidden" name="origin" value="{{ origin }}">{% endif %}
   <input type="hidden" name="base_version" value="{{ base_version }}">
-  <p>{% if origin == 'form' %}Will write the canonical YAML (it came from the form).{% else %}Will write the text as is, with comments (it came from the YAML view).{% endif %}</p>
+  <p>{% if proposal %}Will write the proposed text as is, as written by the init.{% elif origin == 'form' %}Will write the canonical YAML (it came from the form).{% else %}Will write the text as is, with comments (it came from the YAML view).{% endif %}</p>
   <label for="note">Note (optional)</label>
   <input type="text" id="note" name="note" value="{{ note }}" maxlength="500" autocomplete="off">
   <div class="row" style="padding-top: 10px">
-    <button class="btn btn--primary" type="submit" name="action" value="save"{% if nothing_changed %} disabled{% endif %}>Save as v{{ base_version + 1 }}</button>
+    <button class="btn btn--primary" type="submit" name="action" value="save"{% if nothing_changed %} disabled{% endif %}{% if proposal_error %} disabled{% endif %}>Save as v{{ base_version + 1 }}</button>
+    {% if proposal %}<button class="btn btn--ghost" type="submit" name="action" value="discard">Discard proposal</button>{% endif %}
     {% if nothing_changed %}<span class="footnote">nothing changed</span>{% endif %}
-    <a class="btn btn--ghost" href="{% if restore_n %}/ui/p/{{ project }}/settings/versions{% else %}/ui/p/{{ project }}/settings{{ '' if origin == 'form' else '?view=yaml' }}{% endif %}">Back</a>
+    <a class="btn btn--ghost" href="{% if proposal %}/ui/p/{{ project }}/settings{% elif restore_n %}/ui/p/{{ project }}/settings/versions{% else %}/ui/p/{{ project }}/settings{{ '' if origin == 'form' else '?view=yaml' }}{% endif %}">Back</a>
   </div>
 </form>
 {% endblock %}

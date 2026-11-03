@@ -22,7 +22,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 
-from . import evaluation, insights, plans, rules, services, settings_form, store
+from . import evaluation, insights, plans, rules, services, settings_form, settings_proposal, store
 from .chunking import DEFAULT_STRATEGY, STRATEGIES
 from .gates import (DEFAULT_MODELS, FIELD_HELP, ROLE_GLOSS, Budget, Check, Gate, GateConfig, HoldBeforeMerge,
                     Merge, Retries, Review, ReviewAfterMerge, RoleModel, Schedule, SmokeTest, TaskSize, Triage)
@@ -999,6 +999,7 @@ async def settings_page(request: Request) -> Response:
             return Response("not found", status_code=404)
         catalog = [f["slug"] for f in await store.catalog(conn, project)]
         doc = await store.latest_of_type(conn, project, "gate_config")
+        has_proposal = await settings_proposal.get(conn, project) is not None
         if request.method == "POST":
             data = await request.form()
             action = str(data.get("action", ""))
@@ -1073,13 +1074,15 @@ async def settings_page(request: Request) -> Response:
             if posted is None and draft_cfg is None:
                 view, error = "yaml", error or str(e)
     if not doc:
-        return await render(request, "settings_setup.html", presets=PRESETS, empty=SETUP_EMPTY)
+        return await render(request, "settings_setup.html", presets=PRESETS, empty=SETUP_EMPTY,
+                            has_proposal=has_proposal)
     if text is None:
         text = doc["body"]["yaml"]
     ctx: dict = {"doc": doc, "view": view, "text": text, "error": error, "error_line": error_line,
                  "notice": notice, "pending": pending, "origin": _version_origin(doc["body"]) if doc else None,
                  "sections": SETTINGS_SECTIONS, "errors": {}, "problems": [], "bad_sections": [],
-                 "changed_sections": [], "runner_status": _key_status(saved_cfg, runner)}
+                 "changed_sections": [], "runner_status": _key_status(saved_cfg, runner),
+                 "has_proposal": has_proposal}
     if view == "form":
         defaults = settings_form.config_to_form(GateConfig())
         saved_form = settings_form.config_to_form(saved_cfg or GateConfig())
@@ -1104,6 +1107,58 @@ async def settings_page(request: Request) -> Response:
                 "chips": {k: settings_form._items(form, f"{k}-features") for k in
                           ("hold_before_merge", "review_after_merge")}}
     return await render(request, "settings.html", **ctx)
+
+
+async def settings_proposal_page(request: Request) -> Response:
+    """The init's proposal, reviewed like any draft. `save` writes it as a human version (validated again, against
+    the `base_version` shown) and clears it; `discard` clears it without writing."""
+    project = request.path_params["project"]
+    settings_url = f"/ui/p/{project}/settings"
+    pool, indexer = await services.get()
+    async with pool.connection() as conn:
+        if not await store.project_exists(conn, project):
+            return Response("not found", status_code=404)
+        proposal = await settings_proposal.get(conn, project)
+        if proposal is None:
+            return RedirectResponse(settings_url, status_code=303)
+        doc = await store.latest_of_type(conn, project, "gate_config")
+        catalog = {f["slug"] for f in await store.catalog(conn, project)}
+        text, note, stale, note_error = proposal["yaml"], proposal.get("note", ""), False, None
+        action, base_version = "", ""
+        if request.method == "POST":
+            data = await request.form()
+            action = str(data.get("action", ""))
+            if action == "discard":
+                await settings_proposal.clear(conn, project)
+                return RedirectResponse(settings_url, status_code=303)
+            note, base_version = str(data.get("note", "")), str(data.get("base_version", ""))
+        cfg, error, _, checks = _parse_yaml(text, catalog)
+        if cfg is None or checks:
+            ctx = {"changes": [], "diff": [], "text": text, "origin": "yaml", "note": note, "note_error": None,
+                   "stale": False, "base_version": doc["version"] if doc else 0, "nothing_changed": False,
+                   "doc": doc, "proposal": True,
+                   "proposal_error": error or "\n".join(checks.values())}
+            page = await render(request, "settings_review.html", **ctx)
+            page.status_code = 422 if request.method == "POST" else 200
+            return page
+        if request.method == "POST" and action == "save":
+            note_error = _note_error(note)
+            current = doc["version"] if doc else 0
+            stale = (base_version or "0") != str(current)
+            if not note_error and not stale:
+                body = {"yaml": text, "source": "human"}
+                if note.strip():
+                    body["note"] = note.strip()
+                try:
+                    await store.save_singleton(conn, indexer, project, "gate_config", body,
+                                               base_version=int(base_version or 0))
+                    await settings_proposal.clear(conn, project)
+                    return RedirectResponse(settings_url, status_code=303)
+                except store.StaleVersion:
+                    stale = True
+                    doc = await store.latest_of_type(conn, project, "gate_config")
+    ctx = _review_context(doc, cfg, text, "yaml", note, note_error, stale) | {"proposal": True}
+    return await render(request, "settings_review.html", **ctx)
 
 
 def _readable_cfg(text: str) -> GateConfig | None:
@@ -1539,6 +1594,7 @@ def routes() -> list:
         Route("/ui/p/{project}/config",
               lambda r: RedirectResponse(f"/ui/p/{r.path_params['project']}/settings", status_code=301)),
         Route("/ui/p/{project}/settings", settings_page, methods=["GET", "POST"]),
+        Route("/ui/p/{project}/settings/proposal", settings_proposal_page, methods=["GET", "POST"]),
         Route("/ui/p/{project}/settings/versions", settings_versions_page),
         Route("/ui/p/{project}/settings/versions/{n:int}", settings_version_page),
         Route("/ui/p/{project}/settings/versions/{n:int}/restore", settings_restore, methods=["POST"]),

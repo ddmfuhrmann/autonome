@@ -6,9 +6,10 @@ import psycopg
 import psycopg_pool
 import pytest
 import yaml
+from psycopg.types.json import Jsonb
 from starlette.testclient import TestClient
 
-from autonome_context import plans, services, settings_form, store
+from autonome_context import plans, services, settings_form, settings_proposal, store
 from autonome_context.gates import GateConfig
 from autonome_context.presets import PRESETS
 from autonome_context.plans import PlanBody, ProposedGate, TaskSpec
@@ -722,3 +723,96 @@ def test_a_missing_version_or_one_of_another_project_is_a_404(client, project, s
     assert client.get(f"{base}/2").status_code == 404  # v2 exists only in the other project
     assert client.post(f"{base}/2/restore").status_code == 404
     assert client.get("/ui/p/nope-x/settings/versions").status_code == 404
+
+
+PROPOSED = YAML.replace("max: 5", "max: 8")
+
+
+def _propose(run_db, project, text=PROPOSED, note="from the Makefile", raw=False):
+    async def go(conn):
+        if raw:  # stored as is, as if it was valid when proposed
+            await conn.execute("update project set settings_proposal = %s where slug = %s",
+                               (Jsonb({"yaml": text, "note": note, "at": "2026-11-02T00:00:00+00:00"}), project))
+            await conn.commit()
+        else:
+            assert (await settings_proposal.propose(conn, project, text, note)).get("ok")
+
+    run_db(go)
+
+
+def _proposal(run_db, project):
+    return run_db(lambda conn: settings_proposal.get(conn, project))
+
+
+def test_a_proposal_shows_the_notice_and_a_review_against_the_current_version(client, project, saved, run_db):
+    saved(YAML)
+    url = f"/ui/p/{project}/settings"
+    assert "init proposed new settings" not in client.get(url).text
+    _propose(run_db, project)
+    assert "init proposed new settings" in client.get(url).text
+    page = client.get(f"{url}/proposal")
+    assert page.status_code == 200 and "retries.max: 5 → 8" in page.text and "+  max: 8" in page.text
+    assert 'name="base_version" value="1"' in page.text and "from the Makefile" in page.text
+    assert _versions(run_db, project) == 1 and _proposal(run_db, project) is not None
+
+
+def test_a_proposal_without_a_config_is_reviewed_against_nothing(client, project, bare, run_db):
+    _propose(run_db, project, "gates:\n  - {name: test, run: pytest}\n")
+    assert "init proposed new settings" in client.get(f"/ui/p/{project}/settings").text
+    page = client.get(f"/ui/p/{project}/settings/proposal")
+    assert page.status_code == 200 and 'name="base_version" value="0"' in page.text and "Save as v1" in page.text
+
+
+def test_without_a_proposal_the_review_redirects_to_the_settings(client, project, saved):
+    saved(YAML)
+    r = client.get(f"/ui/p/{project}/settings/proposal", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == f"/ui/p/{project}/settings"
+
+
+def test_save_writes_the_next_version_from_the_human_with_the_note_and_clears_the_proposal(
+        client, project, saved, run_db):
+    saved(YAML)
+    _propose(run_db, project)
+    url = f"/ui/p/{project}/settings/proposal"
+    r = client.post(url, data={"action": "save", "base_version": "1", "note": "from the Makefile"},
+                    follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == f"/ui/p/{project}/settings"
+    latest = _latest(run_db, project)
+    assert latest["version"] == 2 and latest["body"]["source"] == "human"
+    assert latest["body"]["note"] == "from the Makefile"
+    assert GateConfig.from_yaml(latest["body"]["yaml"]).retries.max == 8
+    assert _proposal(run_db, project) is None
+
+
+def test_discard_clears_the_proposal_without_a_version(client, project, saved, run_db):
+    saved(YAML)
+    _propose(run_db, project)
+    r = client.post(f"/ui/p/{project}/settings/proposal", data={"action": "discard"}, follow_redirects=False)
+    assert r.status_code == 303
+    assert _proposal(run_db, project) is None and _versions(run_db, project) == 1
+
+
+def test_save_with_an_old_base_version_reviews_again_and_writes_nothing(client, project, saved, run_db, indexer):
+    saved(YAML)
+    _propose(run_db, project)
+
+    async def go(conn):
+        await plans.apply_gates(conn, indexer, project, [{"name": "e2e", "run": "make e2e"}],
+                                {"plan_id": 5, "task_id": 2})
+        await conn.commit()
+
+    run_db(go)
+    page = client.post(f"/ui/p/{project}/settings/proposal", data={"action": "save", "base_version": "1", "note": ""})
+    assert page.status_code == 200 and "changed while you were reviewing" in page.text
+    assert 'name="base_version" value="2"' in page.text
+    assert _versions(run_db, project) == 2 and _proposal(run_db, project) is not None
+
+
+def test_a_proposal_that_became_invalid_returns_the_error_and_writes_nothing(client, project, saved, run_db):
+    saved(YAML)
+    _propose(run_db, project, YAML + "review_after_merge: {features: [ghost]}\n", raw=True)
+    url = f"/ui/p/{project}/settings/proposal"
+    assert "The proposal is not valid" in client.get(url).text
+    page = client.post(url, data={"action": "save", "base_version": "1", "note": ""})
+    assert page.status_code == 422 and "ghost" in page.text
+    assert _versions(run_db, project) == 1 and _proposal(run_db, project) is not None

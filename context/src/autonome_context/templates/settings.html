@@ -122,6 +122,7 @@ srow srow--{{ prefix if prefix != 'smoke_test-checks' else 'checks' }}{% if (pre
 
 {% if not doc %}<div class="callout callout--block"><div class="wrap"><strong>Not saved yet.</strong> Until a config is saved autonome is not active here (no briefing, no handoffs, no run).</div></div>{% endif %}
 {% if error %}<div class="callout callout--block"><div class="wrap"><strong>Not valid.</strong> {{ error }}</div></div>{% endif %}
+{% if has_proposal %}<div class="callout callout--hold"><div class="wrap"><strong>init proposed new settings</strong> · <a href="/ui/p/{{ project }}/settings/proposal">Review</a></div></div>{% endif %}
 {% if notice %}<div class="callout callout--ok"><div class="wrap">{{ notice }}</div></div>{% endif %}
 {% if problems %}
 <div class="callout callout--block" id="problems"><div class="wrap">
