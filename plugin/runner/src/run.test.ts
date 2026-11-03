@@ -372,7 +372,7 @@ test("implement keeps the last Commit: line of the final text, and undefined wit
   assert.equal((await commitSubjects([undefined])).first, undefined);
 });
 
-test("a resumed session has its own Commit: line, and one without it returns undefined for runTask to keep the earlier", async () => {
+test("a resumed session has its own Commit: line, and one without it returns undefined", async () => {
   const again = await commitSubjects(["Commit: feat: add x", "Commit: fix: handle y"], "s1");
   assert.deepEqual(again, { first: "feat: add x", second: "fix: handle y" });
   const quiet = await commitSubjects(["Commit: feat: add x", "Fixed it."], "s1");
@@ -647,8 +647,8 @@ test("the commit's subject comes from the implementer's last Commit: line, the t
   }
 });
 
-test("a retry that says no Commit: line keeps the subject given before; one that does gives the last", async () => {
-  for (const [second, want] of [["Fixed it.", "fix(runner): first"], ["Commit: docs: second", "docs(runner): second"]]) {
+test("a retry's Commit: line replaces the subject; one without it falls back to the title", async () => {
+  for (const [second, want] of [["Fixed it.", "feat(runner): t"], ["Commit: docs: second", "docs(runner): second"]]) {
     const env = wipEnv();
     let n = 0;
     // The first session leaves a stray binary, which sends the implementer back; the retry ignores it.

@@ -880,9 +880,7 @@ export async function runTask(task: Task, opts: RunOptions): Promise<Run | undef
 
   // Gates, then the reviewer; blocking findings send the implementer back to the same session.
   const retry = async (prompt: string) => {
-    const earlier = result.commitSubject;
     result = await implement(task, worktree, base, opts, { sessionId: result.sessionId || run.session_id || "", prompt });
-    result.commitSubject ??= earlier; // a retry that says nothing keeps the subject already given
     run.tokens = (run.tokens ?? 0) + result.tokens;
     run.cost_usd = (run.cost_usd ?? 0) + result.cost;
   };
