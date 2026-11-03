@@ -53,7 +53,8 @@ plugin/runner/  the runner (TypeScript, Claude Agent SDK): one session + worktre
   waits for the plans it depends on, and the runner runs a preflight on it against main before its first task
   (ready with notes, or held with a revision that Jev accepts when it drops no acceptance, adds no
   excluded scope and keeps the design, else the human accepts). Plans propose missing gates, added to
-  the gate config on approval or when the task that sets their tooling up is merged.
+  the gate config on approval or when the task that sets their tooling up is merged (that task
+  already runs them, so the reviewer sees them pass).
 - **Verification beyond gates**: a reviewer agent reads each task's diff before merge (high findings
   send the implementer back to the same session); a smoke test (`smoke_test` in the gate config) tries a
   finished feature in a running environment (checks + a tester agent that follows the project's `permissions`, never edits files and works in a throwaway
@@ -103,7 +104,8 @@ plugin/runner/  the runner (TypeScript, Claude Agent SDK): one session + worktre
   the fallback; it is not one of the `models` roles and `--model/--effort` do not change it.
   The `staff` role is Opus with high effort by default, the last stop before the human.
   Jev also checks reviewer findings both ways: a high one whose text calls itself advisory drops to
-  medium, and a medium or low one the task's acceptance requires rises to high and blocks. Low
+  medium, and a medium or low one the task's acceptance requires rises to high and blocks (at
+  `triage.raise_at`, `reject_at` when unset, `off` to never raise). Low
   findings ride along whenever the implementer goes back, and those that merge reach the retro as
   `open_debt` for its debt plan.
   Jev also judges what the staff proposes: that a task is already satisfied (questions on the commit

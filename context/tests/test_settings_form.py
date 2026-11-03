@@ -136,6 +136,20 @@ def test_triage_errors_and_off():
     assert (data, errors) == ({}, {})
 
 
+def test_triage_raise_at_is_a_number_off_or_left_to_reject_at():
+    jev = BASE | {"triage-model": "jev-latest"}
+    data, errors = form_to_config(jev | {"triage-raise_at": "0.85"}, CATALOG)
+    assert (data["triage"]["raise_at"], errors) == (0.85, {})
+    data, _ = form_to_config(jev | {"triage-raise_at": "Off"}, CATALOG)
+    assert data["triage"]["raise_at"] == "off"
+    data, _ = form_to_config(jev, CATALOG)
+    assert "raise_at" not in data["triage"]
+    _, errors = form_to_config(jev | {"triage-raise_at": "1.5"}, CATALOG)
+    assert list(errors) == ["triage-raise_at"]
+    _, errors = form_to_config(jev | {"triage-raise_at": "sometimes"}, CATALOG)
+    assert list(errors) == ["triage-raise_at"]
+
+
 def test_smoke_test_block_needs_up_down_or_url():
     assert form_to_config(BASE | {"smoke_test-seed": "s"}, CATALOG) == ({}, {})
     _, errors = form_to_config(BASE | {"smoke_test-up": "up"}, CATALOG)

@@ -215,6 +215,7 @@ srow srow--{{ prefix if prefix != 'smoke_test-checks' else 'checks' }}{% if (pre
     {{ field('triage-fallback', 'triage.fallback', 'select', ('haiku', 'off')) }}
     {{ field('triage-reject_at', 'triage.reject_at', 'number') }}
     {{ field('triage-max_rounds', 'triage.max_rounds', 'number') }}
+    {{ field('triage-raise_at', 'triage.raise_at', 'text') }}
   </section>
 
   <section class="ssec{{ sec('Smoke test') }}" id="smoke-test">

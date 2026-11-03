@@ -228,3 +228,21 @@ def test_a_gate_that_ignores_sigterm_is_killed_after_the_grace_period(tmp_path):
     assert 5 <= time.monotonic() - start < 15
     assert "timed out after 1s (killed the process group)" in outcomes[0].output
     assert not _alive(marker)
+
+
+def test_a_task_runs_the_gates_it_brings_before_they_join_the_config(monkeypatch):
+    fetched = {"version": 3, "config": {"gates": [{"name": "lint", "run": "ruff check"}]},
+               "pending": [{"name": "typecheck", "run": "uv run mypy", "fast": True, "task_id": 1801, "plan_id": 1792},
+                           {"name": "architecture", "run": "lint-imports", "task_id": 1802, "plan_id": 1792},
+                           {"name": "lint", "run": "other", "task_id": 1801, "plan_id": 1792}]}
+    monkeypatch.setattr(gate_hook.common, "get_json", lambda path: fetched)
+    monkeypatch.setattr(gate_hook.common, "project_slug", lambda cwd: "p")
+    monkeypatch.delenv("AUTONOME_TASK_ID", raising=False)
+    assert gate_hook.fetch_config("/x") is fetched
+    monkeypatch.setenv("AUTONOME_TASK_ID", "1801")
+    got = gate_hook.fetch_config("/x")
+    assert got["config"]["gates"] == [{"name": "lint", "run": "ruff check"},
+                                      {"name": "typecheck", "run": "uv run mypy", "fast": True}]
+    assert got["version"] == 3
+    monkeypatch.setenv("AUTONOME_TASK_ID", "9")
+    assert gate_hook.fetch_config("/x")["config"]["gates"] == [{"name": "lint", "run": "ruff check"}]

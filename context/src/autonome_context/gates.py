@@ -116,8 +116,18 @@ class Triage(_Strict):
     fallback: Literal["haiku", "off"] = "haiku"
     reject_at: float = Field(default=0.7, gt=0, le=1, description="share of noul answers at which a deviation is rejected")
     max_rounds: int = Field(default=2, ge=1, description="reviewer rounds before a rejected deviation stays proposed")
+    raise_at: float | Literal["off"] | None = Field(
+        default=None, description="score at which a medium or low finding the task's acceptance requires rises to "
+                                  "high and sends the implementer back; empty: reject_at; off: never")
 
-    @field_validator("model", "fallback", mode="before")
+    @field_validator("raise_at")
+    @classmethod
+    def _raise_at_range(cls, v):
+        if isinstance(v, float) and not 0 < v <= 1:
+            raise ValueError("raise_at must be off or 0 < x <= 1")
+        return v
+
+    @field_validator("model", "fallback", "raise_at", mode="before")
     @classmethod
     def _yaml_off(cls, v):
         return "off" if v is False else v  # YAML 1.1 reads a bare `off` as false

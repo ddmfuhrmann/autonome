@@ -53,6 +53,8 @@ How the memory behind all this works is in [memory.md](memory.md).
 
 A greenfield project can start with `gates: []`: its first plan proposes the gates along with the
 task that sets their tooling up (`with_task`), and they join the config when that task merges.
+That task already runs them (in the gate hook and in the runner's gate check), so the reviewer sees
+them pass before the merge; other tasks only run them once they joined the config.
 
 ## 2. The gate config
 
@@ -161,6 +163,7 @@ triage:
   fallback: haiku     # haiku | off
   reject_at: 0.7      # score at which a deviation is rejected (0 < x <= 1)
   max_rounds: 2       # at the last round a rejection leaves the decision proposed, marked exhausted
+  raise_at:           # score at which a finding the acceptance requires rises to high; empty: reject_at; off: never
 
 # Optional: scheduled checks that queue maintenance tasks (run `autonome schedules` from cron).
 schedules:
@@ -272,6 +275,7 @@ conventions and gates instead.
 | `fallback` | `haiku` | who judges when the model fails (no key, error, timeout): `haiku` or `off` |
 | `reject_at` | `0.7` | score at which a deviation is rejected, `0 < x <= 1`; thresholds are a rule you edit |
 | `max_rounds` | `2` | rounds before a rejected deviation stays proposed (each earlier rejection queues an undo task) |
+| `raise_at` | (`reject_at`) | score at which a medium or low finding the task's acceptance requires rises to high and sends the implementer back, `0 < x <= 1`, or `off` to never raise; higher means fewer retries |
 
 - **Screening**: every accepted decision made since the triage was turned on is screened first, with
   one question, `is_deviation`. At or above `reject_at` it is reopened as a proposed deviation and
@@ -304,7 +308,7 @@ conventions and gates instead.
   check adds a `triage advisory: …` line to the task's events (or `skipped, no Jev key`).
   The other way round, each medium or low finding (not one just downgraded) gets one more question,
   with the task's acceptance: is it about something an acceptance criterion requires (not met, or
-  not tested)? At `reject_at` or above it rises to high (`raised`) and blocks, since a cheap reviewer
+  not tested)? At `raise_at` (or `reject_at` when it is not set) or above it rises to high (`raised`) and blocks, since a cheap reviewer
   rates these low and they merge. Every checked finding keeps the answer (`required`) or the failure
   (`required_error`); a round that raised or failed adds a `triage acceptance: …` line.
 - **Preflight revisions**: with `model: jev-latest` and a key, the runner also judges the revision a

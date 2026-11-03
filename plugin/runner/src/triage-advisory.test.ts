@@ -102,6 +102,18 @@ test("a low finding the acceptance requires is raised to high, with the task's a
   assert.equal(out.required, 0.92);
 });
 
+test("raise_at replaces reject_at for raising, and off asks nothing", async () => {
+  const [kept] = await raiseRequired([f1336], acceptance, { ...cfg, raise_at: 0.95 }, "k", async () => 0.92);
+  assert.equal(kept.severity, "low");
+  assert.equal(kept.required, 0.92);
+  const [raised] = await raiseRequired([f1336], acceptance, { ...cfg, raise_at: 0.5 }, "k", async () => 0.6);
+  assert.equal(raised.severity, "high");
+  let asked = 0;
+  const [off] = await raiseRequired([f1336], acceptance, { ...cfg, raise_at: "off" }, "k", async () => { asked++; return 1; });
+  assert.deepEqual(off, f1336);
+  assert.equal(asked, 0);
+});
+
 test("below reject_at, a high finding or a downgraded one stays as it was", async () => {
   const [kept] = await raiseRequired([f1336], acceptance, cfg, "k", async () => 0.69);
   assert.equal(kept.severity, "low");

@@ -116,6 +116,8 @@ export interface Triage {
   fallback: "haiku" | "off";
   reject_at: number;
   max_rounds: number;
+  /** Score at which a finding the acceptance requires rises to high; absent or null: `reject_at`; "off": never. */
+  raise_at?: number | "off" | null;
 }
 
 /** A deviation waiting for the classifier, at its current round. */

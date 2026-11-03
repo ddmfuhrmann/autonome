@@ -226,5 +226,22 @@ def check(
 
 
 def fetch_config(cwd: str) -> dict | None:
-    """{"version": int | None, "config": {...}} or None if the context is unreachable."""
-    return common.get_json(f"/api/projects/{common.project_slug(cwd)}/gate-config")
+    """{"version": int | None, "config": {...}} or None if the context is unreachable. In a task's session
+    (AUTONOME_TASK_ID), the gates that task brings (pending until it merges) run too, so the task that sets
+    a gate's tooling up proves it passes before the merge."""
+    fetched = common.get_json(f"/api/projects/{common.project_slug(cwd)}/gate-config")
+    task_id = os.getenv("AUTONOME_TASK_ID")
+    if fetched is None or not task_id:
+        return fetched
+    return with_task_gates(fetched, int(task_id))
+
+
+def with_task_gates(fetched: dict, task_id: int) -> dict:
+    """`fetched` with the pending gates of `task_id` added to its config's gates (a name already there wins)."""
+    config = fetched.get("config") or {}
+    names = {g.get("name") for g in config.get("gates", [])}
+    own = [{k: v for k, v in g.items() if k not in ("task_id", "plan_id")}
+           for g in fetched.get("pending") or [] if g.get("task_id") == task_id and g.get("name") not in names]
+    if not own:
+        return fetched
+    return {**fetched, "config": {**config, "gates": [*config.get("gates", []), *own]}}

@@ -240,9 +240,10 @@ function now(): string {
   return new Date().toISOString();
 }
 
-function gates(cwd: string, base: string): { passed: boolean; summary: string; outcomes?: GateOutcome[] } {
+/** The project's gates on the worktree; with `taskId`, the gates that task brings (pending until it merges) too. */
+function gates(cwd: string, base: string, taskId?: number): { passed: boolean; summary: string; outcomes?: GateOutcome[] } {
   const r = spawnSync(join(PLUGIN_ROOT, "bin", "autonome-gates"), ["--json", "--base", base], {
-    cwd, encoding: "utf8", env: sessionEnv({ AUTONOME_BASE_SHA: base }),
+    cwd, encoding: "utf8", env: sessionEnv({ AUTONOME_BASE_SHA: base, ...(taskId === undefined ? {} : { AUTONOME_TASK_ID: String(taskId) }) }),
   });
   try {
     const out = JSON.parse(r.stdout) as { passed: boolean; outcomes: GateOutcome[] };
@@ -798,7 +799,7 @@ export function verdictLine(r: ReviewResult): string {
 type GateResult = { passed: boolean; summary: string; outcomes?: GateOutcome[] };
 
 export interface JudgeSeams {
-  gates: (cwd: string, base: string) => GateResult | Promise<GateResult>;
+  gates: (cwd: string, base: string, taskId?: number) => GateResult | Promise<GateResult>;
   review: typeof review;
   briefing: () => Promise<string>;
 }
@@ -1024,7 +1025,7 @@ export async function runTask(task: Task, opts: RunOptions): Promise<Run | undef
   let lastGates = "";
   const judge = () => judgeTask({ task, cfg, opts, run, worktree, base, current: () => result, retry, paused: isPaused }, {
     gates: async (cwd, b) => {
-      const check = await (opts.seams?.gates ?? gates)(cwd, b);
+      const check = await (opts.seams?.gates ?? gates)(cwd, b, task.id);
       lastGates = check.summary;
       return check;
     },

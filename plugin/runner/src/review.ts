@@ -31,6 +31,13 @@ Two kinds of finding:
 Tests: flag a test that only executes code without asserting behaviour (it exists for coverage), or
 that is shaped to pass rather than to check, as "missing" for the behaviour it should have checked.
 
+Linters and type checkers: a suppression (\`# noqa: CODE\`, \`# type: ignore[code]\`, \`@SuppressWarnings\`) narrowed
+to one code and with its reason written next to it is the honest way to keep a case the rule does not fit (a
+naive datetime a test builds on purpose); do not ask to remove it. Never ask for code reshaped so a linter
+stops seeing what it would flag (another call that does the same thing): that hides the case instead of
+fixing it. Report a suppression only when it is blanket, has no reason, or hides a real defect, or when the
+task or a convention rules suppressions out; then ask to fix the cause, not to dodge the rule.
+
 Severity: high blocks the merge. A "diverges" finding that is real and matters is high. A "missing"
 finding is high when a convention or the task's acceptance requires it, however unlikely the case
 (a raw 500 that "almost never happens" still breaks a "no raw 500" convention); otherwise medium or

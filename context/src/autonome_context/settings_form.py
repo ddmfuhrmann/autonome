@@ -49,7 +49,8 @@ def config_to_form(cfg: GateConfig) -> dict[str, str]:
     form |= {"review-enabled": _on(cfg.review.enabled), "review-max_rounds": str(cfg.review.max_rounds)}
     t = cfg.triage
     form |= {"triage-model": t.model if t else "off", "triage-fallback": t.fallback if t else "haiku",
-             "triage-reject_at": str(t.reject_at if t else 0.7), "triage-max_rounds": str(t.max_rounds if t else 2)}
+             "triage-reject_at": str(t.reject_at if t else 0.7), "triage-max_rounds": str(t.max_rounds if t else 2),
+             "triage-raise_at": "" if not t or t.raise_at is None else str(t.raise_at)}
     s = cfg.smoke_test
     form |= {"smoke_test-up": s.up if s else "", "smoke_test-down": s.down if s else "",
              "smoke_test-url": s.url if s else "", "smoke_test-seed": (s.seed or "") if s else "",
@@ -170,6 +171,10 @@ def _build(form: Mapping[str, str | list[str]], errors: dict[str, str]) -> tuple
         if (r := _number(_scalar(form, "triage-reject_at"), "triage-reject_at", errors, kind=float)) is not None:
             triage["reject_at"] = r
         triage |= _int_fields(form, "triage", ("max_rounds",), errors)
+        if (ra := _scalar(form, "triage-raise_at")).lower() == "off":
+            triage["raise_at"] = "off"
+        elif (r := _number(ra, "triage-raise_at", errors, kind=float)) is not None:
+            triage["raise_at"] = r
         data["triage"] = triage
 
     smoke = {f: v for f in ("up", "down", "url", "seed") if (v := _scalar(form, f"smoke_test-{f}"))}

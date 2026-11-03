@@ -204,7 +204,8 @@ interface Raisable extends Rated { required?: number; required_error?: string; r
  * finding it checks keeps the answer (`required`) or the failure (`required_error`). */
 export async function raiseRequired<F extends Raisable>(findings: F[], acceptance: string[], cfg: Triage | null | undefined,
   key: string | undefined, ask: (f: F, acceptance: string[], key: string) => Promise<number> = requiredByAcceptance): Promise<F[]> {
-  if (cfg?.model !== "jev-latest" || !key || !acceptance.length) return findings;
+  if (cfg?.model !== "jev-latest" || !key || !acceptance.length || cfg.raise_at === "off") return findings;
+  const raiseAt = typeof cfg.raise_at === "number" ? cfg.raise_at : cfg.reject_at;
   return Promise.all(findings.map(async (f) => {
     if (f.severity === "high" || f.downgraded) return f;
     let p: number;
@@ -214,7 +215,7 @@ export async function raiseRequired<F extends Raisable>(findings: F[], acceptanc
       console.error("triage: acceptance check failed:", e);
       return { ...f, required_error: String(e instanceof Error ? e.message : e).slice(0, 200) };
     }
-    if (p < cfg.reject_at) return { ...f, required: p };
+    if (p < raiseAt) return { ...f, required: p };
     return { ...f, severity: "high" as const, issue: f.issue + RAISE_NOTE, raised: true, required: p };
   }));
 }
