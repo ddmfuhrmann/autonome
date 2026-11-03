@@ -1585,9 +1585,12 @@ async def triage_page(request: Request) -> Response:
                 rows.append({"doc": d, "triage": d["body"]["triage_history"][-1],
                              "exhausted": bool(d["body"].get("triage_exhausted")),
                              "conflict": bool(d["body"].get("triage_conflict")), "undo": undo.get(str(d["id"]))})
+        revisions = [p for p in await store.list_documents(conn, project, type="plan", limit=None)
+                     if ((p["body"].get("preflight") or {}).get("triage"))]
         on = await _triage_on(conn, project)
     rows.sort(key=lambda r: r["triage"].get("at") or "", reverse=True)
-    return await render(request, "triage.html", rows=rows, on=on, waiting=waiting if on else [])
+    revisions.sort(key=lambda p: p["body"]["preflight"]["triage"].get("at") or "", reverse=True)
+    return await render(request, "triage.html", rows=rows, on=on, waiting=waiting if on else [], revisions=revisions)
 
 
 async def insights_page(request: Request) -> Response:
