@@ -40,8 +40,8 @@ came before it, so a read spread over many turns, or repeated, costs many times 
 - `gate_config_get`: the gates that will judge the work, and `language`: when it is set, write the
   plan's text (title, goal, context, specs, acceptance, design, discussion) and your messages in it;
   code, identifiers, paths, commands and JSON keys stay as they are.
-- Learn the code the change will touch through one `Explore` subagent (the `Agent` tool), in the
-  same message: name the idea and the paths from the catalog, and ask for the files involved, the
+- Learn the code the change will touch through one `Explore` subagent (the `Agent` tool, with
+  `model: "haiku"`: reading and summing up needs no stronger model), in the same message: name the idea and the paths from the catalog, and ask for the files involved, the
   names and signatures the tasks will use, how the code does the same kind of thing today, and the
   tests around it, as a short summary with paths. Do not read or grep the code yourself to get
   there: what you read stays in this conversation for every later turn, the subagent's reading does
