@@ -110,6 +110,7 @@
         <p class="wrap" style="font-size: 13px">{{ sc.report }}</p>
         {% if sc.checks %}<ul class="gates">{% for c in sc.checks %}<li>{{ ui.st('passed' if c.passed else 'failed', sm=true) }}{{ c.name }}
           {% if c.output %}<details style="width: 100%"><summary class="muted" style="font-size: 12px; cursor: pointer">Output</summary><pre class="log">{{ c.output }}</pre></details>{% endif %}</li>{% endfor %}</ul>{% endif %}
+        {% if sc.untested %}<div><p class="muted" style="font-size: 12px">Untested</p><ul>{% for u in sc.untested %}<li class="wrap" style="font-size: 13px">{{ u.criterion }} <span class="muted">— {{ u.why }}</span></li>{% endfor %}</ul></div>{% endif %}
         {% if sc.fixes %}<p class="muted" style="font-size: 12px">Fix tasks queued: {{ sc.fixes|map(attribute='title')|join('; ') }}</p>{% endif %}
       </div>
       {% if not loop.last %}<hr>{% endif %}

@@ -55,6 +55,20 @@
     "item": {"pr_url": "https://github.com/acme/app/pull/42", "pr_mode": "manual", "branch": "autonome/task-7"},
     "body": {"to": "in_pr", "run": {"outcome": "pr_opened", "pr_url": "https://github.com/acme/app/pull/42", "pr_mode": "manual", "branch": "autonome/task-7"}}
   },
+  "smoke_test_untested": {
+    "endpoint": "POST /api/plans/{id}/smoke-test",
+    "about": "The tester passed but could not exercise two criteria: they travel as `untested` notes and do not fail the smoke test.",
+    "item": {
+      "answer": {"passed": true, "report": "everything reachable works", "fixes": [], "untested": [{"criterion": "An e-mail is sent", "why": "needs a real SMTP server"}, {"criterion": "The nightly job runs", "why": "no way to trigger it"}]},
+      "checks": [{"name": "health", "passed": true, "output": "ok"}]
+    },
+    "body": {
+      "passed": true, "report": "everything reachable works",
+      "checks": [{"name": "health", "passed": true, "output": "ok"}],
+      "fixes": [],
+      "untested": [{"criterion": "An e-mail is sent", "why": "needs a real SMTP server"}, {"criterion": "The nightly job runs", "why": "no way to trigger it"}]
+    }
+  },
   "runner_status": {
     "endpoint": "POST /api/projects/{project}/runner-status",
     "about": "Sent at the start of a run: only whether the Jev key was found, never the key.",

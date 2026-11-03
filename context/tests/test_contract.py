@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from autonome_context.api import _JEV, PrOpened, RevisionVerdict, RunnerStatus, Screening, TriageVerdict
+from autonome_context.plans import SmokeTestResult
 
 CONTRACT = json.loads((Path(__file__).resolve().parents[2] / "contracts" / "runner-context.json").read_text())
 
@@ -36,6 +37,11 @@ def test_the_in_pr_body_passes_the_endpoint_model():
     assert body["to"] == "in_pr"
     pr = PrOpened.model_validate(body["run"])
     assert (pr.pr_url, pr.pr_mode) == (CONTRACT["task_in_pr"]["item"]["pr_url"], "manual")
+
+
+def test_the_smoke_test_body_with_untested_passes_the_endpoint_model():
+    r = SmokeTestResult.model_validate(CONTRACT["smoke_test_untested"]["body"])
+    assert r.passed and len(r.untested) == 2
 
 
 def test_the_revision_verdict_body_passes_the_endpoint_model():

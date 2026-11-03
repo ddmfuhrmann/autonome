@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import type { GateConfig, Plan } from "./context.js";
 import { conventionTitles, enforceConventions, findingsForRetry } from "./review.js";
-import { smokeTest, testerPermissions, testerPrompt } from "./smoke-test.js";
+import { smokeTest, testerPermissions, testerPrompt, testerResult } from "./smoke-test.js";
 
 const plan: Plan = { id: 7, project: "p", status: "approved", feature: "links", body: { title: "Links", tasks: [] } };
 const base = { url: "http://127.0.0.1:1", seed: null, tester: false, max_fixes: 2 };
@@ -85,7 +85,7 @@ function repo(): string {
   return dir;
 }
 
-const answer = { passed: true, report: "ok", fixes: [] };
+const answer = { passed: true, report: "ok", fixes: [], untested: [] };
 const withTester = { ...base, tester: true, up: "true", down: "true", checks: [] };
 
 test("in auto the tester cannot edit, commit or read ~/.autonome, by rule", () => {
@@ -143,6 +143,44 @@ test("a tester worktree that cannot be created throws instead of failing the fea
       { gc: gcWith("auto"), query: fake }),
     /could not create the tester's worktree/);
   assert.equal(readFileSync(join(dir, "state"), "utf8"), "down\n");
+});
+
+const testerSays = (a: object) => (async function* () {
+  yield { type: "result", subtype: "success", total_cost_usd: 0, structured_output: a };
+}) as never;
+const untested = [{ criterion: "email is sent", why: "needs a real SMTP server" }, { criterion: "cron runs", why: "no way to trigger it" }];
+
+test("a tester that passed with criteria it could not exercise passes the smoke test and posts them as untested", async () => {
+  const dir = repo();
+  const r = await smokeTest(plan, withTester, dir, undefined, () => {}, undefined,
+    { gc: gcWith("auto"), query: testerSays({ ...answer, untested }) });
+  assert.equal(r.passed, true);
+  assert.deepEqual(r.untested, untested);
+  assert.deepEqual(r.fixes, []);
+});
+
+test("a real failure fails the smoke test with its fix, untested or not", async () => {
+  const dir = repo();
+  const fix = { title: "Fix redirect", spec: "GET /abc -> 500", acceptance: ["a test passes"] };
+  const r = await smokeTest(plan, withTester, dir, undefined, () => {}, undefined,
+    { gc: gcWith("auto"), query: testerSays({ passed: false, report: "bad", fixes: [fix], untested: untested.slice(0, 1) }) });
+  assert.equal(r.passed, false);
+  assert.deepEqual(r.fixes, [fix]);
+  assert.equal(r.untested.length, 1);
+});
+
+test("untested is cut to what the context accepts: 30 items of 500 characters", () => {
+  const long = { criterion: "c".repeat(501), why: "w".repeat(501) };
+  const r = testerResult({ passed: true, report: "ok", fixes: [], untested: Array(31).fill(long) }, []);
+  assert.equal(r.untested.length, 30);
+  assert.equal(r.untested[0].criterion.length, 500);
+  assert.equal(r.untested[0].why.length, 500);
+  assert.equal(r.passed, true);
+});
+
+test("the tester's prompt keeps untested for what cannot be exercised, never for a failure", () => {
+  assert.match(testerPrompt("auto"), /untested: a criterion goes here only when it cannot be exercised/);
+  assert.match(testerPrompt("auto"), /never when you tried it and it failed/);
 });
 
 test("in every mode the tester's hook denies file commands outside its worktree and leaves curl to the rules", async () => {

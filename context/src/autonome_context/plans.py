@@ -357,6 +357,11 @@ class CheckRun(BaseModel):
     output: str = ""
 
 
+class Untested(BaseModel):
+    criterion: str = Field(max_length=500)
+    why: str = Field(max_length=500, description="why the running app could not exercise it")
+
+
 class SmokeTestResult(BaseModel):
     """The runner's try of a finished feature in a running environment."""
 
@@ -364,6 +369,7 @@ class SmokeTestResult(BaseModel):
     report: str = Field(description="what was exercised and what happened")
     checks: list[CheckRun] = []
     fixes: list[Fix] = Field(default=[], description="tasks that would make it pass, when it did not")
+    untested: list[Untested] = Field(default=[], max_length=30, description="criteria the tester could not exercise: a note, never a failure")
 
 
 def _rounds(plan: dict) -> list[dict]:

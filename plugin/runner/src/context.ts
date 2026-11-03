@@ -199,11 +199,18 @@ export interface Fix {
   acceptance: string[];
 }
 
+/** A criterion the tester could not exercise on the running app, and why: a note, not a failure. */
+export interface Untested {
+  criterion: string;
+  why: string;
+}
+
 export interface SmokeTestResult {
   passed: boolean;
   report: string;
   checks: { name: string; passed: boolean; output: string }[];
   fixes: Fix[];
+  untested: Untested[];
 }
 
 export interface Finding {

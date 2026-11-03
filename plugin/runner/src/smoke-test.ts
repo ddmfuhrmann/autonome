@@ -21,7 +21,11 @@ call real external services, never use real personal data, never change files.
 
 {{TOOLS}}
 
-- passed: true only if every acceptance criterion holds on the running app and every scripted check passed.
+- passed: true only if nothing you exercised failed and every scripted check passed. A criterion you could
+  not exercise does not make it false.
+- untested: a criterion goes here only when it cannot be exercised on the running app (say why: no way to
+  trigger it, needs a real external service, ...), never when you tried it and it failed. A failure goes
+  in fixes and makes passed false. Empty when you exercised everything.
 - report: what you exercised and what happened, briefly, with the requests that failed.
 - fixes: for each real failure, one task that would fix it: the reproduction (request and response), what
   is wrong, where in the code it likely is, and as acceptance a test that reproduces it and must pass.
@@ -54,9 +58,34 @@ const SCHEMA = {
         required: ["title", "spec", "acceptance"],
       },
     },
+    untested: {
+      type: "array",
+      maxItems: 30,
+      items: {
+        type: "object",
+        properties: { criterion: { type: "string", maxLength: 500 }, why: { type: "string", maxLength: 500 } },
+        required: ["criterion", "why"],
+      },
+    },
   },
-  required: ["passed", "report", "fixes"],
+  required: ["passed", "report", "fixes", "untested"],
 } as const;
+
+// What the context accepts for `untested` (it answers 422 above these); the tester's answer is cut to fit.
+const UNTESTED_MAX_ITEMS = 30;
+const UNTESTED_MAX_CHARS = 500;
+
+/** The result the context records: passed when the checks and the tester's run passed. `untested` is a note and
+ * never enters `passed`. */
+export function testerResult(answer: Omit<SmokeTestResult, "checks">, checks: SmokeTestResult["checks"]): SmokeTestResult {
+  return {
+    passed: answer.passed && checks.every((c) => c.passed),
+    report: answer.report, checks, fixes: answer.fixes ?? [],
+    untested: (answer.untested ?? []).slice(0, UNTESTED_MAX_ITEMS).map((u) => ({
+      criterion: u.criterion.slice(0, UNTESTED_MAX_CHARS), why: u.why.slice(0, UNTESTED_MAX_CHARS),
+    })),
+  };
+}
 
 class TesterSetupError extends Error {}
 
@@ -85,7 +114,7 @@ export async function smokeTest(
 ): Promise<SmokeTestResult> {
   const env = { AUTONOME_APP_URL: cfg.url };
   let scratch: string | undefined;
-  const blocked = (report: string): SmokeTestResult => ({ passed: false, report, checks: [], fixes: [] });
+  const blocked = (report: string): SmokeTestResult => ({ passed: false, report, checks: [], fixes: [], untested: [] });
   try {
     const up = sh(cfg.up, cwd, env);
     if (!up.ok) return blocked(`the environment did not start (${cfg.up}):\n${up.output}`);
@@ -101,7 +130,7 @@ export async function smokeTest(
     const allChecks = checks.every((c) => c.passed);
     if (!cfg.tester) {
       return {
-        passed: allChecks, checks,
+        passed: allChecks, checks, untested: [],
         report: allChecks ? "all checks passed" : `failed: ${checks.filter((c) => !c.passed).map((c) => c.name).join(", ")}`,
         fixes: checks.filter((c) => !c.passed).map((c) => ({
           title: `Make the ${c.name} check pass`,
@@ -127,7 +156,7 @@ export async function smokeTest(
         `## Scripted checks\n${checks.map((c) => `### ${c.name}: ${c.passed ? "passed" : "FAILED"}\n${c.passed ? "" : c.output}`).join("\n") || "(none)"}`,
       ].join("\n\n"),
     });
-    return { ...answer, passed: answer.passed && allChecks, checks };
+    return testerResult(answer, checks);
   } catch (e) {
     if (e instanceof TesterSetupError || isUsageLimit(String(e))) throw e; // not the feature's fault: the plan stays due
     return blocked(`the smoke test itself failed: ${String(e)}`);

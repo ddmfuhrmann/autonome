@@ -218,7 +218,7 @@ test("the claim returns a running task, the new gate config keys are read, and t
 
   await context.transition(9, "pending");
   await context.preflight(1, { verdict: "ready", notes: "" });
-  await context.smokeTest(1, { passed: true, report: "ok", checks: [], fixes: [] });
+  await context.smokeTest(1, { passed: true, report: "ok", checks: [], fixes: [], untested: [] });
   await context.wavesWithoutRetro("p");
   await context.waveRetroDone(3, "s");
   const paths = calls.map((c) => `${c.method} ${new URL(c.url).pathname}`);

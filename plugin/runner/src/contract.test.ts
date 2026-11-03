@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { runnerStatusBody, type Run } from "./context.js";
 import { prOpenedRun } from "./pr.js";
+import { testerResult } from "./smoke-test.js";
 import { revisionBody, screeningBody, verdictBody } from "./triage-run.js";
 
 const CONTRACT = JSON.parse(readFileSync(new URL("../../../contracts/runner-context.json", import.meta.url), "utf8"));
@@ -41,6 +42,11 @@ test("the in_pr transition body matches the contract", () => {
   const c = CONTRACT.task_in_pr;
   const run = prOpenedRun({ branch: c.item.branch } as Run, { url: c.item.pr_url, mode: c.item.pr_mode });
   assert.deepEqual({ to: "in_pr", run }, c.body);
+});
+
+test("the smoke test body matches the contract, untested included", () => {
+  const c = CONTRACT.smoke_test_untested;
+  assert.deepEqual(testerResult(c.item.answer, c.item.checks), c.body);
 });
 
 test("the revision verdict body matches the contract, state included", () => {
