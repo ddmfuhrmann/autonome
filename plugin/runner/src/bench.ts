@@ -5,7 +5,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { query } from "./models.js";
 import { consult } from "./agents.js";
 import { implementerPermissions, PLAN_SCHEMA, PREFLIGHT_PROMPT, preflightPrompt, type ImplementerPermissions } from "./run.js";
 import { sdkModel, type Effort, type GateConfig, type Plan, type Preflight, type RoleModel, type Triage } from "./context.js";

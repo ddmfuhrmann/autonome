@@ -98,7 +98,10 @@ def role_model(project: str, role: str, default_model: str = "sonnet", default_e
 
 def model_args(project: str, role: str) -> list[str]:
     """`claude -p` arguments for a role: --model and --effort, plus --fallback-model when the gate config
-    gives the role a fallback that differs from its model."""
+    gives the role a fallback that differs from its model. Every `claude -p` gets its arguments here, so
+    AUTONOME_NO_MODELS (set by the runner's tests) stops a forgotten fake before it spends tokens."""
+    if os.environ.get("AUTONOME_NO_MODELS"):
+        raise RuntimeError(f"AUTONOME_NO_MODELS is set: the {role} agent would call a real model")
     model, effort = role_model(project, role)
     cfg = (get_json(f"/api/projects/{project}/gate-config") or {}).get("config") or {}
     fallback = ((cfg.get("models") or {}).get(role) or {}).get("fallback")

@@ -1,5 +1,6 @@
 // Read-only agents the runner consults: they look, never change the code, and answer as JSON.
-import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
+import type { Options } from "@anthropic-ai/claude-agent-sdk";
+import { query } from "./models.js";
 import { CONTEXT_URL, type Effort } from "./context.js";
 import { withSessionProcess } from "./processes.js";
 import { sessionEnv } from "./secrets.js";

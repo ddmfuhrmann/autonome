@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc",
-    "test": "pnpm build && node --test dist/*.test.js"
+    "test": "pnpm build && AUTONOME_NO_MODELS=1 node --test dist/*.test.js"
   },
   "engines": {
     "node": ">=20"

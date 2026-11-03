@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { query } from "./models.js";
 import { consult } from "./agents.js";
 import { withSessionProcess } from "./processes.js";
 import { CONTEXT_URL, ContextError, context, languageRule, roleModel, sdkModel, waitForContext, type Effort, type GateConfig, type Plan, type Preflight, type ReviewResult, type Run, type Task } from "./context.js";
@@ -391,6 +391,15 @@ export function updateDocsAsync(repo: string, project: string, args: string[], l
       resolveDocs();
     });
   });
+}
+
+/** The system overview, after a run that played tasks. Like a feature's doc, a failure only logs. */
+async function updateOverview(opts: RunOptions): Promise<void> {
+  try {
+    await (opts.seams?.docs ?? updateDocs)(opts.repo, opts.project, ["--overview"], opts.log);
+  } catch (e) {
+    opts.log(`  docs update failed: ${String(e)}`);
+  }
 }
 
 /** Living docs run in the background after a merge: one at a time per feature, and a merge that
@@ -1142,7 +1151,7 @@ export async function run(opts: RunOptions): Promise<number> {
         if (!opts.watch) break;
         if (sinceOverview) {
           await docsQueue(opts).drain();
-          updateDocs(opts.repo, opts.project, ["--overview"], opts.log);
+          await updateOverview(opts);
         }
         sinceOverview = 0;
         await new Promise((r) => setTimeout(r, opts.watch! * 1000));
@@ -1183,7 +1192,7 @@ export async function run(opts: RunOptions): Promise<number> {
     }
     if (sinceOverview) {
       await docsQueue(opts).drain();
-      updateDocs(opts.repo, opts.project, ["--overview"], opts.log);
+      await updateOverview(opts);
     }
     opts.log(ran ? `ran ${ran} task(s)` : "nothing to run");
     return ran;

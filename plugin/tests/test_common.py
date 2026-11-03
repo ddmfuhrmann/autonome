@@ -86,6 +86,14 @@ def test_handoff_writers_pass_a_fallback_model_only_when_it_differs(monkeypatch)
     assert common.model_args("p", "docs") == ["--model", "sonnet", "--effort", "low"]
 
 
+def test_model_args_refuses_when_models_are_off(monkeypatch):
+    import pytest
+    from autonome import common
+    monkeypatch.setenv("AUTONOME_NO_MODELS", "1")
+    with pytest.raises(RuntimeError, match="AUTONOME_NO_MODELS"):
+        common.model_args("p", "docs")
+
+
 def _fake_context(gate_versions: dict[str, int | None]):
     """A context that knows which projects have a saved gate config, and records briefing calls."""
     calls = []

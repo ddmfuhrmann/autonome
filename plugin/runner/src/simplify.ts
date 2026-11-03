@@ -1,7 +1,7 @@
 // The `simplify` schedule: a read-only agent looks at the code that changed on main since the last round
 // and proposes simplifications; each proposal is queued as a maintenance task. The agent never edits:
 // the task does, through the runner.
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { query } from "./models.js";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { context, languageRule, roleModel, type Schedule } from "./context.js";

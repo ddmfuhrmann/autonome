@@ -1,7 +1,7 @@
 // The quality loop: when a wave finishes, the retro skill runs a retrospective on what it left behind
 // and proposes four kinds of change: conventions and gates for the project, a plan for the debt still
 // open, process config, and notes about autonome itself. It only proposes; the human decides.
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { query } from "./models.js";
 import { context, languageRule, roleModel, type Effort, type Plan } from "./context.js";
 import { mainCheckout } from "./git.js";
 import { isUsageLimit } from "./limits.js";
