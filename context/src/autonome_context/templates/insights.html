@@ -3,6 +3,8 @@
 {% block title %}Insights{% endblock %}
 {% block main %}
 {% macro secs(ms) %}{{ '%.1f s'|format(ms / 1000) if ms >= 1000 else (ms|round|int) ~ ' ms' }}{% endmacro %}
+<div class="stack stack--lg" data-refresh="10">
+<div class="stack stack--lg" id="insights-live" data-live>
 <header class="page-head">
   <div class="page-head__text"><h1>Insights</h1>
     <p class="subtitle">How the process is going, from {{ i.handoffs }} handoffs and every recorded gate run. <span class="mono" style="font-size: 15px">/autonome:retro</span> reads the same data to propose gates and conventions.</p></div>
@@ -86,5 +88,7 @@
       {% else %}<p class="empty">Nothing blocked.</p>{% endfor %}
     </div>
   </section>
+</div>
+</div>
 </div>
 {% endblock %}

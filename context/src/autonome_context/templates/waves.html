@@ -2,8 +2,9 @@
 {% import "_ui.html" as ui %}
 {% block title %}Waves{% endblock %}
 {% block main %}
+<div class="stack stack--lg" data-refresh="10">
 <div class="page-head"><div class="page-head__text"><h1>Waves</h1><p class="page-head__meta">Several features planned in one compose and approved together.</p></div></div>
-<div class="table-wrap"><table class="table">
+<div class="table-wrap" id="waves-table" data-live><table class="table">
   <thead><tr><th>Wave</th><th>Status</th><th class="num">Features</th><th>Progress</th><th class="num">Tokens</th><th class="num">Cost</th><th>Composed</th></tr></thead>
   <tbody>{% for w in waves %}{% set d = w.doc %}
   <tr><td>{{ ui.doc_link(project, d) }}</td><td>{{ ui.st(d.status, sm=true) }}</td><td class="num">{{ d.body.features|length }}</td>
@@ -12,7 +13,7 @@
   {% else %}<tr><td colspan="7" class="empty">No waves yet. Compose one with <code>/autonome:compose</code>.</td></tr>{% endfor %}</tbody>
 </table></div>
 {% if backlog %}
-<section class="stack" aria-labelledby="backlog-h">
+<section class="stack" id="waves-backlog" data-live aria-labelledby="backlog-h">
   <div class="section-head"><h2 id="backlog-h">Backlog</h2><span class="muted" style="font-size: 13px">from the roadmap; compose a wave from one with <code>/autonome:compose</code></span></div>
   <div class="grid grid--3">
   {% for b in backlog %}{% set open = b.body["items"]|rejectattr('status', 'equalto', 'done')|list %}
@@ -25,4 +26,5 @@
   </div>
 </section>
 {% endif %}
+</div>
 {% endblock %}

@@ -4,6 +4,8 @@
 {% block crumbs %}<a href="/ui/p/{{ project }}/waves">Waves</a><span class="sep">/</span><span aria-current="page">{{ doc|ref }}</span>{% endblock %}
 {% block main %}
 {% set live = features|selectattr('progress.counts.running')|list %}
+<div class="stack stack--lg" data-refresh="10">
+<div class="stack stack--lg" id="wave-live" data-live>
 <div class="page-head">
   <div class="page-head__text">
     <div class="page-head__title"><span class="id">{{ doc|ref }}</span><h1>{{ doc.body.title }}</h1>{{ ui.st('running' if live and doc.status == 'approved' else doc.status, live=true) }}</div>
@@ -102,5 +104,7 @@
     </details>
     {% endif %}
   </aside>
+</div>
+</div>
 </div>
 {% endblock %}

@@ -6,6 +6,8 @@
 {% set b = doc.body %}
 {% set running = progress.counts.running %}
 {% set sounds = (b.smoke_tests or [])|rejectattr('retry')|list %}
+<div class="stack stack--lg" data-refresh="10">
+<div class="stack stack--lg" id="plan-head" data-live>
 <div class="page-head">
   <div class="page-head__text">
     <div class="page-head__title"><span class="id">{{ doc|ref }}</span><h1>{{ b.title }}</h1>{{ ui.st('running' if running and doc.status == 'approved' else doc.status, live=true) }}</div>
@@ -18,6 +20,7 @@
 </div>
 {% if in_wave and doc.status == 'draft' %}<div class="callout callout--live"><div>Part of <a href="/ui/p/{{ project }}/documents/{{ in_wave.id }}">{{ in_wave|ref }} · {{ in_wave.body.title }}</a>: approve it with the wave.</div></div>{% endif %}
 {{ ui.decision(project, doc, actions) }}
+</div>
 
 <nav class="tabs" aria-label="Plan sections">
   <a href="#objective" aria-current="page">Overview</a>{% if b.design %}<a href="#design">Design <span class="count-pill">{{ b.design|length }}</span></a>{% endif %}<a href="#tasks">Tasks <span class="count-pill">{{ tasks|length or b.tasks|length }}</span></a>
@@ -25,7 +28,7 @@
 </nav>
 
 <div class="grid grid--main-aside">
-<div class="stack stack--lg">
+<div class="stack stack--lg" id="plan-main" data-live>
   <section class="card" id="objective">
     <div class="card__head"><h2 class="card__title">Objective</h2></div>
     <div class="card__body prose">
@@ -118,6 +121,7 @@
 </div>
 
 <aside class="stack">
+  <div class="stack" id="plan-side" data-live>
   {% if tasks %}
   <div class="card">
     <div class="card__head"><h2 class="card__title">Progress</h2></div>
@@ -145,6 +149,8 @@
       <p class="muted" style="font-size: 12px">{{ 'Active since the plan was approved.' if doc.status != 'draft' else 'Approving the plan makes them active, before its tasks play.' }}</p></div>
   </div>
   {% endif %}
+  </div>
+  {# the diagram is rendered by mermaid once on load, so it stays out of the live regions #}
   {% if graph %}
   <div class="card">
     <div class="card__head"><h2 class="card__title">Dependency graph</h2></div>
@@ -157,5 +163,6 @@
   </details>
   {% endif %}
 </aside>
+</div>
 </div>
 {% endblock %}

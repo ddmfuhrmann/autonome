@@ -53,15 +53,15 @@
   <span class="kbd" aria-hidden="true">/</span>
 </form>
 
-<div class="browser{{ ' has-drawer' if peek }}">
-  <aside class="pane facets" aria-label="Filters">
+<div class="browser{{ ' has-drawer' if peek }}" data-refresh="10">
+  <aside class="pane facets" id="doc-facets" aria-label="Filters" data-live>
     {{ facet('type', 'Type', facets.type) }}
     {{ facet('status', 'Status', facets.status) }}
     {{ facet('feature', 'Feature', facets.feature) }}
     {{ facet('layer', 'Layer', facets.layer, show=6) }}
   </aside>
 
-  <div class="dlist">
+  <div class="dlist" id="doc-list" data-live>
     {% for name, docs in groups %}
     <section aria-label="{{ name }}">
       <h2 class="dgroup__head"><strong>{{ name }}</strong><span class="spacer"></span><span class="mono">{{ docs|length }}</span></h2>
@@ -83,7 +83,7 @@
   </div>
 
   {% if peek %}{% set d = peek.doc %}
-  <aside class="drawer" aria-label="Preview of {{ d|ref }}" data-close="{{ url(drop=('doc',)) }}"
+  <aside class="drawer" id="doc-drawer" data-live aria-label="Preview of {{ d|ref }}" data-close="{{ url(drop=('doc',)) }}"
          {% if peek.prev %}data-prev="{{ url(put={'doc': peek.prev}) }}"{% endif %}
          {% if peek.next %}data-next="{{ url(put={'doc': peek.next}) }}"{% endif %}>
     <div class="drawer__inner">

@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Projects{% endblock %}
 {% block main %}
+<div class="stack stack--lg" data-refresh="10">
 <header class="page-head">
   <div class="page-head__text">
     <a class="brand" href="/ui">autonome</a>
@@ -9,7 +10,7 @@
   </div>
 </header>
 {% if projects %}
-<div class="entries">
+<div class="entries" id="projects" data-live>
   {% for p in projects %}
   <a class="entry" href="/ui/p/{{ p.slug }}">
     <span class="entry__main">
@@ -23,6 +24,7 @@
   </a>
   {% endfor %}
 </div>
-{% else %}<p class="empty">No project yet.</p>{% endif %}
+{% else %}<p class="empty" id="projects" data-live>No project yet.</p>{% endif %}
 <p class="footnote">Add the plugin to a repo and run <span class="mono">/autonome:compose</span> or finish a session to register it.</p>
+</div>
 {% endblock %}

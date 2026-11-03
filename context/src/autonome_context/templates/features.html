@@ -29,7 +29,8 @@
 </div>
 {% endmacro %}
 
-<header class="page-head">
+<div class="stack stack--lg" data-refresh="10">
+<header class="page-head" id="features-head" data-live>
   <div class="page-head__text">
     <h1>{{ project }}</h1>
     <p class="subtitle">{{ product|length }} feature{{ 's' if product|length != 1 }}{% if tooling %} · {{ tooling|length }} for development{% endif %}{% if overview %} · system overview v{{ overview.version }} · updated {{ overview.updated_at|ago }}{% if overview.commit_sha %} at <span class="mono" style="font-size: 14px">{{ overview.commit_sha[:8] }}</span>{% endif %}{% endif %}</p>
@@ -51,13 +52,13 @@
 {% endif %}
 {% endif %}
 
-<section>
+<section id="features-list" data-live>
   <h2>Features</h2>
   {% if product %}{{ rows(product) }}{% else %}<p class="empty">No features yet.</p>{% endif %}
 </section>
 
 {% if tooling %}
-<section>
+<section id="features-tooling" data-live>
   <h2>Development</h2>
   <p class="footnote">Features that set up gates and tooling, not part of the product.</p>
   {{ rows(tooling) }}
@@ -71,4 +72,5 @@
 {% endif %}
 
 {% if not overview %}<p class="footnote">No system overview yet. The handoff writer writes it after the first delivery, or run <span class="mono">autonome-docs --overview</span> in the repo.</p>{% endif %}
+</div>
 {% endblock %}

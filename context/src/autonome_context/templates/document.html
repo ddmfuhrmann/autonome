@@ -3,6 +3,8 @@
 {% block title %}{{ doc|ref }}{% endblock %}
 {% block crumbs %}<a href="/ui/p/{{ project }}/documents?type={{ doc.type }}">{{ doc.type|label }}</a><span class="sep">/</span><span aria-current="page">{{ doc|ref }}</span>{% endblock %}
 {% block main %}
+<div class="stack stack--lg" data-refresh="10">
+<div class="stack stack--lg" id="document-live" data-live>
 {% if actions|rejectattr('style', 'equalto', 'danger')|list %}
 <div class="yourcall"><span class="yourcall__label">Your call</span>{{ ui.decision(project, doc, actions) }}</div>
 {% endif %}
@@ -43,5 +45,7 @@
       <p class="footnote">Version {{ doc.version }}{% if doc.version > 1 %} · updated {{ doc.updated_at|ago }}{% endif %} · created {{ doc.created_at|when }}</p>
     </section>
   </aside>
+</div>
+</div>
 </div>
 {% endblock %}

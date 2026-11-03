@@ -14,7 +14,8 @@
     {%- else %} {{ (d.body.title or d.body.summary or '')|truncate(70) }}{% if d.status and d.type != 'task' %} · {{ d.status|label|lower }}{% endif %}{% endif %}</span>
 </a>
 {% endmacro %}
-<header class="page-head">
+<div class="stack stack--lg" data-refresh="10">
+<header class="page-head" id="feature-head" data-live>
   <div class="page-head__text">
     <h1>{{ feature }}</h1>
     <p class="subtitle">{% if doc %}Living doc v{{ doc.version }} · updated {{ doc.updated_at|ago }}{% if doc.commit_sha %} at <span class="mono" style="font-size: 14px">{{ doc.commit_sha[:8] }}</span>{% endif %}{% else %}No living doc yet{% endif %} · {{ handoffs|length }} handoff{{ 's' if handoffs|length != 1 }}{% if scored %} · adherence {{ '%.2f'|format(scored|sum / scored|length) }}{% endif %}</p>
@@ -27,7 +28,8 @@
     {% if doc %}{% with meta = false %}{% include "_doc.html" %}{% endwith %}
     {% else %}<p class="empty">No living doc for this feature yet. It is written after the next delivery.</p>{% endif %}
   </article>
-  <aside aria-labelledby="tl-h">
+  {# the living doc's diagrams are rendered by mermaid once on load, so the article stays out of the live regions #}
+  <aside aria-labelledby="tl-h" id="feature-timeline" data-live>
     <section>
       <h2 id="tl-h">Timeline</h2>
       <div class="entries">
@@ -39,5 +41,6 @@
       {% endif %}
     </section>
   </aside>
+</div>
 </div>
 {% endblock %}

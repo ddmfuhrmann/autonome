@@ -2,6 +2,8 @@
 {% import "_ui.html" as ui %}
 {% block title %}Verdicts{% endblock %}
 {% block main %}
+<div class="stack stack--lg" data-refresh="10">
+<div class="stack stack--lg" id="triage-live" data-live>
 <div class="page-head">
   <div class="page-head__text"><h1>Verdicts</h1><p class="page-head__meta">Deviations judged by the classifier, newest first.{% if not on %} Triage is off for this project: deviations wait in Approvals.{% endif %}</p></div>
 </div>
@@ -30,4 +32,6 @@
   </div>
 </section>
 {% endif %}
+</div>
+</div>
 {% endblock %}

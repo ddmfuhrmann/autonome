@@ -28,6 +28,8 @@
 </details>
 {% endmacro %}
 
+<div class="stack stack--lg" data-refresh="10">
+<div class="stack stack--lg" id="conventions-live" data-live>
 <header class="page-head">
   <div class="page-head__text"><h1>Conventions</h1>
     <p class="subtitle">How code is written here, per layer. Injected into agent sessions for the layers a task touches. Only editable here; every edit is a new version.</p></div>
@@ -65,7 +67,9 @@
   <div class="entries">{% for c in archived %}{{ conv(c) }}{% endfor %}</div>
 </section>
 {% endif %}
+</div>
 
+{# the new-convention form is not a <details>, so it stays out of the live region and keeps what is typed #}
 <form class="section" method="post" id="new">
   <h2>New convention</h2>
   <div class="stack stack--sm" style="padding-top: 6px">
@@ -77,4 +81,5 @@
     <div><button class="btn btn--primary" type="submit">Add</button></div>
   </div>
 </form>
+</div>
 {% endblock %}

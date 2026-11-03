@@ -124,6 +124,8 @@
   ('g-decision', 'Proposed decisions', items|selectattr('kind', 'equalto', 'decision')|list, '', 'proposed decisions'),
   ('g-convention', 'Proposed conventions', items|selectattr('kind', 'equalto', 'convention')|list, '', 'proposed conventions'),
 ] %}
+<div class="stack stack--lg" data-refresh="10">
+<div class="stack stack--lg" id="approvals-live" data-live>
 <header class="page-head">
   <div class="page-head__text">
     <h1>Approvals</h1>
@@ -154,4 +156,6 @@
   {% endfor %}
 </section>
 {% endif %}
+</div>
+</div>
 {% endblock %}
