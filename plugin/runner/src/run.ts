@@ -766,8 +766,9 @@ export async function judgeTask(input: JudgeInput, seams: JudgeSeams): Promise<{
       opts.events?.push({ task_id: task.id, role: "triage", kind: "say", text: checked });
     }
     run.cost_usd = (run.cost_usd ?? 0) + rv.cost;
-    // Medium findings go back once; after that only high ones do, so rounds converge.
-    const message = retryMessage(rv.result, round < cfg.review.max_rounds && !mediumSent);
+    // Medium findings go back once when the project asks for it (`retry_medium`); otherwise only high
+    // ones do, and the medium ones become loose ends at merge, so a pass costs no extra round.
+    const message = retryMessage(rv.result, !!cfg.review.retry_medium && round < cfg.review.max_rounds && !mediumSent);
     mediumSent ||= rv.result.verdict === "pass" && !!message;
     if (rv.result.verdict === "pass" && !message) return { failure: null, blockedOnReview: false }; // what is left becomes loose ends at merge
     if (round >= cfg.review.max_rounds) {

@@ -104,6 +104,8 @@ class Review(_Strict):
 
     enabled: bool = True
     max_rounds: int = Field(default=2, description="times the implementer is sent back with blocking findings")
+    retry_medium: bool = Field(default=False, description=(
+        "send the implementer back once for medium findings too; off, they become loose ends at merge"))
 
 
 class Triage(_Strict):

@@ -85,7 +85,7 @@ export interface GateConfig {
     hold_before_merge?: { features: string[] };
     review_after_merge?: { features: string[] };
     schedules?: Schedule[];
-    review: { enabled: boolean; max_rounds: number };
+    review: { enabled: boolean; max_rounds: number; retry_medium?: boolean };
     retro_after_wave?: boolean;
     models?: Record<string, RoleModel>;
     language?: string;

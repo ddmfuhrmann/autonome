@@ -102,10 +102,13 @@ merge: {mode: ff, pr: manual}            # ff: the runner fast-forwards main. pr
 
 review: {enabled: true, max_rounds: 2}   # an independent agent reviews each diff against the plan,
                                          # its edges and the conventions. High findings block and send the
-                                         # implementer back up to max_rounds times; medium ones go back once
-                                         # ("fix, or explain in the handoff") and wait as loose ends after;
-                                         # low ones never go back. Later rounds check the earlier findings
-                                         # and raise only new high ones
+                                         # implementer back up to max_rounds times (with the medium ones
+                                         # alongside); a pass with only medium or low findings merges and
+                                         # they wait as loose ends. `retry_medium: true` sends a pass with
+                                         # medium findings back once too ("fix, or explain in the handoff"):
+                                         # off by default, since that round cost ~3x a one-round task.
+                                         # Later rounds check the earlier findings and raise only new
+                                         # high ones
 
 # Human review of critical features. Feature slugs, glob patterns.
 hold_before_merge: {features: []}    # stop BEFORE merge and wait for the human (blocks what depends on it)

@@ -120,7 +120,7 @@ test("a block that is not the reviewer's leaves the last round's findings unmark
 });
 
 /** Runs the real review loop of the run over a temp repo, with a scripted reviewer and fake gates. */
-async function runLoop(rounds: ReviewResult[], maxRounds: number, briefings: string[] = []) {
+async function runLoop(rounds: ReviewResult[], maxRounds: number, briefings: string[] = [], retryMedium = false) {
   const dir = mkdtempSync(join(tmpdir(), "judge-"));
   const sh = (...a: string[]) => execFileSync("git", a, { cwd: dir, encoding: "utf8" }).trim();
   sh("init", "-q", "-b", "main");
@@ -134,7 +134,7 @@ async function runLoop(rounds: ReviewResult[], maxRounds: number, briefings: str
 
   const run: Run = { at: "", branch: "", worktree: dir, base, outcome: "" };
   const task = { id: 1, project: "p", body: { title: "t", spec: "s" } } as unknown as Task;
-  const cfg = { review: { enabled: true, max_rounds: maxRounds }, retries: { max: 1 }, models: {} } as unknown as GateConfig["config"];
+  const cfg = { review: { enabled: true, max_rounds: maxRounds, retry_medium: retryMedium }, retries: { max: 1 }, models: {} } as unknown as GateConfig["config"];
   const opts = { project: "p", repo: dir, maxTasks: 1, push: false, log: () => {} } as RunOptions;
   let call = 0;
   let retries = 0;
@@ -160,7 +160,7 @@ test("the review loop keeps every round; fixed findings resolve and the last rou
   const r1: ReviewResult = { verdict: "fail", findings: [f("high", "no test")] };
   const r2: ReviewResult = { verdict: "pass", findings: [f("medium", "weak name")] };
   const r3: ReviewResult = { verdict: "pass", findings: [f("low", "nit")] };
-  const { run, judged, retries } = await runLoop([r1, r2, r3], 3);
+  const { run, judged, retries } = await runLoop([r1, r2, r3], 3, [], true);
   assert.equal(judged.failure, null);
   assert.equal(judged.blockedOnReview, false);
   assert.equal(retries(), 2); // round 1 high, round 2 medium once; round 3 only has a low one
@@ -172,6 +172,16 @@ test("the review loop keeps every round; fixed findings resolve and the last rou
   assert.equal(run.review_rounds, 3);
   settleRun(run, "merged");
   assert.deepEqual(rounds.map((r) => r.findings[0].outcome), ["resolved", "resolved", "merged"]);
+});
+
+test("without retry_medium, a pass with medium findings merges: they wait as loose ends, not another round", async () => {
+  const f = (severity: "high" | "medium", issue: string): Finding => ({ kind: "missing", severity, issue });
+  const r1: ReviewResult = { verdict: "fail", findings: [f("high", "no test")] };
+  const r2: ReviewResult = { verdict: "pass", findings: [f("medium", "weak name")] };
+  const { run, judged, retries } = await runLoop([r1, r2, r2], 3);
+  assert.equal(judged.failure, null);
+  assert.equal(retries(), 1); // only the high finding went back
+  assert.equal(run.review_rounds, 2);
 });
 
 test("the review loop blocks when the reviewer keeps failing until max_rounds", async () => {
