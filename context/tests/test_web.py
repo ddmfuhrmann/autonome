@@ -725,3 +725,24 @@ def test_the_queue_lives_at_queue_and_a_running_task_says_so(client, project, ru
     task = _task_in(run_db, indexer, project, "running")
     page = client.get(f"/ui/p/{project}/documents/{task}").text
     assert "st--running" in page and ">Running<" in page and 'data-refresh="3"' in page
+
+
+def test_export_gives_the_living_doc_alone_as_one_html_file(client, project, run_db, indexer):
+    async def go(conn):
+        async with conn.transaction():
+            await add_feature(conn, project, "links")
+            await store.save_feature_doc(conn, indexer, project, "links", {
+                "kind": "product", "product": {"what_it_does": "Makes short links."},
+                "technical": {"how_it_works": "A hash of the URL."}})
+    run_db(go)
+    r = client.get(f"/ui/p/{project}/features/links/export")
+    assert r.status_code == 200
+    assert "attachment" in r.headers["content-disposition"] and r.headers["content-disposition"].endswith('.html"')
+    assert "Makes short links." in r.text and "A hash of the URL." in r.text
+    assert "<style>" in r.text and "/static/app.css" not in r.text
+    assert "&gt;" not in r.text and "<nav" not in r.text and "<aside" not in r.text
+
+
+def test_export_of_a_feature_without_doc_is_404(client, project, run_db):
+    run_db(lambda conn: add_feature(conn, project, "empty"))
+    assert client.get(f"/ui/p/{project}/features/empty/export").status_code == 404

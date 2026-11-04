@@ -42,6 +42,7 @@
 <div class="stack stack--lg">
   {% with doc = overview, meta = false %}{% include "_doc.html" %}{% endwith %}
   <a class="more" href="?">Show the short overview</a>
+  <a class="more" href="/ui/p/{{ project }}/overview/export" download>Export the overview as HTML</a>
 </div>
 {% else %}
 <section>

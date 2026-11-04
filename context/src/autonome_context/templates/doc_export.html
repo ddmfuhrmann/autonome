@@ -1,0 +1,23 @@
+{# A living doc on its own, as one HTML file: the stylesheet is inline, no menus, no scripts of ours.
+   Diagrams still come from the mermaid CDN, so they need a connection to draw. #}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }}</title>
+<style>{{ css }}</style>
+<style>body { display: block; } main { max-width: 900px; margin: 0 auto; padding: 48px 24px 96px; }</style>
+{% if has_diagrams %}<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script>document.addEventListener("DOMContentLoaded", () => window.mermaid && mermaid.initialize({ startOnLoad: true, theme: "dark", themeVariables: { background: "#121212", fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif" } }));</script>{% endif %}
+</head>
+<body>
+<main class="stack stack--lg">
+<header class="page-head"><div class="page-head__text">
+  <h1>{{ title }}</h1>
+  <p class="subtitle">{{ project }} · living doc v{{ doc.version }} · updated {{ doc.updated_at|when_text }}{% if doc.commit_sha %} at <span class="mono">{{ doc.commit_sha[:8] }}</span>{% endif %}</p>
+  {% if description %}<p class="subtitle">{{ description }}</p>{% endif %}
+</div></header>
+{% with meta = false %}{% include "_doc.html" %}{% endwith %}
+</main>
+</body>
+</html>

@@ -81,7 +81,7 @@ The living doc of a feature has two parts, **Product** (`problem`, `what_it_does
 `limits`: no code paths, gates or function names) and **Technical** (`how_it_works`, `code`, `rules`,
 `diagrams`, `entities`, `interfaces`, `decisions_in_effect`, `known_issues`, `development`), plus
 `kind`. The feature page shows Product first; a doc in the old shape (`overview`, `how_it_works`)
-still renders as it did. `PUT /api/projects/{p}/features/{f}/doc` also takes an optional
+still renders as it did. "Export as HTML" on the feature page (and on the full overview) downloads the doc alone as one HTML file with the stylesheet inline; diagrams still load mermaid from the CDN. `PUT /api/projects/{p}/features/{f}/doc` also takes an optional
 `description` (re-embedded, no similarity check; empty is ignored) and `paths`, which update the
 catalog. The features page lists every catalog feature with its description, documented or not; the
 summary under it is `product.what_it_does`, or `overview` in the old shape.

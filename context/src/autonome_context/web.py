@@ -17,7 +17,7 @@ import yaml
 from markupsafe import Markup
 
 from starlette.requests import Request
-from starlette.responses import JSONResponse, RedirectResponse, Response
+from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
@@ -1565,6 +1565,23 @@ async def feature_page(request: Request) -> Response:
                         description=entry.get("description"), paths=entry.get("paths") or [])
 
 
+async def export_doc(request: Request) -> Response:
+    """A living doc alone, as a self-contained HTML file to download (the overview when there is no feature)."""
+    project, feature = request.path_params["project"], request.path_params.get("feature")
+    pool, _ = await services.get()
+    async with pool.connection() as conn:
+        doc = await store.feature_doc(conn, project, feature)
+        entry = next((c for c in await store.catalog(conn, project) if c["slug"] == feature), {}) if feature else {}
+    if not doc:
+        return PlainTextResponse("No living doc yet.", status_code=404)
+    title = feature or "Overview"
+    html = templates.get_template("doc_export.html").render(
+        title=title, project=project, doc=doc, description=entry.get("description"),
+        css=Markup((_HERE / "static" / "app.css").read_text()), has_diagrams=bool(re.search(r"mermaid", json.dumps(doc["body"]))))
+    name = re.sub(r"[^A-Za-z0-9._-]+", "-", f"{project}-{title}") + ".html"
+    return HTMLResponse(html, headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
 async def triage_page(request: Request) -> Response:
     """Deviations the runner's classifier judged, newest first, with the answers behind each verdict."""
     project = request.path_params["project"]
@@ -1634,6 +1651,8 @@ def routes() -> list:
         Route("/ui/p/{project}/insights", insights_page),
         Route("/ui/p/{project}/triage", triage_page),
         Route("/ui/p/{project}/features/{feature}", feature_page),
+        Route("/ui/p/{project}/features/{feature}/export", export_doc),
+        Route("/ui/p/{project}/overview/export", export_doc),
         Route("/ui/p/{project}/documents/{doc_id:int}/transition", transition, methods=["POST"]),
         Route("/ui/p/{project}/documents/{doc_id:int}/after-merge-review", after_merge, methods=["POST"]),
         Route("/ui/p/{project}/conventions", conventions_page, methods=["GET", "POST"]),
