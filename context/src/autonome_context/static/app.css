@@ -367,7 +367,7 @@ pre.code, .code, .log { margin: 0; padding: 16px 18px; background: var(--bg-2); 
 .diff__body { overflow-x: auto; background: var(--bg-2); border-radius: 10px; margin-bottom: 12px; padding: 8px 0; }
 .diff table { border-collapse: collapse; width: 100%; font: 12.5px/1.6 var(--code); }
 .diff td { padding: 0 12px; white-space: pre-wrap; overflow-wrap: anywhere; vertical-align: top; }
-.diff td.n { width: 1%; text-align: right; color: #48484A; user-select: none; padding: 0 10px 0 14px; }
+.diff td.n { width: 1%; white-space: nowrap; overflow-wrap: normal; text-align: right; color: #48484A; user-select: none; padding: 0 10px 0 14px; }
 .diff td.m { width: 1%; padding: 0; user-select: none; font-weight: 600; }
 .diff tr.add { background: var(--diff-add-bg); color: var(--diff-add-fg); } .diff tr.add td.m { color: var(--ok); }
 .diff tr.del { background: var(--diff-del-bg); color: var(--diff-del-fg); } .diff tr.del td.m { color: var(--stop); }
