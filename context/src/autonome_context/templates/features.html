@@ -49,6 +49,7 @@
   <h2>Overview</h2>
   <div class="prose">{{ ((overview.body.get('product') or {}).get('what_it_does') or overview.body.overview or '').split('\n\n')[0]|md }}</div>
   <a class="more accent" href="?full=1">Read the full overview{{ ', with diagrams' if overview.body.diagrams }}</a>
+  <a class="more" href="/ui/p/{{ project }}/overview/export" download>Export the overview as HTML</a>
 </section>
 {% endif %}
 {% endif %}
